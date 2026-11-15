@@ -8555,6 +8555,16 @@ class IntroWindow(QtWidgets.QDialog):
                          "the hotkey. Recommended.",
                  "live": "Live: words appear about half a second behind you. A little "
                          "less accurate, as each word is typed before you finish."})
+        # Live typing's note by the mouse pointer: easy to switch off here.
+        self.pointer_box = QtWidgets.QCheckBox("Show \"No text box\" by the mouse pointer")
+        self.pointer_box.setChecked(bool(POINTER_HINT))
+        self.pointer_box.setEnabled(bool(LIVE_TYPE))
+        self.pointer_box.setToolTip("While typing as you speak waits for a text box, a "
+                                    "small note follows the mouse pointer. Off: only the "
+                                    "pop-up says so.")
+        self.pointer_box.toggled.connect(
+            lambda on: set_option("POINTER_HINT", "pointer_hint", bool(on)))
+        how.addWidget(self.pointer_box)
         how.addSpacing(8)
         lively = SCREEN_GLOW or SCREEN_GLOW_FLOW
         choices("How lively should it look?",
@@ -8822,7 +8832,8 @@ QPlainTextEdit { font-size: 13px; }
         set_option("LIVE_TYPE", "live_type", key == "live")
         if key == "live":
             set_option("TEXTBOX_ONLY", "textbox_only", True)
-            set_option("POINTER_HINT", "pointer_hint", True)
+        if getattr(self, "pointer_box", None) is not None:   # only means something live
+            self.pointer_box.setEnabled(key == "live")
 
     def _effects_style(self, key):
         """How lively it should look. Full: glow round the pop-up, the screen
