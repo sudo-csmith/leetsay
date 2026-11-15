@@ -5248,7 +5248,7 @@ class Dictation(QtCore.QObject):
             self.do_action = self._action_pressed
         elif self.state == "recording" and not HOLD_TO_TALK:
             self.do_action = self.do_action or self._action_pressed   # either press counts
-            self._finish()
+            self._finish_soon()
         elif self.state == "transcribing":
             # One at a time, so the text always lands in the order you said it.
             self.overlay.show_message("Still on the last one\u2026", ms=1200)
@@ -5420,9 +5420,26 @@ class Dictation(QtCore.QObject):
             self.overlay.status = status
             self.overlay.update()
 
+    TAIL_MS = 250        # keep listening this long after you let go
+
+    def _finish_soon(self):
+        """You let go (or pressed again, or clicked): keep listening a
+        quarter of a second more, then finish. Letting go right as the last
+        word ends otherwise cut it off before it was all heard, and the
+        speech model dropped it."""
+        if self.state != "recording" or getattr(self, "_finishing", False):
+            return
+        self._finishing = True
+        session = self.session
+
+        def now():
+            if self.session == session and self.state == "recording":
+                self._finish()
+        QtCore.QTimer.singleShot(self.TAIL_MS, now)
+
     def on_released(self):
         if HOLD_TO_TALK and self.state == "recording":
-            self._finish()
+            self._finish_soon()
 
     def on_pill_clicked(self):
         """Clicking the small always-on pill starts a dictation; clicking the
@@ -5432,9 +5449,10 @@ class Dictation(QtCore.QObject):
 
     def on_finish_clicked(self):
         if self.state == "recording":
-            self._finish()
+            self._finish_soon()
 
     def _start(self, by_click=False):
+        self._finishing = False
         self.do_action = False
         self.overlay.click_started = False
         self.after_ticket += 1                 # a pending "after" key press is dropped
@@ -6038,6 +6056,9 @@ class Dictation(QtCore.QObject):
         self.overlay.dismiss()
 
     def _finish(self):
+        self._finishing = False
+        if self.state != "recording":
+            return                               # already finished (or cancelled)
         if self.lt_active:
             self._release_stuck_soon()
         self.live_timer.stop()
