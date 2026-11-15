@@ -8333,7 +8333,6 @@ class IntroWindow(QtWidgets.QDialog):
     def __init__(self, dictation=None, need_ok=False, need_download=False):
         super().__init__()
         self.dictation = dictation
-        self.download_choice = "go"           # what the download page said
         self.gate_result = None                  # "go", "download", "manual" or "quit"
         self._gate_loop = None
         self.ok_page = self.download_page = -1
@@ -8410,23 +8409,7 @@ class IntroWindow(QtWidgets.QDialog):
             name.setFixedWidth(86)
             return name
 
-        # 1. The one-time download (only when the model is not on this PC):
-        # asked first, so it can run while the rest is set up. Nothing is
-        # downloaded until "Before you start" has been held as well.
-        if need_download:
-            down = page("welcome", "One-time download needed", download_question_words())
-            self.download_page = self.stack.count() - 1
-            leave = QtWidgets.QPushButton("Quit")
-            leave.clicked.connect(lambda: self._pass_gate("quit"))
-            manual = QtWidgets.QPushButton("Manual download")
-            manual.setToolTip("Fetch the files yourself with your web browser; the "
-                              "steps are shown.")
-            manual.clicked.connect(lambda: self._download_answer("manual"))
-            fetch = QtWidgets.QPushButton("Download")
-            fetch.setObjectName("primary")
-            fetch.clicked.connect(lambda: self._download_answer("download"))
-            line(down, leave, None, manual, fetch)
-        # 2. Before you start (once; held for 3 seconds so it gets read).
+        # 1. Before you start (once; held for 3 seconds so it gets read).
         if need_ok:
             words = responsibility_paragraphs()
             ok = page(None, "Before you start", words[0])
@@ -8445,6 +8428,22 @@ class IntroWindow(QtWidgets.QDialog):
             hint = small("Press and hold the button for 3 seconds (or hold Space).")
             hint.setAlignment(Qt.AlignRight)
             ok.addWidget(hint)
+        # 2. The one-time download (only when the model is not on this PC).
+        # Download starts it straight away (the download pill shows at the
+        # bottom of the screen) while the rest is set up.
+        if need_download:
+            down = page(None, "One-time download needed", download_question_words())
+            self.download_page = self.stack.count() - 1
+            leave = QtWidgets.QPushButton("Quit")
+            leave.clicked.connect(lambda: self._pass_gate("quit"))
+            manual = QtWidgets.QPushButton("Manual download")
+            manual.setToolTip("Fetch the files yourself with your web browser; the "
+                              "steps are shown.")
+            manual.clicked.connect(lambda: self._download_answer("manual"))
+            fetch = QtWidgets.QPushButton("Download")
+            fetch.setObjectName("primary")
+            fetch.clicked.connect(lambda: self._download_answer("download"))
+            line(down, leave, None, manual, fetch)
         self.gate = self.stack.count()           # from here on the application runs
 
         # 3. Make it yours (the application runs from here on, and a download
@@ -8752,18 +8751,18 @@ QPlainTextEdit { font-size: 13px; }
             pass
 
     def _download_answer(self, choice):
-        """Download or Manual download: remembered, and on to "Before you
-        start" (nothing is downloaded until that is held too)."""
-        self.download_choice = choice
-        if self.ok_page >= 0:
-            self._go(self.ok_page)
-        else:
-            self._pass_gate(choice)
+        """Download or Manual download (after "Before you start"): the
+        application starts, and with it the download."""
+        self._pass_gate(choice)
 
     def _understood(self):
-        """ "Before you start" was held: the application can start."""
+        """ "Before you start" was held: on to the download question, or the
+        application can start."""
         save_setting("responsibility_ok", True)
-        self._pass_gate(self.download_choice)
+        if self.download_page >= 0:
+            self._go(self.download_page)
+        else:
+            self._pass_gate("go")
 
     def _pass_gate(self, result):
         """The steps before the application runs are done (or Quit was chosen):
@@ -11092,7 +11091,7 @@ def main():
     answer = None
     if not _config.get("welcomed"):
         # A first launch (or a replay of one): one setup window. Its first
-        # pages (the download question, if needed, and "Before you start")
+        # pages ("Before you start", then the download question if needed)
         # come before anything else starts; the rest follow once it runs.
         intro = IntroWindow(None, need_ok=need_ok, need_download=needed or replay)
         on_main_screen(intro)
