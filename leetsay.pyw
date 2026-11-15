@@ -2373,6 +2373,7 @@ class Overlay(QtWidgets.QWidget):
         self._clamp_shift = QtCore.QPointF(0, 0)   # how far the card was moved to fit
         self._card_screen = None       # the screen the card is on
         self._glow_margin = None       # the glow's size, kept steady while dragging
+        self._slide = None             # the pill moving in from an edge for its pulse
         self.timer = QtCore.QTimer(self)
         self.timer.setInterval(16)               # about 60 frames a second
         self.timer.timeout.connect(self._tick)
@@ -2953,7 +2954,7 @@ class Overlay(QtWidgets.QWidget):
             self.hide()
             return
         if self.mode == "idle" and abs(self.fade - self.fade_target) < 0.02 \
-                and self._morph is None:
+                and self._morph is None and self._slide is None:
             self.fade = self.fade_target        # nothing moves while idle:
             self.timer.stop()                   # stop redrawing, use no CPU
             self.update()
@@ -2968,8 +2969,8 @@ class Overlay(QtWidgets.QWidget):
             wanted = 50                           # progress and small movements only
         else:
             wanted = 16
-        if self._morph is not None:
-            wanted = 16                           # a shape change: every frame
+        if self._morph is not None or self._slide is not None:
+            wanted = 16                           # a shape change or a slide: every frame
         if self.timer.interval() != wanted:
             self.timer.setInterval(wanted)
 
@@ -3022,6 +3023,46 @@ class Overlay(QtWidgets.QWidget):
         finally:
             p.end()
 
+    SLIDE_IN, SLIDE_OUT = 0.18, 0.25     # seconds: the pill moving in for its pulse, and back
+
+    def _ready_slide(self, card, note, width, height):
+        """The "Ready" pulse needs room round the pill. With the pill close to
+        a screen edge it would be cut off, so the pill first slides in just
+        far enough, sends out its pulse, then glides back to its place.
+        Returns how far the pill is moved in right now."""
+        if note is None or self.mode != "message" or self._dragging:
+            self._slide = None                   # only for the small pill's pulse
+            return QtCore.QPointF(0, 0)
+        now = time.monotonic()
+        if self._slide is None and self.pulse_started is not None \
+                and now - self.pulse_started < 0.5 and animations_on():
+            screen = self._card_screen or self.screen()
+            if screen is not None:
+                whole = QtCore.QRectF(screen.geometry()).translated(-self.x(), -self.y())
+                # How far the pulse reaches (its outer part is too faint to count).
+                reach_x = (width + 2.0 * self.GLOW) * 1.42 / 2.0 * 0.82
+                reach_y = (height + 2.0 * self.GLOW) * 1.62 / 2.0 * 0.82
+                cx, cy = card.center().x(), card.center().y()
+                dx = max(0.0, whole.left() - (cx - reach_x)) - max(0.0, (cx + reach_x) - whole.right())
+                dy = max(0.0, whole.top() - (cy - reach_y)) - max(0.0, (cy + reach_y) - whole.bottom())
+                if abs(dx) > 1.0 or abs(dy) > 1.0:
+                    self._slide = {"t0": self.pulse_started, "shift": QtCore.QPointF(dx, dy)}
+        if self._slide is None:
+            return QtCore.QPointF(0, 0)
+        t = now - self._slide["t0"]
+        hold = self.SLIDE_IN + self.PULSE_SECONDS
+        if t < self.SLIDE_IN:                    # in: quick at first, gentle at the end
+            amount = 1.0 - (1.0 - t / self.SLIDE_IN) ** 3
+        elif t < hold:
+            amount = 1.0
+        elif t < hold + self.SLIDE_OUT:          # back: gentle at both ends
+            u = (t - hold) / self.SLIDE_OUT
+            amount = 1.0 - u * u * (3.0 - 2.0 * u)
+        else:
+            self._slide = None
+            return QtCore.QPointF(0, 0)
+        return self._slide["shift"] * amount
+
     def _paint_area(self):
         """The part of the window drawn this frame: the card with room for its
         glow and shadow. The window is far wider than the card (so a card can
@@ -3032,7 +3073,8 @@ class Overlay(QtWidgets.QWidget):
         note = self._note_text()
         kind = "small" if note is not None else ("welcome" if self.mode == "welcome" else "card")
         if (self._card is None or self._morph is not None or kind != self._shape_kind
-                or kind == "welcome" or self.pulse_started is not None or self._dragging):
+                or kind == "welcome" or self.pulse_started is not None or self._dragging
+                or self._slide is not None):
             return whole
         left, top, width, height = self._card
         room = self.GLOW + 28
@@ -3393,6 +3435,7 @@ class Overlay(QtWidgets.QWidget):
                 card.translate(shift)
                 self._clamp_shift = shift
                 self._card_screen = screen
+        card.translate(self._ready_slide(card, note, width, height))
         self._card = (card.left(), card.top(), width, height)
         self._card_radius = radius
         cy = card.center().y()
@@ -3418,10 +3461,11 @@ class Overlay(QtWidgets.QWidget):
         # A single pulse of the accent colour, used once when the app says
         # "Ready": it swells out from the pill and fades as it goes.
         if self.pulse_started is not None and self.mode == "message":
-            t = (time.monotonic() - self.pulse_started) / self.PULSE_SECONDS
+            delay = self.SLIDE_IN if self._slide is not None else 0.0
+            t = (time.monotonic() - self.pulse_started - delay) / self.PULSE_SECONDS
             if t >= 1.0:
                 self.pulse_started = None
-            else:
+            elif t >= 0.0:
                 wave = glow_pixmap(width, height, radius, QtGui.QColor(ACCENT),
                                    float(self.GLOW), 15.0, self.devicePixelRatioF())
                 if wave is not None:
