@@ -29,11 +29,11 @@ problem publicly. There is no bug bounty.
   done. It is checked each time the program starts.
 - **Checked model files.** Every file of the speech model is compared with a
   SHA-256 fingerprint built into leetsay before it is used. A file that does
-  not match is never used: leetsay offers only to download it again, or to
+  not match is not used: leetsay offers only to download it again, or to
   quit. A download goes into a separate folder and replaces the old files only
   once every new file has been checked.
 - **No code from beside the program.** leetsay loads only its installed
-  libraries, never stray Python files in the same folder.
+  libraries, not stray Python files in the same folder.
 - **Careful with other programs.** When a new copy replaces an old one that
   will not close, only that copy is ended, after checking that it is leetsay.
 - **Checked settings lines.** A settings line pasted into Import settings can

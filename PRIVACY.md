@@ -102,7 +102,7 @@ accounts, and nothing is sent to us.
 The "Report a problem" and "Suggest an idea" buttons open GitHub's issue forms
 in your browser. Anything you write there, and any log you choose to attach,
 is **public** on GitHub, under GitHub's own terms and privacy policy. Read a log
-before you attach it. (leetsay's log never contains your dictated text, and
+before you attach it. (leetsay's log is designed not to contain your dictated text, and
 your Windows user name is replaced with `%USERPROFILE%`.) Security problems
 should be reported privately instead; see [SECURITY.md](SECURITY.md).
 

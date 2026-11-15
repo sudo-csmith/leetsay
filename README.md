@@ -32,7 +32,7 @@ the [Disclaimer](#disclaimer) before using it.
 - **App updates** are only checked if you ask: tick **Check for app updates
   at startup**, or click **Check for app updates now** (both off until you
   agree to go online, to github.com). leetsay only reads the latest version
-  number and tells you; it never downloads or installs anything by itself.
+  number and tells you; it does not download or install anything by itself.
   A newer speech model only ever comes with a newer version of leetsay.
 - **This covers leetsay itself, not the programs you type into.** A chat, a web
   page or an online document may send your text over the internet; leetsay

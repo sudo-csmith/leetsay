@@ -40,6 +40,17 @@ jobs:
       - name: Build leetsay.exe
         run: pyinstaller --noconfirm leetsay.spec
 
+      - name: Check the licences and the bundled files
+        shell: pwsh
+        run: |
+          $lic = "dist\leetsay\licenses"
+          Get-ChildItem $lic | Select-Object -ExpandProperty Name
+          foreach ($need in "LGPL-3.0.txt", "GPL-3.0.txt", "Apache-2.0.txt", "PortAudio-LICENSE.txt", "leetsay-LICENSE.txt", "CREDITS.md") {
+            if (-not (Test-Path "$lic\$need")) { throw "Missing licence file: $need" }
+          }
+          $asio = Get-ChildItem dist\leetsay -Recurse -Filter "*asio*"
+          if ($asio) { throw "ASIO files must not be bundled: $($asio.Name -join ', ')" }
+
       - name: Install Inno Setup
         run: choco install innosetup --no-progress -y
 

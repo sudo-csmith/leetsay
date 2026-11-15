@@ -34,15 +34,35 @@ official release v6.2.3, with its licence.
 
 ## Libraries
 
+- [Qt](https://www.qt.io) and [Qt for Python](https://www.qt.io/qt-for-python)
+  (PySide6 and shiboken6), by The Qt Company and contributors, under the
+  GNU Lesser General Public License v3 (LGPL-3.0): windows, the pop-up and
+  the tray icon. leetsay uses only the modules QtCore, QtGui and QtWidgets,
+  unchanged. Source code: [code.qt.io](https://code.qt.io) (Qt for Python:
+  [pyside-setup](https://code.qt.io/cgit/pyside/pyside-setup.git)) and
+  [download.qt.io](https://download.qt.io/official_releases/qt/). The
+  installed program is a folder of files, not one packed file, so the Qt
+  libraries in it can be replaced with other versions.
 - [onnx-asr](https://github.com/istupakov/onnx-asr) (MIT): runs the speech models.
-- [ONNX Runtime](https://github.com/microsoft/onnxruntime) (MIT): the speech engine.
-- [Qt for Python / PySide6](https://www.qt.io/qt-for-python) (LGPL-3.0): windows and the tray icon.
-- [sounddevice](https://github.com/spatialaudio/python-sounddevice) (MIT) and PortAudio (MIT): the microphone.
-- [NumPy](https://numpy.org) (BSD-3-Clause): audio handling.
+- [ONNX Runtime](https://github.com/microsoft/onnxruntime) (MIT, with the
+  third-party notices it ships): the speech engine. It uses
+  [protobuf](https://github.com/protocolbuffers/protobuf) (BSD-3-Clause),
+  [flatbuffers](https://github.com/google/flatbuffers) (Apache-2.0) and
+  [packaging](https://github.com/pypa/packaging) (Apache-2.0 or BSD-2-Clause).
+- [sounddevice](https://github.com/spatialaudio/python-sounddevice) (MIT),
+  with [PortAudio](https://www.portaudio.com) (MIT) and
+  [cffi](https://github.com/python-cffi/cffi) /
+  [pycparser](https://github.com/eliben/pycparser) (both BSD-3-Clause): the
+  microphone. Only PortAudio's standard Windows build is included.
+- [NumPy](https://numpy.org) (BSD-3-Clause, with the licences of its bundled
+  parts): audio handling.
 - [keyboard](https://github.com/boppreh/keyboard) (MIT): the global hotkey.
+- [Python](https://www.python.org) (PSF License), in the installed program.
 
 Each of these is the work of its own authors and is used under its own
-licence; the MIT licence of leetsay does not cover them.
+licence; the MIT licence of leetsay does not cover them. The installed
+program includes the full text of every one of these licences, in its
+`licenses` folder.
 
 ## Trademarks and affiliation
 
