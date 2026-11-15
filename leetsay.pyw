@@ -8677,8 +8677,8 @@ class IntroWindow(QtWidgets.QDialog):
         self.hotkey_label.setObjectName("info")
         labelled("Hotkey", self.record, self.hotkey_label, None)
         self.mode = QtWidgets.QComboBox()
-        self.mode.addItem("Hold to talk", True)
-        self.mode.addItem("Toggle mode", False)
+        self.mode.addItem("Hold while speaking", True)
+        self.mode.addItem("Press to start and stop", False)
         self.mode.setCurrentIndex(0 if HOLD_TO_TALK else 1)
         self.mode.setFixedWidth(210)
         self.mode.currentIndexChanged.connect(
@@ -8704,6 +8704,8 @@ class IntroWindow(QtWidgets.QDialog):
         self.try_box.setFixedHeight(52)
         self.try_box.setStyleSheet("QPlainTextEdit { border-radius: 6px; padding: 5px; }")
         second.addWidget(self.try_box)
+        QtWidgets.QApplication.instance().focusChanged.connect(
+            lambda _old, _new: self._refresh_try() if self.dictation is not None else None)
         # Shown for a few seconds when the hotkey is held and nothing is heard.
         self.mic_note = QtWidgets.QLabel(self.CANT_HEAR)
         self.mic_note.setWordWrap(True)
@@ -8958,10 +8960,13 @@ QPlainTextEdit { font-size: 13px; background: #17181C; color: #F0F0F4;
                 (progress + ". One moment.") if progress
                 else "the speech model is still getting ready, one moment\u2026"))
             self.try_box.setPlaceholderText("Ready in a moment\u2026")
+        elif not self.try_box.hasFocus():
+            # Words go wherever the cursor is: the habit to learn, here first.
+            self.try_label.setText("Try it out: your words go where the cursor is.")
+            self.try_box.setPlaceholderText("Click here first")
         else:
-            self.try_label.setText("Try it out: click in the box, " + how % pretty(HOTKEY)
-                                   + ".")
-            self.try_box.setPlaceholderText("Your words will be typed here")
+            self.try_label.setText("Try it out: " + how % pretty(HOTKEY) + ".")
+            self.try_box.setPlaceholderText("Now " + how % pretty(HOTKEY))
 
     def _refresh_status(self):
         self._refresh_try()
@@ -9333,11 +9338,13 @@ class SettingsWindow(QtWidgets.QDialog):
         self.hotkey.setCurrentIndex(choices.index(HOTKEY))
         self.hotkey.currentIndexChanged.connect(self._hotkey_changed)
         self.mode = QtWidgets.QComboBox()
-        self.mode.addItem("Hold to talk", True)
-        self.mode.addItem("Toggle mode", False)
+        self.mode.addItem("Hold while speaking", True)
+        self.mode.addItem("Press to start and stop", False)
         self.mode.setCurrentIndex(0 if HOLD_TO_TALK else 1)
         self.mode.currentIndexChanged.connect(self._mode_changed)
-        row(self.record, self.hotkey, self.mode, None)
+        # On its own row: its words are longer than one third of the row.
+        row(self.record, self.hotkey, None)
+        row(self.mode, None)
         self.hotkey_note = note("")
         self._refresh_hotkey_note()
 
@@ -10665,7 +10672,7 @@ def show_about(dictation):
         "Network:  %s" % network_words(),
         "",
         "Hotkey:  %s  (%s)" % (pretty(HOTKEY),
-                               "hold to talk" if HOLD_TO_TALK else "toggle mode"),
+                               "hold while speaking" if HOLD_TO_TALK else "press to start and stop"),
         "Tip:  tap the hotkey to paste your last dictation again." if KEEP_LAST else "",
         "Settings file:  %s" % _CONFIG_FILE,
         "Log file:  %s" % os.path.join(_DATA, "dictate.log"),

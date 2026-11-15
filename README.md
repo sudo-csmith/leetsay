@@ -13,7 +13,7 @@ the [Disclaimer](#disclaimer) before using it.
 
 ## How it works
 
-- **Your microphone** is used only while you hold the hotkey (in toggle mode:
+- **Your microphone** is used only while you hold the hotkey (with "Press to start and stop":
   between one press and the next).
 - **Your speech is turned into text on your own PC**, by a speech recognition
   model (NVIDIA's Parakeet) that runs locally. Your audio is not sent to a
