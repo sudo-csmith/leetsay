@@ -8364,7 +8364,9 @@ def responsibility_paragraphs():
             "program that is; that is up to you." % app,
             "•  Check where your cursor is before you speak.\n"
             "•  Speech recognition makes mistakes: read before you send.\n"
-            "•  Not for medical, legal, financial or emergency use.\n"
+            # A general rule, not a list (a list could read as "anything else
+            # is fine"); the README gives examples.
+            "•  Don't rely on it where a wrong word could cause harm.\n"
             "•  Don't dictate passwords or anything private.",
             "You are responsible for what %(app)s types and where it goes. It is "
             "free software, provided as is, without any warranty." % app]
