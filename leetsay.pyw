@@ -5200,7 +5200,6 @@ class Dictation(QtCore.QObject):
         """The introduction was finished or closed."""
         self.intro_open = False
         save_setting("welcomed", True)
-        QtCore.QTimer.singleShot(2500, self.maybe_show_tray_tip)
         if self.state == "idle":
             self.overlay.show_message(pretty(HOTKEY) if SHOW_HOTKEY_HINT else "Ready",
                                       ms=1800, pulse=True)
@@ -5211,18 +5210,6 @@ class Dictation(QtCore.QObject):
             self.overlay.show_message(words or "Starting\u2026", ms=None)
             if self.downloading:
                 self.overlay.progress = self.overlay.progress or 0.0
-
-    def maybe_show_tray_tip(self):
-        """Once: point out where Settings live, by the clock (see TrayTip)."""
-        if (_config.get("tray_tip_seen") or self.tray is None or self.intro_open
-                or getattr(self, "tray_tip", None) is not None):
-            return
-        if self.state != "idle":
-            # Not usable yet (still downloading or loading): the card waits, and
-            # comes once the model is ready (see on_model_ready).
-            return
-        self.tray_tip = TrayTip(self.tray, lambda: setattr(self, "tray_tip", None))
-        self.tray_tip.show()
 
     def on_welcome_done(self):
         save_setting("welcomed", True)
@@ -5238,8 +5225,6 @@ class Dictation(QtCore.QObject):
     def on_model_ready(self):
         was_waiting = self.overlay.isVisible()     # a "still loading" notice is up
         self.state = "idle"
-        if not self.intro_open:                    # now usable: where Settings live
-            QtCore.QTimer.singleShot(2500, self.maybe_show_tray_tip)
         if self.model_outdated:                    # an older trusted model is in use
             QtCore.QTimer.singleShot(6000, self.offer_newer_model)
         if self.intro_open and not was_waiting:
@@ -10614,163 +10599,6 @@ def open_settings(dictation):
     window.activateWindow()
 
 
-class TrayTip(QtWidgets.QWidget):
-    """A small card by the clock, shown once: where Settings live. It stays
-    until "Got it" is clicked (so it is known to have been seen), and is never
-    shown again after that. Drawn in the pop-up's own colours."""
-
-    ARROW = 9                                    # the little pointer at the tray icon
-
-    def __init__(self, tray, on_done):
-        super().__init__(None, Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
-                         | Qt.WindowDoesNotAcceptFocus)
-        self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setAttribute(Qt.WA_ShowWithoutActivating)
-        self.setWindowTitle(APP_TITLE)
-        self.on_done = on_done
-        # Always dark, like Settings and the other windows (not the pop-up's
-        # own colour, which may be light).
-        self.theme = {"bg": QtGui.QColor(27, 28, 33, 250),
-                      "border": QtGui.QColor(255, 255, 255, 30),
-                      "text": QtGui.QColor(240, 240, 244),
-                      "text2": QtGui.QColor(185, 187, 198)}
-        self.arrow_x = None                      # where the pointer goes, if anywhere
-        self.arrow_down = True
-        accent = QtGui.QColor(ACCENT)
-        text, muted = self.theme["text"].name(), self.theme["text2"].name()
-        dark_on_accent = "#101114" if is_light(accent) else "#FFFFFF"
-
-        # One row: icon, words, button. Even padding all round.
-        row = QtWidgets.QHBoxLayout(self)
-        row.setSpacing(10)
-        icon = QtWidgets.QLabel()
-        icon.setPixmap(app_icon().pixmap(20, 20))
-        icon.setStyleSheet("background: none;")
-        row.addWidget(icon, 0, Qt.AlignVCenter)
-        title = QtWidgets.QLabel("Settings are accessible via the tray icon")
-        title.setStyleSheet("color: %s; font-size: 13px; background: none;" % text)
-        row.addWidget(title, 0, Qt.AlignVCenter)
-        row.addSpacing(6)
-        ok = QtWidgets.QPushButton("Got it")
-        ok.setCursor(Qt.PointingHandCursor)
-        ok.setStyleSheet(
-            "QPushButton { background: %s; color: %s; border: none; border-radius: 6px;"
-            " padding: 5px 14px; font-size: 12px; font-weight: 600; }"
-            "QPushButton:hover { background: %s; }"
-            % (accent.name(), dark_on_accent, accent.lighter(112).name()))
-        ok.clicked.connect(self.done_with)
-        row.addWidget(ok, 0, Qt.AlignVCenter)
-        self.pad("below")
-        self.place(tray)
-        # Windows' own tray panel (the ^ by the clock) covers anything near it
-        # and nothing can go above it: while it is open the card steps aside,
-        # and comes back when it closes (owner).
-        self.stepped_aside = False
-        self.panel_watch = QtCore.QTimer(self)
-        self.panel_watch.setInterval(200)
-        self.panel_watch.timeout.connect(self._watch_panel)
-        self.panel_watch.start()
-
-    @staticmethod
-    def tray_panel_open():
-        """Is Windows' tray panel (hidden icons, the ^) open right now?"""
-        try:
-            user32 = ctypes.windll.user32
-            for name in ("TopLevelWindowForOverflowXamlIsland",     # Windows 11
-                         "NotifyIconOverflowWindow"):                # Windows 10
-                handle = user32.FindWindowW(name, None)
-                if handle and user32.IsWindowVisible(handle):
-                    return True
-        except Exception:
-            pass
-        return False
-
-    def _watch_panel(self):
-        open_now = self.tray_panel_open()
-        if open_now and self.isVisible():
-            self.stepped_aside = True
-            self.hide()
-        elif not open_now and self.stepped_aside:
-            self.stepped_aside = False
-            self.show()
-
-    def pad(self, arrow):
-        """Even padding round the row, plus room for the pointer on the side it
-        sits ("below" the card, "above" it, or None)."""
-        p, side = 12, 14
-        self.layout().setContentsMargins(side, p + (self.ARROW if arrow == "above" else 0),
-                                         side - 2, p + (self.ARROW if arrow == "below" else 0))
-        self.adjustSize()
-
-    def place(self, tray):
-        """Just above (or below) the tray icon when Windows says where it is;
-        otherwise in the corner by the clock."""
-        screen = QtGui.QGuiApplication.primaryScreen()
-        icon = QtCore.QRect()
-        try:
-            icon = tray.geometry() if tray is not None else QtCore.QRect()
-            if icon.isValid() and not icon.isEmpty():
-                screen = QtGui.QGuiApplication.screenAt(icon.center()) or screen
-        except Exception:
-            icon = QtCore.QRect()
-        room = screen.availableGeometry()
-        gap = 10
-        if icon.isValid() and not icon.isEmpty() and screen.geometry().contains(icon.center()):
-            self.arrow_down = icon.center().y() > room.center().y()     # taskbar at the bottom
-            x = icon.center().x() - self.width() // 2
-            x = max(room.left() + gap, min(x, room.right() - self.width() - gap))
-            if self.arrow_down:
-                y = room.bottom() - self.height() - 2
-            else:
-                y = room.top() + 2
-                self.pad("above")
-            self.arrow_x = icon.center().x() - x
-        else:                                    # the icon is out of sight: the corner
-            x = room.right() - self.width() - 16
-            y = room.bottom() - self.height() - 16
-            self.arrow_x = None
-            self.pad(None)
-        self.move(x, y)
-
-    def paintEvent(self, _event):
-        p = QtGui.QPainter(self)
-        p.setRenderHint(QtGui.QPainter.Antialiasing)
-        card = QtCore.QRectF(self.rect()).adjusted(1, 1, -1, -1)
-        if self.arrow_x is not None:
-            if self.arrow_down:
-                card.setBottom(card.bottom() - self.ARROW)
-            else:
-                card.setTop(card.top() + self.ARROW)
-        path = QtGui.QPainterPath()
-        path.addRoundedRect(card, 12, 12)
-        if self.arrow_x is not None:
-            ax = max(card.left() + 18, min(float(self.arrow_x), card.right() - 18))
-            pointer = QtGui.QPainterPath()
-            if self.arrow_down:
-                pointer.moveTo(ax - self.ARROW, card.bottom() - 1)
-                pointer.lineTo(ax, card.bottom() + self.ARROW)
-                pointer.lineTo(ax + self.ARROW, card.bottom() - 1)
-            else:
-                pointer.moveTo(ax - self.ARROW, card.top() + 1)
-                pointer.lineTo(ax, card.top() - self.ARROW)
-                pointer.lineTo(ax + self.ARROW, card.top() + 1)
-            pointer.closeSubpath()
-            path = path.united(pointer)
-        p.setPen(QtGui.QPen(self.theme["border"], 1))
-        p.setBrush(self.theme["bg"])
-        p.drawPath(path)
-        p.end()
-
-    def done_with(self, _checked=False):
-        save_setting("tray_tip_seen", True)      # seen: never shown again
-        self.panel_watch.stop()
-        self.stepped_aside = False
-        self.hide()
-        self.deleteLater()
-        if self.on_done:
-            self.on_done()
-
-
 def make_tray(app, dictation):
     tray = QtWidgets.QSystemTrayIcon(app_icon(), app)
     tray.setToolTip("%s  \u00b7  %s" % (APP_TITLE, pretty(HOTKEY)))
@@ -11329,9 +11157,6 @@ def main():
         dictation.tray = tray[0]
         app._tray_icon = tray[0]                       # so leaving can take it down
         app.aboutToQuit.connect(tray[0].hide)          # no ghost icon left behind
-    if tray is not None and not dictation.intro_open:
-        # Not seen yet (an earlier version, or "Got it" was never clicked).
-        QtCore.QTimer.singleShot(3000, dictation.maybe_show_tray_tip)
     if CHECK_APP_UPDATES:
         # Switched on (after its "This application will go online" window): ask
         # github.com, in a separate helper, a little after start-up so that it
