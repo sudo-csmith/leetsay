@@ -7930,7 +7930,7 @@ class Sketch(QtWidgets.QWidget):
         super().__init__()
         self.kind = kind
         # The little screen needs room; the keys need less (owner: wasted space).
-        self.setFixedHeight({"look": 116, "hotkey": 60}.get(kind, 96))
+        self.setFixedHeight({"look": 116, "hotkey": 60, "tips": 60}.get(kind, 96))
 
     def paintEvent(self, _event):
         p = QtGui.QPainter(self)
