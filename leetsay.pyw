@@ -103,7 +103,7 @@ from ctypes import wintypes
 
 
 
-VERSION = "0.59.0"              # shown in Settings and About
+VERSION = "0.59.1"              # shown in Settings and About
 APP_TITLE = "leetsay"                # the name shown to the user (one place)
 _HERE = os.path.dirname(_SELF)        # the program's own folder
 
@@ -7108,6 +7108,7 @@ class SettingsWindow(QtWidgets.QDialog):
 
         # ================= Privacy =================
         tab("Privacy")
+        heading("Clipboard and kept text", first=True)
         self.paste_mode = check(
             "Paste using the clipboard instead of typing", not TYPE_TEXT,
             self._paste_mode_changed,
@@ -7144,37 +7145,40 @@ class SettingsWindow(QtWidgets.QDialog):
         self.paste_clear = button("Clear", self._clear_paste_hotkey, width=84)
         row(indent(), self.paste_record, self.paste_clear, None)
         self._refresh_paste_row()
-        self.updates = check("Check for model updates at startup (goes online)",
+        heading("Updates (these go online, after asking)")
+        self.updates = check("Check for model updates at startup",
                              CHECK_UPDATES, self._updates_changed,
-                             tip="With this ticked, the application goes online each "
-                                 "time it starts and checks whether a newer version "
-                                 "of the speech model is available, so you always "
-                                 "have the most up-to-date one. A newer version is "
-                                 "downloaded automatically.\n\nLeft unticked, the "
-                                 "application does not go online for updates and "
-                                 "keeps using the model already on this PC.")
+                             tip="Off by default. With this ticked, the application goes "
+                                 "online each time it starts and checks whether a newer "
+                                 "version of the speech model is available. A newer "
+                                 "version is downloaded automatically.\n\nLeft "
+                                 "unticked, the application does not go online for "
+                                 "updates and keeps using the model already on this PC.")
+        self.app_updates = check(
+            "Check for app updates at startup", CHECK_APP_UPDATES,
+            self._app_updates_changed,
+            tip="Off by default. With this ticked, every start asks github.com "
+                "whether a newer version of the application has been published, and "
+                "tells you once if there is. Nothing is downloaded or installed.")
+        self.update_button = button("Check model now", self._check_update_now)
+        self.update_button.setToolTip("Checks once, now, for a newer speech model "
+                                      "(goes online after asking).")
+        self.app_update_button = button("Check app now", self._check_app_now)
+        self.app_update_button.setToolTip("Checks once, now, for a newer version of the "
+                                          "application (goes online after asking; only "
+                                          "reads the latest version number).")
+        row(self.update_button, self.app_update_button, None)
         self.update_note = QtWidgets.QLabel("")
         self.update_note.setObjectName("info")
         self.update_note.setWordWrap(True)
-        self.update_button = button("Check for a model update now", self._check_update_now)
-        self.update_button.setToolTip("Goes online once, now, after asking. Nothing is "
-                                      "checked at startup unless the box above is ticked.")
-        row(indent(), self.update_button, None)
+        self.update_note.setVisible(False)       # shown only when it has something to say
         page["layout"].addWidget(self.update_note)
         self._update_work = {"result": None}
         self._update_poll = QtCore.QTimer(self)
         self._update_poll.setInterval(200)
         self._update_poll.timeout.connect(self._update_checked)
-        self.app_updates = check(
-            "Check for app updates at startup (goes online)", CHECK_APP_UPDATES,
-            self._app_updates_changed,
-            tip="Off by default. With this ticked, every start asks github.com "
-                "whether a newer version of the application has been published, and "
-                "tells you once if there is. Nothing is downloaded or installed.")
-        self.app_update_button = button("Check for app updates now", self._check_app_now)
-        self.app_update_button.setToolTip("Goes online once, now, after asking. Only "
-                                          "reads the latest version number.")
-        row(indent(), self.app_update_button, None)
+
+        heading("This program")
         quant = " (%s)" % QUANTIZATION if QUANTIZATION else ""
         note("Model: %s%s\nNetwork: %s" % (MODEL, quant, network_words()))
         row(button("Export settings", lambda: export_settings_window(self)),
@@ -7396,7 +7400,7 @@ class SettingsWindow(QtWidgets.QDialog):
     # -- check for a model update, once, now -----------------------------------------
     def _check_update_now(self):
         if not model_files():
-            self.update_note.setText("The speech model has not been downloaded yet.")
+            self._say_update("The speech model has not been downloaded yet.")
             return
         if not dialog(self, "Go online to check?", "This application will go online",
                       "It will connect to huggingface.co once, now, to see whether a "
@@ -7407,7 +7411,7 @@ class SettingsWindow(QtWidgets.QDialog):
                       accept="Check now", reject="Cancel"):
             return
         self.update_button.setEnabled(False)
-        self.update_note.setText("Checking\u2026")
+        self._say_update("Checking\u2026")
         self._update_work["result"] = None
 
         def work():
@@ -7432,23 +7436,23 @@ class SettingsWindow(QtWidgets.QDialog):
         self.update_button.setEnabled(True)
         published, why, mine = self._update_work["result"]
         if published is None:
-            self.update_note.setText("The website could not be reached, so nothing was "
+            self._say_update("The website could not be reached, so nothing was "
                                      "checked. (%s)" % why)
             return
         differs = [name for name, mark in mine.items()
                    if mark.lower() != str(published.get(name, "")).lower()]
         if not mine:
-            self.update_note.setText("The website lists no fingerprints to compare with, "
+            self._say_update("The website lists no fingerprints to compare with, "
                                      "so it is not possible to tell.")
         elif not differs:
-            self.update_note.setText("You have the latest version of this speech model.")
+            self._say_update("You have the latest version of this speech model.")
         elif local_model_dir():
-            self.update_note.setText(
+            self._say_update(
                 "A different version of this model is published. You downloaded yours "
                 "by hand, so to update, download the files again from the model's page "
                 "and replace the ones in your model folder.")
         else:
-            self.update_note.setText("A newer version of this speech model is published.")
+            self._say_update("A newer version of this speech model is published.")
             size = dict((entry[0], entry[3]) for entry in MODELS).get(MODEL, "several hundred MB")
             if dialog(self, "Update the speech model?", "This application will go online",
                       "A newer version of the speech model is available.\n\nThe "
@@ -7459,6 +7463,11 @@ class SettingsWindow(QtWidgets.QDialog):
                       accept="Update and restart", reject="Not now"):
                 save_setting("update_once", True)
                 restart_app()
+
+    def _say_update(self, text):
+        """Show a line under the update buttons (hidden while there is none)."""
+        self.update_note.setText(text)
+        self.update_note.setVisible(bool(text))
 
     def _app_updates_changed(self, on):
         if on and not ask_app_update_check(self, at_startup=True):
@@ -7477,7 +7486,7 @@ class SettingsWindow(QtWidgets.QDialog):
         def done():
             try:
                 self.app_update_button.setEnabled(True)
-                self.app_update_button.setText("Check for app updates now")
+                self.app_update_button.setText("Check app now")
             except RuntimeError:
                 pass                             # the window was closed meanwhile
 
