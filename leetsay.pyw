@@ -77,6 +77,7 @@ import ctypes  # noqa: E402  (after the path is made safe)
 import json
 import math
 import os
+import re
 import signal
 import struct
 import sys
@@ -1846,9 +1847,27 @@ def replace_words(words):
     return out
 
 
+_TIME_DOT = re.compile(r"^(\d{1,2})\.([0-5]\d)((?:[ap]\.?m\.?)?)([.,!?;:]*)$", re.IGNORECASE)
+_AM_PM = re.compile(r"^[ap]\.?m\.?[.,!?;:]*$", re.IGNORECASE)
+
+
+def fix_times(words):
+    """The speech model sometimes writes a time with a dot: "3.47 PM". With
+    AM or PM right after it, it is a time, so: "3:47 PM". Without, it is left
+    alone (it may be a price or a number: "3.47 dollars")."""
+    out = list(words)
+    for i, word in enumerate(out):
+        match = _TIME_DOT.match(word)
+        if not match or not 1 <= int(match.group(1)) <= 12:
+            continue
+        if match.group(3) or (i + 1 < len(out) and _AM_PM.match(out[i + 1])):
+            out[i] = "%s:%s%s%s" % match.groups()
+    return out
+
+
 def clean_words(words):
-    """Filler words out, then your word replacements."""
-    return replace_words(drop_fillers(words))
+    """Filler words out, then times, then your word replacements."""
+    return replace_words(fix_times(drop_fillers(words)))
 
 
 def holds_speech(audio, whole, rate):
@@ -8286,6 +8305,17 @@ def auto_key_warning(parent, key):
         "Hold to confirm: turn it on", "Cancel")
 
 
+class _PageStack(QtWidgets.QStackedWidget):
+    """The setup window's pages. Says it has no height-for-width: otherwise
+    Qt tells Windows the window may never be shorter than its longest page
+    (wrapped text makes it ask), and Windows then refuses to shrink it for a
+    short page (measured). The window's height is set by hand instead
+    (IntroWindow._fit_page)."""
+
+    def hasHeightForWidth(self):
+        return False
+
+
 class IntroWindow(QtWidgets.QDialog):
     """The setup window of a first start: one window, page by page.
 
@@ -8317,7 +8347,7 @@ class IntroWindow(QtWidgets.QDialog):
         outer = QtWidgets.QVBoxLayout(self)
         outer.setContentsMargins(34, 26, 34, 24)
         outer.setSpacing(20)
-        self.stack = QtWidgets.QStackedWidget()
+        self.stack = _PageStack()
         outer.addWidget(self.stack)
         self.sketches = []
         self.swatches = []
@@ -8865,22 +8895,24 @@ QPlainTextEdit { font-size: 13px; }
             self.mic_help.setVisible(bool(on))
             QtCore.QTimer.singleShot(0, self._fit_page)   # the note needs its room
 
-    def showEvent(self, event):
-        super().showEvent(event)
-        # After any resize on opening (placing it on a screen can resize it a
-        # moment later, so once more after that).
-        QtCore.QTimer.singleShot(0, self._fit_page)
-        QtCore.QTimer.singleShot(150, self._fit_page)
+    def sizeHint(self):
+        # Used when the window is first placed (adjustSize): already the right
+        # height for its page, so it never has to shrink while Windows is
+        # still showing it (that left a stale copy of its bottom on screen).
+        height = self._page_height()
+        return QtCore.QSize(self.width(), height) if height > 0 else super().sizeHint()
 
-    def _fit_page(self):
-        """The window as tall as the page showing (like Settings), not as tall
-        as the longest page: no empty space under a short one. The top stays
-        where it is; only the bottom moves."""
+    def adjustSize(self):
+        # on_main_screen() sizes a window before it opens: here that is the
+        # page's own height (Qt's would be the longest page's).
+        self._fit_page()
+
+    def _page_height(self):
+        """How tall the window must be for the page showing (0 if unknown)."""
         try:
             for i in range(self.stack.count()):
                 shown = i == self.stack.currentIndex()
-                policy = QtWidgets.QSizePolicy.Preferred if shown else \
-                    QtWidgets.QSizePolicy.Ignored
+                policy = QtWidgets.QSizePolicy.Preferred if shown else                     QtWidgets.QSizePolicy.Ignored
                 self.stack.widget(i).setSizePolicy(policy, policy)
             # Measured by hand: Qt's page stack counts every page's wrapped
             # text, so it would still be as tall as the longest page.
@@ -8891,18 +8923,27 @@ QPlainTextEdit { font-size: 13px; }
             for child in holder.findChildren(QtWidgets.QWidget):
                 child.ensurePolished()
             page = holder.layout()
-            width =self.width() - outer.contentsMargins().left() - outer.contentsMargins().right()
+            margins = outer.contentsMargins()
+            width = self.width() - margins.left() - margins.right()
             page.invalidate()
             page_h = (page.totalHeightForWidth(width) if page.hasHeightForWidth()
                       else page.totalSizeHint().height())
+            if page_h <= 0:
+                return 0
             footer = outer.itemAt(outer.count() - 1)
-            height = (outer.contentsMargins().top() + outer.contentsMargins().bottom()
-                      + page_h + outer.spacing() + footer.sizeHint().height())
-            if page_h > 0 and height != self.height():
-                self.setMinimumHeight(0)
-                self.resize(self.width(), height)
+            return (margins.top() + margins.bottom() + page_h + outer.spacing()
+                    + footer.sizeHint().height())
         except Exception as exc:
-            print("The setup window could not fit its page:", exc, file=sys.stderr)
+            print("The setup window could not measure its page:", exc, file=sys.stderr)
+            return 0
+
+    def _fit_page(self):
+        """The window as tall as the page showing (like Settings), not as tall
+        as the longest page: no empty space under a short one. The top stays
+        where it is; only the bottom moves."""
+        height = self._page_height()
+        if height > 0 and (height != self.height() or self.minimumHeight() != height):
+            self.setFixedHeight(height)          # (see _PageStack for why it can shrink)
 
     def _colour(self, colour):
         set_accent(colour)
