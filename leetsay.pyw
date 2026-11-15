@@ -4067,7 +4067,7 @@ class PointerBadge(QtWidgets.QWidget):
     is, not on the pop-up). Clicks pass straight through it, it never takes
     the keyboard, and the real pointer is left alone."""
 
-    OFFSET = QtCore.QPoint(18, 22)               # below and to the right of the tip
+    OFFSET = QtCore.QPoint(16, 4)                # right beside the pointer's tip
 
     def __init__(self):
         super().__init__(None)
@@ -5760,7 +5760,13 @@ class Dictation(QtCore.QObject):
                 # make it flicker on and off.
                 missing = not self._in_text_box(self.target_window)
                 fresh = self.lt_box.get("at", 0.0) != getattr(self, "lt_missing_at", None)
-                if not missing:
+                if getattr(self, "lt_box_waiting", False):
+                    # The focus has just moved: Windows is being asked about
+                    # the new spot. Drop the old warning at once; if this
+                    # spot isn't a text box either, it comes back when Windows
+                    # says so. (Typing still waits for the answer.)
+                    self.lt_missing = 0
+                elif not missing:
                     self.lt_missing = 0
                 elif fresh:                      # count each new answer once
                     self.lt_missing = getattr(self, "lt_missing", 0) + 1
@@ -6062,7 +6068,8 @@ class Dictation(QtCore.QObject):
                     verdict = None
                 box.update(key=key, verdict=verdict, at=time.monotonic(), busy=False)
             threading.Thread(target=ask, daemon=True).start()
-        if box["key"] != key:
+        self.lt_box_waiting = box["key"] != key
+        if self.lt_box_waiting:
             return False                         # not asked yet about this one: wait
         # A clear answer counts (a web page's "not a text box" wins even over a
         # text cursor some browsers keep); "can't tell" types as usual.
