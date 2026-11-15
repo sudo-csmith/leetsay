@@ -320,7 +320,8 @@ SCREEN_GLOW_SIZE = 56                # how far it reaches in from the edge, 20-2
 SCREEN_GLOW_FLOW = True              # a light moves along it, and it ripples with your voice
 SCREEN_GLOW_EDGES = "bottom"         # where: one side ("bottom", "top", "left", "right")
                                      # or "all" (a border round the whole screen)
-SCREEN_GLOW_FOCUS = "middle"         # one side's glow gathers "middle" or in the "corners"
+SCREEN_GLOW_FOCUS = "middle"         # one side's glow: rising in the "middle", gathered in
+                                     # the "corners", or "even" along the whole edge
 SCREEN_GLOW_SCREENS = "popup"        # on which screens: "popup" (the pop-up's), "all", "main"
 TRAY_LIVE = False                    # the tray icon's bars move with your voice
 SHOW_HOTKEY_HINT = True              # show the hotkey on that pill and at startup
@@ -653,7 +654,7 @@ if _config.get("pill_mark") in PILL_MARKS:
     PILL_MARK = _config["pill_mark"]
 elif isinstance(_config.get("pill_logo"), bool):   # saved by an earlier 0.2.0 build
     PILL_MARK = "logo" if _config["pill_logo"] else "dot"
-if _config.get("screen_glow_focus") in ("middle", "corners"):
+if _config.get("screen_glow_focus") in ("middle", "corners", "even"):
     SCREEN_GLOW_FOCUS = _config["screen_glow_focus"]
 if _config.get("screen_glow_screens") in ("popup", "all", "main"):
     SCREEN_GLOW_SCREENS = _config["screen_glow_screens"]
@@ -4048,6 +4049,8 @@ class EdgeStrip(QtWidgets.QWidget):
             # "corners": fullest at the two ends; "middle": rising highest in
             # the centre, like the system itself listening.
             gather = side if SCREEN_GLOW_FOCUS == "corners" else 1.0 - side
+            if SCREEN_GLOW_FOCUS == "even":
+                gather = np.ones_like(side)              # one even line, end to end
             if SCREEN_GLOW_FOCUS != "corners":
                 depth = depth * 0.72                     # the middle stays low over text
             reach = depth * (0.38 + 0.62 * gather ** 1.4)
@@ -6520,7 +6523,7 @@ for _key in ("add_space", "always_show", "accent_outline", "outline_light", "glo
 _PORTABLE_CHECKS["card_style"] = lambda v: v in [key for key, _label in CARD_STYLES]
 _PORTABLE_CHECKS["screen_glow_edges"] = lambda v: v in ("bottom", "top", "left", "right", "all")
 _PORTABLE_CHECKS["screen_glow_screens"] = lambda v: v in ("popup", "all", "main")
-_PORTABLE_CHECKS["screen_glow_focus"] = lambda v: v in ("middle", "corners")
+_PORTABLE_CHECKS["screen_glow_focus"] = lambda v: v in ("middle", "corners", "even")
 _PORTABLE_CHECKS["pill_mark"] = lambda v: v in PILL_MARKS
 _PORTABLE_CHECKS["replacements"] = valid_replacements
 
@@ -8694,9 +8697,7 @@ class SettingsWindow(QtWidgets.QDialog):
 
         # ================= General =================
         tab("General")
-        heading("Startup", first=True)
-        check("Start with Windows", starts_with_windows(), set_startup)
-        heading("Dictation hotkey")
+        heading("Dictation hotkey", first=True)
         self.record = button(self.RECORD_LABEL, self._record_hotkey, width=84)
         self.record.setToolTip("Click, then press any key or key combination to "
                                "use it as the hotkey. Esc cancels.")
@@ -8849,6 +8850,9 @@ class SettingsWindow(QtWidgets.QDialog):
               hint="If another program pops up and takes over while you are speaking, "
                    "your words still go to the window you were in when you pressed "
                    "the hotkey.")
+
+        heading("Startup")
+        check("Start with Windows", starts_with_windows(), set_startup)
 
         end_tab()
 
@@ -9064,23 +9068,30 @@ class SettingsWindow(QtWidgets.QDialog):
         self.glow_where.addItem("Right side", "right")
         self.glow_where.addItem("Full-screen border", "all")
         self.glow_where.setCurrentIndex(max(0, self.glow_where.findData(SCREEN_GLOW_EDGES)))
-        self.glow_where.currentIndexChanged.connect(
-            lambda index: (set_option("SCREEN_GLOW_EDGES", "screen_glow_edges",
-                                      self.glow_where.itemData(index)),
-                           dictation.demo_screen_glow()))
+        def glow_where_chosen(index):
+            set_option("SCREEN_GLOW_EDGES", "screen_glow_edges", self.glow_where.itemData(index))
+            self.glow_focus.setEnabled(SCREEN_GLOW_EDGES != "all")   # one side only
+            dictation.demo_screen_glow()
+
+        self.glow_where.currentIndexChanged.connect(glow_where_chosen)
         row(field("Edge glow"), self.glow_where, None)
         self.glow_focus = QtWidgets.QComboBox()
         self.glow_focus.addItem("In the middle", "middle")
         self.glow_focus.addItem("In the corners", "corners")
+        self.glow_focus.addItem("The whole edge", "even")
         self.glow_focus.setCurrentIndex(max(0, self.glow_focus.findData(SCREEN_GLOW_FOCUS)))
         self.glow_focus.setToolTip("Where a glow along one side is strongest: rising in "
-                                   "the middle, or gathered in its two corners (keeps the "
-                                   "middle clear for reading). Not for the full border.")
+                                   "the middle, gathered in its two corners (keeps the "
+                                   "middle clear for reading), or an even line along the "
+                                   "whole edge. Greyed out with the full-screen border, "
+                                   "which is even all round.")
         self.glow_focus.currentIndexChanged.connect(
             lambda index: (set_option("SCREEN_GLOW_FOCUS", "screen_glow_focus",
                                       self.glow_focus.itemData(index)),
                            dictation.demo_screen_glow()))
         row(field("Light from"), self.glow_focus, None)
+        # Where one side's glow gathers: means nothing for the full border.
+        self.glow_focus.setEnabled(SCREEN_GLOW_EDGES != "all")
         self.glow_screens = QtWidgets.QComboBox()
         self.glow_screens.addItem("The pop-up's screen", "popup")
         self.glow_screens.addItem("All screens", "all")
