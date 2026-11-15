@@ -4032,17 +4032,21 @@ class ScreenGlow:
             self.fade = 0.0
         self.showing = True
 
-    def step(self, level, active):
-        """Advance one frame. Returns False once it has faded away."""
+    def step(self, level, active, still=False):
+        """Advance one frame. Returns False once it has faded away. still:
+        hold steady (no moving light, no ripples, no swelling with your
+        voice), e.g. while nothing can be typed ("No text box selected")."""
         if not self.showing:
             return False
+        if still:
+            level = 0.0
         target = ((0.68 + 0.32 * max(0.0, min(1.0, level)))
                   * SCREEN_GLOW_STRENGTH / 100.0) if active else 0.0
         self.fade += (target - self.fade) * (0.16 if target > self.fade else 0.10)
         if not active and self.fade < 0.02:
             self.stop()
             return False
-        moving = SCREEN_GLOW_FLOW and animations_on()
+        moving = SCREEN_GLOW_FLOW and animations_on() and not still
         if moving:
             # The light travels round clockwise, once in about 6.5 s, quicker
             # while you speak. Your voice is kept for a moment, for the bottom
@@ -4058,6 +4062,11 @@ class ScreenGlow:
                 strip.phase = self.phase
                 strip.voice = self.voice if strip.side == "bottom" else []
                 strip.update()
+            elif still and strip.voice:
+                strip.voice = []                 # held still: no ripple left frozen
+                strip.update()
+        if still:
+            self.voice = []
         return True
 
     def stop(self):
@@ -5206,7 +5215,10 @@ class Dictation(QtCore.QObject):
             if not active and time.monotonic() < self.fx_demo_until:
                 alive = self.screen_glow.step(0.55, True)        # the Settings demo
             else:
-                alive = self.screen_glow.step(level, active)
+                # Nothing can be typed right now ("No text box selected"): the
+                # glow holds still, so it doesn't look as if you are typing.
+                still = bool(active and self.lt_active and self.overlay.box_missing)
+                alive = self.screen_glow.step(level, active, still)
             if active and TRAY_LIVE and self.tray is not None:
                 alive = True
                 self.fx_count += 1
@@ -5360,6 +5372,7 @@ class Dictation(QtCore.QObject):
             audio = leveled(audio)
             with self.model_lock:
                 text = str(self.model.recognize(audio, sample_rate=SAMPLE_RATE))
+            self.live_busy = False               # free for the next reading at once
             self.live_words.emit(session, " ".join(text.split()), start)
         except Exception:
             pass
@@ -5469,6 +5482,9 @@ class Dictation(QtCore.QObject):
             agreed += 1
         self.lt_prev = fresh
         upto = begin + min(agreed, len(fresh) - 1)       # never the newest word
+        # The next reading starts now, not at the next tick of the clock: words
+        # are confirmed as soon as the speech model can manage.
+        QtCore.QTimer.singleShot(0, self._live_tick)
         if upto > begin:
             self._queue_words(words[begin:upto], words[begin - 1] if begin else None,
                               piece_end=True)
@@ -5575,7 +5591,7 @@ class Dictation(QtCore.QObject):
             return
         # A steady flow: the more is waiting, the faster it goes (about a
         # quarter of a second to catch up), never stopping and starting in jumps.
-        self.lt_credit += max(len(self.lt_pending) / 8.0, 1.0)
+        self.lt_credit += max(len(self.lt_pending) / 6.0, 2.0)
         count = min(len(self.lt_pending), int(self.lt_credit))
         if count < 1:
             return
