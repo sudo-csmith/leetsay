@@ -8357,18 +8357,17 @@ def responsibility_notice():
 def responsibility_paragraphs():
     """The words of "Before you start"."""
     app = {"app": APP_TITLE}
-    return ["%(app)s types what you dictate into whichever window or application is "
-         "active: the one that has your keyboard input. For example, if you click "
-         "into a text box, your words go there. %(app)s does not check which "
-         "program, chat or document is active; that is for you to control." % app,
-         "\u2022  Check where your cursor is before you speak.\n"
-         "\u2022  Speech recognition makes mistakes: read the text before you send it.\n"
-         "\u2022  Do not rely on it where a wrong word could cause harm, such as "
-         "medical, legal, financial or emergency use.\n"
-         "\u2022  Do not dictate passwords, or anything you would not want typed "
-         "into the wrong place.",
-         "You are responsible for what %(app)s types for you and where it goes. "
-         "%(app)s is free software, provided as is, without any warranty." % app]
+    # Short lines, one point each (long ones left a word or two hanging on a
+    # line of their own). The bullets are one paragraph, one line per point.
+    return ["%(app)s types your words into whichever window has your keyboard "
+            "input, usually the text box you last clicked. It does not check which "
+            "program that is; that is up to you." % app,
+            "•  Check where your cursor is before you speak.\n"
+            "•  Speech recognition makes mistakes: read before you send.\n"
+            "•  Not for medical, legal, financial or emergency use.\n"
+            "•  Don't dictate passwords or anything private.",
+            "You are responsible for what %(app)s types and where it goes. It is "
+            "free software, provided as is, without any warranty." % app]
 
 
 def download_question_words():
@@ -8539,16 +8538,23 @@ class IntroWindow(QtWidgets.QDialog):
             words = responsibility_paragraphs()
             ok = page(None, "Before you start", words[0])
             self.ok_page = self.stack.count() - 1
-            for text in words[1:]:
+            points = words[1].split("\n")
+            for i, text in enumerate(points + words[2:]):
                 label = QtWidgets.QLabel(text)
                 label.setObjectName("note")
                 label.setWordWrap(True)
                 ok.addWidget(label)
-            ok.addSpacing(4)
+                if i == len(points) - 1:
+                    ok.addSpacing(6)             # the points, then the last word
+            ok.addSpacing(12)                    # room above the buttons
             leave = QtWidgets.QPushButton("Quit")
             leave.clicked.connect(lambda: self._pass_gate("quit"))
             self.hold = HoldButton("Hold to confirm: I understand")
             self.hold.completed.connect(self._understood)
+            # Both buttons the same height, so they line up.
+            self.hold.ensurePolished()
+            leave.setFixedHeight(self.hold.sizeHint().height())
+            leave.setMinimumWidth(84)
             line(ok, leave, None, self.hold)
             hint = small("Press and hold the button for 3 seconds (or hold Space).")
             hint.setAlignment(Qt.AlignRight)
