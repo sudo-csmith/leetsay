@@ -7471,6 +7471,34 @@ class Sketch(QtWidgets.QWidget):
         p.drawLine(QtCore.QPointF(w / 2 - 91, h / 2 + 26), QtCore.QPointF(w / 2 - 71, h / 2 + 26))
         self._wave(p, w / 2 - 44, w / 2 + 104, h / 2 - 4, 15.0, ACCENT, 2.4)
 
+    def _style(self, p, w, h):
+        # Two little text boxes: on the left the words arrive all at once,
+        # on the right they arrive as you speak (a line half typed, a cursor).
+        box_w = min(170.0, (w - 40.0) / 2.0)
+        light = is_light(POPUP_BG)
+        for i, (label, typed) in enumerate((("When you let go", 1.0),
+                                            ("As you speak", 0.55))):
+            left = w / 2.0 - box_w - 10.0 if i == 0 else w / 2.0 + 10.0
+            box = QtCore.QRectF(left, 14, box_w, 48)
+            p.setPen(QtGui.QPen(QtGui.QColor("#4A4D57"), 1.2))
+            p.setBrush(QtGui.QColor(POPUP_BG))
+            p.drawRoundedRect(box, 8, 8)
+            ink = QtGui.QColor("#1D1D1F" if light else "#E8E9EE")
+            p.setPen(Qt.NoPen)
+            p.setBrush(ink)
+            full = box.width() - 28.0
+            p.drawRoundedRect(QtCore.QRectF(box.left() + 14, box.top() + 14, full, 5), 2.5, 2.5)
+            second = full * (0.7 if typed >= 1.0 else typed)
+            p.drawRoundedRect(QtCore.QRectF(box.left() + 14, box.top() + 28, second, 5),
+                              2.5, 2.5)
+            if typed < 1.0:                      # the cursor, still typing
+                p.setBrush(QtGui.QColor(ACCENT))
+                p.drawRect(QtCore.QRectF(box.left() + 17 + second, box.top() + 25, 2, 11))
+            p.setFont(self._font(11))
+            p.setPen(QtGui.QColor("#8E909A"))
+            p.drawText(QtCore.QRectF(box.left(), box.bottom() + 6, box.width(), 18),
+                       Qt.AlignCenter, label)
+
     def _tips(self, p, w, h):
         # The resting pill, with the two ways to use it written either side.
         text = pretty(HOTKEY) if SHOW_HOTKEY_HINT else "Ready"
@@ -8099,7 +8127,52 @@ class IntroWindow(QtWidgets.QDialog):
             third.addWidget(self.glow)
             third.addStretch(1)
 
-        # 4. Getting around
+        # 4. How it should work: the one choice that changes accuracy, and how
+        # lively it looks (which doesn't). Both can be changed in Settings.
+        how = page("style", "How it should work",
+                   "Two quick choices. Both can be changed later in Settings.")
+
+        def choices(title, options, current, on_pick, notes):
+            heading_label = QtWidgets.QLabel(title)
+            heading_label.setStyleSheet("font-size: 13px; font-weight: 600;")
+            how.addWidget(heading_label)
+            buttons = []
+            note = small("")
+
+            def pick(key):
+                for button_, value in buttons:
+                    button_.setChosen(value == key)
+                note.setText(notes[key])
+                on_pick(key)
+            for label, key in options:
+                button_ = ChoiceButton(label)
+                button_.clicked.connect(lambda _checked=False, k=key: pick(k))
+                buttons.append((button_, key))
+            line(how, *([b for b, _k in buttons] + [None]))
+            how.addWidget(note)
+            for button_, value in buttons:     # show the current choice, change nothing
+                button_.setChosen(value == current)
+            note.setText(notes[current])
+
+        choices("How should your words appear?",
+                [("All at once when I let go", "once"), ("As I speak", "live")],
+                "live" if LIVE_TYPE else "once", self._words_style,
+                {"once": "Most accurate: your words are typed when you let go of "
+                         "the hotkey. Recommended.",
+                 "live": "Live: words appear about half a second behind you. A little "
+                         "less accurate, as each word is typed before you finish."})
+        how.addSpacing(8)
+        lively = SCREEN_GLOW or SCREEN_GLOW_FLOW
+        choices("How lively should it look?",
+                [("Full effects", "full"), ("Calm", "calm")],
+                "full" if lively else "calm", self._effects_style,
+                {"full": "A glow round the pop-up, and a moving light along the "
+                         "bottom of the screen while you dictate.",
+                 "calm": "No glow round the screen and no moving light: quieter, "
+                         "and lighter on older PCs. Doesn't change accuracy."})
+        how.addStretch(1)
+
+        # 5. Getting around
         fourth = page("tips", "Good to know",
                       "Settings are always two clicks away: right-click the pill on "
                       "screen, or click the %s icon in the taskbar tray, by the clock."
@@ -8348,6 +8421,24 @@ QPlainTextEdit { font-size: 13px; }
         set_option("SCREEN_GLOW", "screen_glow", bool(on))
         self._redraw()
         self._show_look()
+
+    def _words_style(self, key):
+        """How your words should appear: all at once (most accurate) or live."""
+        set_option("LIVE_TYPE", "live_type", key == "live")
+
+    def _effects_style(self, key):
+        """How lively it should look. Full: glow round the pop-up, the screen
+        glow with its moving light. Calm: none of the moving extras."""
+        full = key == "full"
+        set_option("SCREEN_GLOW", "screen_glow", full)
+        set_option("SCREEN_GLOW_FLOW", "screen_glow_flow", full)
+        set_option("OUTLINE_LIGHT", "outline_light", full)
+        set_option("CARD_STYLE", "card_style", "glow" if full else "clean")
+        if getattr(self, "glow", None) is not None:      # the look page's own tick
+            self.glow.blockSignals(True)
+            self.glow.setChecked(full)
+            self.glow.blockSignals(False)
+        self._redraw()
 
     def _pill_toggled(self, on):
         set_option("ALWAYS_SHOW", "always_show", bool(on))
