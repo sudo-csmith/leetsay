@@ -6699,7 +6699,7 @@ class IntroWindow(QtWidgets.QDialog):
         self.app_updates.toggled.connect(self._app_updates_toggled)
         fourth.addWidget(self.app_updates)
         fourth.addSpacing(12)                    # the button is a separate thing
-        more = QtWidgets.QPushButton("Open all settings")
+        more = QtWidgets.QPushButton("Finish and open Settings")
         more.setToolTip("Finish here and open Settings, where everything else lives: "
                         "sounds, what the pop-up shows, the action hotkey and more.")
         more.clicked.connect(self._open_settings)
