@@ -4051,8 +4051,6 @@ class EdgeStrip(QtWidgets.QWidget):
             gather = side if SCREEN_GLOW_FOCUS == "corners" else 1.0 - side
             if SCREEN_GLOW_FOCUS == "even":
                 gather = np.ones_like(side)              # one even line, end to end
-            if SCREEN_GLOW_FOCUS != "corners":
-                depth = depth * 0.72                     # the middle stays low over text
             reach = depth * (0.38 + 0.62 * gather ** 1.4)
             rise = 0.85 * np.exp(-(np.maximum(dist, 0.0) / (0.45 * reach)) ** 1.3)
             alpha = np.minimum(1.0, self.light(dist, reach) * 2.0 + rise)
@@ -4209,7 +4207,9 @@ class ScreenGlow:
             # about 1.8 x the edge size there, a slim band in the middle);
             # "Edge size" in Settings makes it bigger. It starts from the edge
             # of the usable screen, so a taskbar on that side doesn't hide it.
-            depth = int(SCREEN_GLOW_SIZE * 1.8)
+            # Slim and soft on every side, like the glow under the taskbar's
+            # icons (about 18 px; "Edge size" in More glow options makes it bigger).
+            depth = max(12, int(SCREEN_GLOW_SIZE * 0.32))
             room = QtCore.QRect(area)
             screen = QtGui.QGuiApplication.screenAt(area.center())
             if screen is not None and area.contains(screen.availableGeometry()):
@@ -4219,7 +4219,7 @@ class ScreenGlow:
             # the screen and fades out below the taskbar's icons (they sit in
             # its middle), so the icons and whatever is above stay clear.
             taskbar = (y + h) - (ry + rh)
-            low = max(14, int(taskbar * 0.38)) if taskbar > 0 else max(14, int(SCREEN_GLOW_SIZE * 0.35))
+            low = max(10, int(taskbar * 0.24)) if taskbar > 0 else max(10, int(SCREEN_GLOW_SIZE * 0.22))
             place = {"top": QtCore.QRect(rx, ry, rw, depth),
                      "bottom": QtCore.QRect(rx, y + h - low, rw, low),
                      "left": QtCore.QRect(rx, ry, depth, rh),
@@ -4236,6 +4236,7 @@ class ScreenGlow:
             one.show()
             one.update()
             return
+        d = max(12, int(SCREEN_GLOW_SIZE * 0.32))   # the full border: slim as well
         for strip in strips:
             strip.alone = False
             strip.setWindowOpacity(self.fade if self.showing else 0.0)
@@ -8863,10 +8864,6 @@ class SettingsWindow(QtWidgets.QDialog):
 
         # ================= Pop-up =================
         tab("Pop-up")
-        def screen_glow_changed(on):
-            set_option("SCREEN_GLOW", "screen_glow", bool(on))
-            dictation.demo_screen_glow()         # the screen glow only, not the pop-up
-
         def popup_changed(on):
             set_option("SHOW_POPUP", "show_popup", bool(on))
             if on:
@@ -8978,8 +8975,7 @@ class SettingsWindow(QtWidgets.QDialog):
 
         def card_style_chosen(index):
             set_option("CARD_STYLE", "card_style", self.card_style.itemData(index))
-            for box in (self.glow, self.glow_colour):
-                box.setEnabled(CARD_STYLE == "glow")
+            self.glow.setEnabled(CARD_STYLE == "glow")
             dictation.preview_popup()
 
         self.card_style.currentIndexChanged.connect(card_style_chosen)
@@ -8992,55 +8988,43 @@ class SettingsWindow(QtWidgets.QDialog):
         self.glow.setCurrentIndex(max(0, self.glow.findData(GLOW)))
         self.glow.currentIndexChanged.connect(self._glow_changed)
         row(field("Pop-up glow"), self.glow, None)
-        self.glow_colour = QtWidgets.QComboBox()
-        self.glow_colour.addItem("The app's icon colour", "app")
-        self.glow_colour.addItem("My accent colour", "accent")
-        self.glow_colour.addItem("Custom\u2026", "custom")
+        # Where the screen glow goes, or none: one choice (it replaces a
+        # separate on/off box).
+        self.glow_where = QtWidgets.QComboBox()
+        for label, key in (("Off", "off"), ("Bottom (in the taskbar)", "bottom"),
+                           ("Top", "top"), ("Left side", "left"), ("Right side", "right"),
+                           ("Full-screen border", "all")):
+            self.glow_where.addItem(label, key)
+        self.glow_where.setCurrentIndex(max(0, self.glow_where.findData(
+            SCREEN_GLOW_EDGES if SCREEN_GLOW else "off")))
+        self.glow_where.setToolTip("A soft glow at the edge of the screen while you "
+                                   "dictate, which reacts to your voice.")
 
-        def glow_source():
-            return "app" if GLOW_FROM_APP else ("custom" if GLOW_COLOUR else "accent")
+        def glow_where_chosen(index):
+            key = self.glow_where.itemData(index)
+            set_option("SCREEN_GLOW", "screen_glow", key != "off")
+            if key != "off":
+                set_option("SCREEN_GLOW_EDGES", "screen_glow_edges", key)
+            self.glow_focus.setEnabled(SCREEN_GLOW and SCREEN_GLOW_EDGES != "all")
+            self.screen_strength.setEnabled(SCREEN_GLOW)
+            dictation.demo_screen_glow()
 
-        def show_glow_source():
-            self.glow_colour.blockSignals(True)
-            self.glow_colour.setCurrentIndex(
-                max(0, self.glow_colour.findData(glow_source())))
-            self.glow_colour.blockSignals(False)
-
-        def glow_colour_changed(index):
-            choice = self.glow_colour.itemData(index)
-            if choice == "custom":
-                before = GLOW_COLOUR
-                was_app = GLOW_FROM_APP
-                globals()["GLOW_FROM_APP"] = False       # so the picker's preview shows it
-
-                def try_out(colour):
-                    globals()["GLOW_COLOUR"] = colour    # shown, not yet saved
-                picked = self._pick_colour("Glow colour", GLOW_COLOUR or ACCENT, try_out,
-                                           edge_glow=True)
-                if picked:
-                    set_option("GLOW_FROM_APP", "glow_from_app", False)
-                    set_option("GLOW_COLOUR", "glow_colour", picked)
-                else:                                    # cancelled: as it was
-                    globals()["GLOW_COLOUR"] = before
-                    globals()["GLOW_FROM_APP"] = was_app
-                    show_glow_source()
-                return
-            set_option("GLOW_FROM_APP", "glow_from_app", choice == "app")
-            if choice == "accent":
-                set_option("GLOW_COLOUR", "glow_colour", "")
-            self._flash_glow()
-
-        show_glow_source()
-        self.glow_colour.currentIndexChanged.connect(glow_colour_changed)
-        self.glow_colour.setToolTip("Used by the glow round the pop-up and the glow "
-                                    "round the screen. The app's icon colour changes "
-                                    "with whichever app you are dictating into.")
-        row(field("Glow colour"), self.glow_colour, None)
-        for box in (self.glow, self.glow_colour):     # only for the Glow card style
-            box.setEnabled(CARD_STYLE == "glow")
-        check("Glow around the edge of the screen", SCREEN_GLOW, screen_glow_changed,
-              hint="A soft glow round the whole screen while you dictate, which "
-                   "swells with your voice.")
+        self.glow_where.currentIndexChanged.connect(glow_where_chosen)
+        row(field("Screen glow"), self.glow_where, None)
+        self.glow_focus = QtWidgets.QComboBox()
+        self.glow_focus.addItem("In the middle", "middle")
+        self.glow_focus.addItem("In the corners", "corners")
+        self.glow_focus.addItem("The whole edge", "even")
+        self.glow_focus.setCurrentIndex(max(0, self.glow_focus.findData(SCREEN_GLOW_FOCUS)))
+        self.glow_focus.setToolTip("Where a glow along one side is strongest: rising in "
+                                   "the middle, gathered in its two corners, or an even "
+                                   "line along the whole edge. Greyed out with the "
+                                   "full-screen border, which is even all round.")
+        self.glow_focus.currentIndexChanged.connect(
+            lambda index: (set_option("SCREEN_GLOW_FOCUS", "screen_glow_focus",
+                                      self.glow_focus.itemData(index)),
+                           dictation.demo_screen_glow()))
+        row(field("Light from"), self.glow_focus, None)
 
         def glow_slider(label, name, key, low, high, value):
             slider = QtWidgets.QSlider(Qt.Horizontal)
@@ -9060,68 +9044,112 @@ class SettingsWindow(QtWidgets.QDialog):
             row(field(label), slider, None)
             return slider
 
-        self.screen_strength = glow_slider("Edge strength", "SCREEN_GLOW_STRENGTH",
+        self.screen_strength = glow_slider("Strength", "SCREEN_GLOW_STRENGTH",
                                            "screen_glow_strength", 5, 100,
                                            SCREEN_GLOW_STRENGTH)
-        self.screen_size = glow_slider("Edge size", "SCREEN_GLOW_SIZE", "screen_glow_size",
-                                       20, 200, SCREEN_GLOW_SIZE)
+        self.glow_focus.setEnabled(SCREEN_GLOW and SCREEN_GLOW_EDGES != "all")
+        self.screen_strength.setEnabled(SCREEN_GLOW)
 
-        self.glow_where = QtWidgets.QComboBox()
-        self.glow_where.addItem("Bottom", "bottom")
-        self.glow_where.addItem("Top", "top")
-        self.glow_where.addItem("Left side", "left")
-        self.glow_where.addItem("Right side", "right")
-        self.glow_where.addItem("Full-screen border", "all")
-        self.glow_where.setCurrentIndex(max(0, self.glow_where.findData(SCREEN_GLOW_EDGES)))
-        def glow_where_chosen(index):
-            set_option("SCREEN_GLOW_EDGES", "screen_glow_edges", self.glow_where.itemData(index))
-            self.glow_focus.setEnabled(SCREEN_GLOW_EDGES != "all")   # one side only
-            dictation.demo_screen_glow()
+        def more_glow_options():
+            """The fine-tuning, in a small window of its own. Built with the
+            same helpers as the tabs, pointed at this window for the moment."""
+            box = QtWidgets.QDialog(self)
+            box.setWindowTitle("More glow options")
+            box.setWindowIcon(app_icon())
+            box.setStyleSheet(settings_style())
+            dark_title_bar(box)
+            inside = QtWidgets.QVBoxLayout(box)
+            inside.setContentsMargins(20, 16, 20, 16)
+            inside.setSpacing(8)
+            outer_layout, page["layout"] = page["layout"], inside
+            try:
+                self.glow_colour = QtWidgets.QComboBox()
+                self.glow_colour.addItem("The app's icon colour", "app")
+                self.glow_colour.addItem("My accent colour", "accent")
+                self.glow_colour.addItem("Custom\u2026", "custom")
 
-        self.glow_where.currentIndexChanged.connect(glow_where_chosen)
-        row(field("Edge glow"), self.glow_where, None)
-        self.glow_focus = QtWidgets.QComboBox()
-        self.glow_focus.addItem("In the middle", "middle")
-        self.glow_focus.addItem("In the corners", "corners")
-        self.glow_focus.addItem("The whole edge", "even")
-        self.glow_focus.setCurrentIndex(max(0, self.glow_focus.findData(SCREEN_GLOW_FOCUS)))
-        self.glow_focus.setToolTip("Where a glow along one side is strongest: rising in "
-                                   "the middle, gathered in its two corners (keeps the "
-                                   "middle clear for reading), or an even line along the "
-                                   "whole edge. Greyed out with the full-screen border, "
-                                   "which is even all round.")
-        self.glow_focus.currentIndexChanged.connect(
-            lambda index: (set_option("SCREEN_GLOW_FOCUS", "screen_glow_focus",
-                                      self.glow_focus.itemData(index)),
-                           dictation.demo_screen_glow()))
-        row(field("Light from"), self.glow_focus, None)
-        # Where one side's glow gathers: means nothing for the full border.
-        self.glow_focus.setEnabled(SCREEN_GLOW_EDGES != "all")
-        self.glow_screens = QtWidgets.QComboBox()
-        self.glow_screens.addItem("The pop-up's screen", "popup")
-        self.glow_screens.addItem("All screens", "all")
-        self.glow_screens.addItem("Main screen", "main")
-        self.glow_screens.setCurrentIndex(
-            max(0, self.glow_screens.findData(SCREEN_GLOW_SCREENS)))
-        self.glow_screens.setToolTip("Which screens the glow shows on while you dictate.")
-        self.glow_screens.currentIndexChanged.connect(
-            lambda index: (set_option("SCREEN_GLOW_SCREENS", "screen_glow_screens",
-                                      self.glow_screens.itemData(index)),
-                           dictation.demo_screen_glow()))
-        row(field("Glow on"), self.glow_screens, None)
+                def glow_source():
+                    return "app" if GLOW_FROM_APP else ("custom" if GLOW_COLOUR else "accent")
 
-        def flow_changed(value):
-            set_option("SCREEN_GLOW_FLOW", "screen_glow_flow", bool(value))
-            dictation.demo_screen_glow()
-        check("Moving light", SCREEN_GLOW_FLOW, flow_changed,
-              hint="A light travels along the glow while you dictate, and it "
-                   "ripples with your voice. Off: one still colour, a little "
-                   "lighter on the PC.")
-        heading("Outline")
-        check("Outline in the accent colour", ACCENT_OUTLINE,
-              option("ACCENT_OUTLINE", "accent_outline", refresh=True, preview=True))
-        check("Moving light on the outline", OUTLINE_LIGHT,
-              option("OUTLINE_LIGHT", "outline_light", refresh=True, preview=True))
+                def show_glow_source():
+                    self.glow_colour.blockSignals(True)
+                    self.glow_colour.setCurrentIndex(
+                        max(0, self.glow_colour.findData(glow_source())))
+                    self.glow_colour.blockSignals(False)
+
+                def glow_colour_changed(index):
+                    choice = self.glow_colour.itemData(index)
+                    if choice == "custom":
+                        before = GLOW_COLOUR
+                        was_app = GLOW_FROM_APP
+                        globals()["GLOW_FROM_APP"] = False       # so the picker's preview shows it
+
+                        def try_out(colour):
+                            globals()["GLOW_COLOUR"] = colour    # shown, not yet saved
+                        picked = self._pick_colour("Glow colour", GLOW_COLOUR or ACCENT, try_out,
+                                                   edge_glow=True)
+                        if picked:
+                            set_option("GLOW_FROM_APP", "glow_from_app", False)
+                            set_option("GLOW_COLOUR", "glow_colour", picked)
+                        else:                                    # cancelled: as it was
+                            globals()["GLOW_COLOUR"] = before
+                            globals()["GLOW_FROM_APP"] = was_app
+                            show_glow_source()
+                        return
+                    set_option("GLOW_FROM_APP", "glow_from_app", choice == "app")
+                    if choice == "accent":
+                        set_option("GLOW_COLOUR", "glow_colour", "")
+                    self._flash_glow()
+
+                show_glow_source()
+                self.glow_colour.currentIndexChanged.connect(glow_colour_changed)
+                self.glow_colour.setToolTip("Used by the glow round the pop-up and the glow "
+                                            "round the screen. The app's icon colour changes "
+                                            "with whichever app you are dictating into.")
+                row(field("Glow colour"), self.glow_colour, None)
+
+                self.screen_size = glow_slider("Edge size", "SCREEN_GLOW_SIZE",
+                                               "screen_glow_size", 20, 200, SCREEN_GLOW_SIZE)
+                self.glow_screens = QtWidgets.QComboBox()
+                self.glow_screens.addItem("The pop-up's screen", "popup")
+                self.glow_screens.addItem("All screens", "all")
+                self.glow_screens.addItem("Main screen", "main")
+                self.glow_screens.setCurrentIndex(
+                    max(0, self.glow_screens.findData(SCREEN_GLOW_SCREENS)))
+                self.glow_screens.setToolTip("Which screens the glow shows on while you dictate.")
+                self.glow_screens.currentIndexChanged.connect(
+                    lambda index: (set_option("SCREEN_GLOW_SCREENS", "screen_glow_screens",
+                                              self.glow_screens.itemData(index)),
+                                   dictation.demo_screen_glow()))
+                row(field("Glow on"), self.glow_screens, None)
+
+                def flow_changed(value):
+                    set_option("SCREEN_GLOW_FLOW", "screen_glow_flow", bool(value))
+                    dictation.demo_screen_glow()
+                check("Moving light", SCREEN_GLOW_FLOW, flow_changed,
+                      hint="A light travels along the glow while you dictate, and it "
+                           "ripples with your voice. Off: one still colour, a little "
+                           "lighter on the PC.")
+                heading("Outline")
+                check("Outline in the accent colour", ACCENT_OUTLINE,
+                      option("ACCENT_OUTLINE", "accent_outline", refresh=True, preview=True))
+                check("Moving light on the outline", OUTLINE_LIGHT,
+                      option("OUTLINE_LIGHT", "outline_light", refresh=True, preview=True))
+
+                closing = QtWidgets.QHBoxLayout()
+                closing.addStretch(1)
+                done = QtWidgets.QPushButton("Close")
+                done.clicked.connect(lambda _checked=False: box.accept())
+                closing.addWidget(done)
+                inside.addLayout(closing)
+            finally:
+                page["layout"] = outer_layout
+            box.exec()
+
+        more = button("More glow options\u2026", more_glow_options, width=170)
+        more.setToolTip("Glow colour, size, which screens, the moving light and the "
+                        "pop-up's outline.")
+        row(field(""), more, None)
         heading("Tray icon")
         check("Tray icon updates with your dictation status", TRAY_LIVE,
               option("TRAY_LIVE", "tray_live"))
