@@ -5744,6 +5744,17 @@ class Dictation(QtCore.QObject):
         if self.state in ("idle", "loading", "nomodel") and self.overlay.mode != "welcome":
             self.overlay.preview()
 
+    def preview_pill(self):
+        """After a change to the small pill (its mark, the hotkey text): show
+        the pill itself, not the dictation card. Always on screen: it simply
+        changes in place; otherwise it shows for a moment."""
+        if self.state not in ("idle", "loading", "nomodel") or self.overlay.mode == "welcome":
+            return
+        if ALWAYS_SHOW and self.overlay.isVisible() and self.overlay.mode == "idle":
+            self.overlay.update()
+            return
+        self.overlay.show_message(pretty(HOTKEY) if SHOW_HOTKEY_HINT else "", ms=2500)
+
     def refresh_popup(self):
         """After a settings change: resize, and show or hide the idle pill."""
         self.overlay.apply_size()
@@ -8557,7 +8568,8 @@ class SettingsWindow(QtWidgets.QDialog):
               tip="Shows a small pill between dictations so you can see the app is "
                   "running. The microphone stays off until you press the hotkey.")
         check("Show the hotkey text", SHOW_HOTKEY_HINT,
-              option("SHOW_HOTKEY_HINT", "hotkey_hint", refresh=True))
+              lambda value: (option("SHOW_HOTKEY_HINT", "hotkey_hint", refresh=True)(value),
+                             dictation.preview_pill()))
         self.pill_mark = QtWidgets.QComboBox()
         self.pill_mark.addItem("%s logo" % APP_TITLE, "logo")
         self.pill_mark.addItem("Dot", "dot")
@@ -8570,7 +8582,7 @@ class SettingsWindow(QtWidgets.QDialog):
         self.pill_mark.currentIndexChanged.connect(
             lambda index: (set_option("PILL_MARK", "pill_mark",
                                       self.pill_mark.itemData(index)),
-                           dictation.refresh_popup(), dictation.preview_popup()))
+                           dictation.refresh_popup(), dictation.preview_pill()))
         row(field("Pill mark"), self.pill_mark, None)
         heading("Position")
         def reset_popup():
