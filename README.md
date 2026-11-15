@@ -1,4 +1,6 @@
-# leetsay
+<p align="center">
+  <img src="assets/banner.png" alt="leetsay: offline dictation for Windows. Hold a key, speak, and it types." width="100%">
+</p>
 
 Free, offline dictation for Windows. Hold a hotkey, speak, let go: your words
 are typed into whatever program you are using.
