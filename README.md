@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/banner.png" alt="leetsay: local dictation for Windows. Hold a key, speak, and it types." width="100%">
+  <img src="assets/banner.png" alt="leetsay: local dictation for Windows" width="100%">
 </p>
 
 Free, local dictation for Windows. Hold a hotkey, speak, let go: your words are
