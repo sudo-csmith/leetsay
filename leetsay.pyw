@@ -108,7 +108,7 @@ from ctypes import wintypes
 
 
 
-VERSION = "0.60.2"              # shown in Settings and About
+VERSION = "0.60.3"              # shown in Settings and About
 APP_TITLE = "leetsay"                # the name shown to the user (one place)
 _HERE = os.path.dirname(_SELF)        # the program's own folder
 
@@ -1470,8 +1470,15 @@ def verify_network_block():
     return _net["verified"]
 
 
-def network_words():
+def network_words(short=False):
     """How the network stands, in words for Settings and About."""
+    if short:                                    # the status line in Settings
+        if _net["open"]:
+            return "Open for this download only (huggingface.co)"
+        if _net["verified"] is False:
+            return "Blocked, but the check at start failed (see the log)"
+        return ("Blocked for %s · checked at start" % APP_TITLE if _net["verified"]
+                else "Blocked for %s" % APP_TITLE)
     if _net["open"]:
         return "open for this run only, to huggingface.co (%s)" % _net["why"]
     if _net["verified"]:
@@ -3675,6 +3682,11 @@ class Dictation(QtCore.QObject):
         self.tray_levels = deque([0.0] * 3, maxlen=3)
         self.fx_count = 0
         self.fx_demo_until = 0.0               # Settings is showing the glow off
+        # Set for each dictation in _start, but the glow (and its preview from
+        # Settings) reads them before the first one: without these the screen
+        # glow preview failed after every start until something was dictated.
+        self.popup_shown = SHOW_POPUP
+        self.app_tint = None
         self.fx_timer = QtCore.QTimer()        # runs only while an effect is showing
         self.fx_timer.setInterval(33)
         self.fx_timer.timeout.connect(self._fx_tick)
@@ -7355,10 +7367,13 @@ class SettingsWindow(QtWidgets.QDialog):
                     button("Import settings", lambda: import_settings_window(self)))
 
         heading("Help and information")
-        network = QtWidgets.QLabel(network_words().capitalize())
+        network = QtWidgets.QLabel(network_words(short=True))
         network.setObjectName("info")
         network.setWordWrap(True)
-        row(field("Network"), network)
+        network.setToolTip("%s blocks its own internet access while it runs, and checks "
+                           "that the block works each time it starts. It only opens for "
+                           "a download you agree to." % APP_TITLE)
+        row(field("Internet"), network)
         button_grid(button("Report a problem", lambda: open_feedback_page(self, "bug")),
                     button("Suggest an idea", lambda: open_feedback_page(self, "idea")),
                     button("Open data folder", open_data_folder),
