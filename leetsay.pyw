@@ -108,7 +108,7 @@ from ctypes import wintypes
 
 
 
-VERSION = "0.60.0"              # shown in Settings and About
+VERSION = "0.60.2"              # shown in Settings and About
 APP_TITLE = "leetsay"                # the name shown to the user (one place)
 _HERE = os.path.dirname(_SELF)        # the program's own folder
 
@@ -6716,6 +6716,20 @@ class SettingsWindow(QtWidgets.QDialog):
                     line.addWidget(widget)
             page["layout"].addLayout(line)
 
+        def button_grid(*buttons):
+            """Buttons two to a row, all the same width: tidier than a row of
+            buttons each as wide as its own words."""
+            grid = QtWidgets.QGridLayout()
+            grid.setHorizontalSpacing(8)
+            grid.setVerticalSpacing(8)
+            for i, made in enumerate(buttons):
+                made.setSizePolicy(QtWidgets.QSizePolicy.Expanding,
+                                   QtWidgets.QSizePolicy.Fixed)
+                grid.addWidget(made, i // 2, i % 2)
+            grid.setColumnStretch(0, 1)
+            grid.setColumnStretch(1, 1)
+            page["layout"].addLayout(grid)
+
         def field(text):
             label = QtWidgets.QLabel(text)
             label.setObjectName("field")
@@ -6981,7 +6995,7 @@ class SettingsWindow(QtWidgets.QDialog):
             self.glow.addItem(label, key)
         self.glow.setCurrentIndex(max(0, self.glow.findData(GLOW)))
         self.glow.currentIndexChanged.connect(self._glow_changed)
-        row(field("Glow"), self.glow, None)
+        row(field("Pop-up glow"), self.glow, None)
         self.glow_colour = QtWidgets.QComboBox()
         self.glow_colour.addItem("The app's icon colour", "app")
         self.glow_colour.addItem("My accent colour", "accent")
@@ -7047,10 +7061,10 @@ class SettingsWindow(QtWidgets.QDialog):
             row(field(label), slider, None)
             return slider
 
-        self.screen_strength = glow_slider("Strength", "SCREEN_GLOW_STRENGTH",
+        self.screen_strength = glow_slider("Edge strength", "SCREEN_GLOW_STRENGTH",
                                            "screen_glow_strength", 5, 100,
                                            SCREEN_GLOW_STRENGTH)
-        self.screen_size = glow_slider("Size", "SCREEN_GLOW_SIZE", "screen_glow_size",
+        self.screen_size = glow_slider("Edge size", "SCREEN_GLOW_SIZE", "screen_glow_size",
                                        20, 200, SCREEN_GLOW_SIZE)
         heading("Outline")
         check("Outline in the accent colour", ACCENT_OUTLINE,
@@ -7287,7 +7301,22 @@ class SettingsWindow(QtWidgets.QDialog):
 
         # ================= Privacy =================
         tab("Privacy")
-        heading("Clipboard and kept text", first=True)
+        heading("Updates", first=True)
+        self.app_updates = check(
+            "Check for %s updates at startup" % APP_TITLE, CHECK_APP_UPDATES,
+            self._app_updates_changed,
+            tip="Off by default. With this ticked, every start asks github.com "
+                "whether a newer version of the application has been published, and "
+                "tells you once if there is. Nothing is downloaded or installed.")
+        self.app_update_button = button("Check now", self._check_app_now, width=96)
+        self.app_update_button.setToolTip("Checks once, now, for a newer version of the "
+                                          "application (goes online after asking; only "
+                                          "reads the latest version number).")
+        page["layout"].removeWidget(self.app_updates)
+        row(self.app_updates, None, self.app_update_button)
+        note("You have version %s." % VERSION)
+
+        heading("Clipboard and kept text")
         self.paste_mode = check(
             "Paste using the clipboard instead of typing", not TYPE_TEXT,
             self._paste_mode_changed,
@@ -7319,33 +7348,21 @@ class SettingsWindow(QtWidgets.QDialog):
         self.paste_clear = button("Clear", self._clear_paste_hotkey, width=84)
         row(field(""), self.paste_record, self.paste_clear, None)
         self._refresh_paste_row()
-        heading("App updates")
-        self.app_updates = check(
-            "Check for app updates at startup", CHECK_APP_UPDATES,
-            self._app_updates_changed,
-            tip="Off by default. With this ticked, every start asks github.com "
-                "whether a newer version of the application has been published, and "
-                "tells you once if there is. Nothing is downloaded or installed.")
-        self.app_update_button = button("Check now", self._check_app_now, width=96)
-        self.app_update_button.setToolTip("Checks once, now, for a newer version of the "
-                                          "application (goes online after asking; only "
-                                          "reads the latest version number).")
-        page["layout"].removeWidget(self.app_updates)
-        row(self.app_updates, None, self.app_update_button)
-
         heading("Move settings to another PC")
         note("Your choices as one line of text, to copy and paste on another PC. "
              "Nothing private is included.")
-        row(button("Export settings", lambda: export_settings_window(self)),
-            button("Import settings", lambda: import_settings_window(self)), None)
+        button_grid(button("Export settings", lambda: export_settings_window(self)),
+                    button("Import settings", lambda: import_settings_window(self)))
 
         heading("Help and information")
-        quant = " (%s)" % QUANTIZATION if QUANTIZATION else ""
-        note("Model: %s%s\nNetwork: %s" % (MODEL, quant, network_words()))
-        row(button("Report a problem", lambda: open_feedback_page(self, "bug")),
-            button("Suggest an idea", lambda: open_feedback_page(self, "idea")), None)
-        row(button("Open data folder", open_data_folder),
-            button("About", lambda: show_about(dictation)), None)
+        network = QtWidgets.QLabel(network_words().capitalize())
+        network.setObjectName("info")
+        network.setWordWrap(True)
+        row(field("Network"), network)
+        button_grid(button("Report a problem", lambda: open_feedback_page(self, "bug")),
+                    button("Suggest an idea", lambda: open_feedback_page(self, "idea")),
+                    button("Open data folder", open_data_folder),
+                    button("About %s" % APP_TITLE, lambda: show_about(dictation)))
         end_tab()
         # Open on the tab that was showing last time (remembered only while
         # the application is running; nothing is written to disk for this).
@@ -7903,24 +7920,12 @@ class SettingsWindow(QtWidgets.QDialog):
             self.mic_note.setText("")
         self.mic_bar.setValue(0)
         self.mic_test.setText("Test")
-        try:     # keep the words heard on show to read; with none, close the gap
-            if not self.mic_heard.text():
-                self.mic_heard.setVisible(False)
-                self._fit_height()
+        try:     # the test is over: its words go too, and the gap closes
+            self.mic_heard.setText("")
+            self.mic_heard.setVisible(False)
+            self._fit_height()
         except RuntimeError:
             pass                                 # the window is already gone
-        ticket = self._test_ticket
-
-        def clear_words():                       # 5 s later, unless a new test began
-            try:
-                if ticket == self._test_ticket and self._test_stream is None:
-                    self.mic_heard.setText("")
-                    self.mic_heard.setVisible(False)
-                    self._fit_height()
-            except RuntimeError:
-                pass                             # the window was closed meanwhile
-
-        QtCore.QTimer.singleShot(5000, clear_words)
 
     def _sound_set_changed(self, index):
         set_option("SOUND_SET", "sound_set", self.sound_set.itemData(index))
