@@ -302,7 +302,8 @@ HIDE_CONSOLE = True                  # run in the background, no command prompt
 SHOW_TRANSCRIBING = False            # False: pop-up vanishes as soon as you finish
 STARTUP_MESSAGE = False              # show a "Loading..." pop-up while starting
 STARTUP_FLASH = True                 # briefly show the pop-up once it can be used
-ALWAYS_SHOW = False                  # always show a small status pill on screen
+ALWAYS_SHOW = True                   # always show a small status pill on screen (on by
+                                     # default: it shows the hotkey; owner)
 ACCENT_OUTLINE = True                # a ring in the accent colour round the pop-up
 CARD_STYLE = "glow"                  # the dictation card: "clean" (a soft neutral
                                      # shadow and a crisp edge), "accent" (the same,
