@@ -4563,8 +4563,8 @@ class Dictation(QtCore.QObject):
     model_suspect = QtCore.Signal(str)        # files that fail their fingerprint check
     finished = QtCore.Signal(str)
     live_text = QtCore.Signal(int, str)
-    live_piece = QtCore.Signal(int, str, int, int)   # typing as you speak: a finished piece
-    live_words = QtCore.Signal(int, str, int)   # ... and a reading of the piece so far
+    live_piece = QtCore.Signal(int, str, int, int, str)   # typing as you speak: a finished piece
+    live_words = QtCore.Signal(int, str, int, str)   # ... and a reading of the piece so far
     hotkey_captured = QtCore.Signal(str)
     paste_again = QtCore.Signal()
     failed = QtCore.Signal(str)
@@ -4583,6 +4583,9 @@ class Dictation(QtCore.QObject):
         self.session = 0                       # which recording a preview belongs to
         self.live_busy = False
         self.live_seen = 0
+        self.model_timed = None                # the model, also saying when words began
+        self._final_skip = None                # the context to leave out of the last reading
+        self._final_before = ""
         # The speech model rests between readings at least as long as the last
         # one took, so reading along uses at most about half the processor
         # time it otherwise would (it can use several cores while it reads).
@@ -4760,6 +4763,7 @@ class Dictation(QtCore.QObject):
             kwargs["sess_options"] = engine_options()
             print("Loading model %s from %s" % (using["tag"], model_dir()))
             self.model = onnx_asr.load_model(MODEL, model_dir(), **kwargs)
+            self.model_timed = None              # made again from this model
             self.load_seconds = time.perf_counter() - started
             print("Model loaded in %.1fs (%.1fs since launch, offline)" % (
                 self.load_seconds, time.perf_counter() - _T0))
@@ -4974,6 +4978,7 @@ class Dictation(QtCore.QObject):
         with self.model_lock:                  # waits for anything using it to finish
             self.model = None
             self.model_vad = None
+            self.model_timed = None
         self.state = "nomodel"
         import gc
         gc.collect()                           # so Windows lets the files be deleted
@@ -5521,7 +5526,8 @@ class Dictation(QtCore.QObject):
             self.live_busy = True
             threading.Thread(target=self._live_piece_run,
                              args=(audio[:lead + cut], self.lt_commit + cut, self.session,
-                                   self.lt_commit), daemon=True).start()
+                                   self.lt_commit, lead / float(SAMPLE_RATE)),
+                             daemon=True).start()
             return
         total = start + len(audio)
         if len(audio) - lead < SAMPLE_RATE * 0.4 or total == self.live_seen:
@@ -5529,32 +5535,53 @@ class Dictation(QtCore.QObject):
         self.live_seen = total
         self.live_busy = True
         threading.Thread(target=self._live_read_run,
-                         args=(audio, self.lt_commit, self.session), daemon=True).start()
+                         args=(audio, self.lt_commit, self.session, lead / float(SAMPLE_RATE)),
+                         daemon=True).start()
 
-    def _live_read_run(self, audio, start, session):
+    def _timed_read(self, audio, skip):
+        """Read audio, leaving out the words spoken in its first `skip`
+        seconds (the context read along before a piece). The speech model
+        says when each word began, so this is exact, even when the same
+        words repeat ("leet say, leet say"). Returns (the piece's words, the
+        last word of the context, "" if none). Call with model_lock held."""
+        if self.model_timed is None:
+            self.model_timed = self.model.with_timestamps()
+        result = self.model_timed.recognize(audio, sample_rate=SAMPLE_RATE)
+        words = []                                   # [text, when it began]
+        for token, at in zip(result.tokens, result.timestamps):
+            if token.startswith(" ") or not words:
+                words.append([token.strip(), float(at)])
+            else:
+                words[-1][0] += token
+        words = [w for w in words if w[0]]
+        before = [w for w, at in words if at < skip - 0.04]
+        piece = [w for w, at in words if at >= skip - 0.04]
+        return " ".join(piece), (before[-1] if before else "")
+
+    def _live_read_run(self, audio, start, session, skip):
         try:
             audio = leveled(audio)
             with self.model_lock:
                 began = time.monotonic()
-                text = str(self.model.recognize(audio, sample_rate=SAMPLE_RATE))
+                text, before = self._timed_read(audio, skip)
                 done = time.monotonic()
                 self._live_rest_until = done + (done - began) * LIVE_REST
             self.live_busy = False               # free for the next reading at once
-            self.live_words.emit(session, " ".join(text.split()), start)
+            self.live_words.emit(session, text, start, before)
         except Exception:
             pass
         finally:
             self.live_busy = False
 
-    def _live_piece_run(self, audio, end, session, start):
+    def _live_piece_run(self, audio, end, session, start, skip):
         try:
             audio = leveled(audio)
             with self.model_lock:
                 began = time.monotonic()
-                text = str(self.model.recognize(audio, sample_rate=SAMPLE_RATE))
+                text, before = self._timed_read(audio, skip)
                 done = time.monotonic()
                 self._live_rest_until = done + (done - began) * LIVE_REST
-            self.live_piece.emit(session, " ".join(text.split()), end, start)
+            self.live_piece.emit(session, text, end, start, before)
         except Exception:
             pass                                 # not done: the final pass reads it
         finally:
@@ -5633,7 +5660,7 @@ class Dictation(QtCore.QObject):
             self.lt_pending += text
             self._flush_live()
 
-    def on_live_words(self, session, text, start):
+    def on_live_words(self, session, text, start, before=""):
         if session != self.session or self.state != "recording" or not self.lt_active:
             return
         if start != self.lt_commit:
@@ -5657,11 +5684,11 @@ class Dictation(QtCore.QObject):
         wait = max(0.0, self._live_rest_until - time.monotonic())
         QtCore.QTimer.singleShot(int(wait * 1000) + 1, self._live_tick)
         if upto > begin:
-            self._queue_words(words[begin:upto], words[begin - 1] if begin else None,
+            self._queue_words(words[begin:upto], words[begin - 1] if begin else (before or None),
                               piece_end=True)
             self.lt_seg_words += plain[begin:upto]
 
-    def on_live_piece(self, session, text, end, start):
+    def on_live_piece(self, session, text, end, start, before=""):
         # Too late (the dictation is over): the final pass reads this part
         # anyway, as the done mark was not moved on. A second reading of a
         # piece already done (its start has moved on) is dropped, or its words
@@ -5672,10 +5699,11 @@ class Dictation(QtCore.QObject):
             return
         words = clean_words(text.split())
         begin = self._after_typed(self._plain(words))
-        self._queue_words(words[begin:], words[begin - 1] if begin else None, piece_end=True)
+        self._queue_words(words[begin:], words[begin - 1] if begin else (before or None),
+                          piece_end=True)
         self.lt_commit = max(self.lt_commit, end)
         self.lt_prev = []
-        self.lt_seg_words = self.lt_all[-8:]     # read again as context for the next piece
+        self.lt_seg_words = []                   # the next piece starts afresh
 
     def _flush_live(self):
         """Words are waiting: start typing them (see _pace_tick)."""
@@ -5871,7 +5899,9 @@ class Dictation(QtCore.QObject):
                 self.overlay.dismiss()
                 QtCore.QTimer.singleShot(0, lambda: self.on_finished(""))
                 return
-            audio = whole[max(0, self.lt_commit - int(self.LT_CONTEXT * SAMPLE_RATE)):]
+            first = max(0, self.lt_commit - int(self.LT_CONTEXT * SAMPLE_RATE))
+            audio = whole[first:]
+            self._final_skip = (self.lt_commit - first) / float(SAMPLE_RATE)
         if SHOW_TRANSCRIBING and getattr(self, "popup_shown", True):
             self.overlay.show_transcribing()
         else:
@@ -5895,7 +5925,14 @@ class Dictation(QtCore.QObject):
         try:
             text = None
             audio = leveled(audio)
+            skip, self._final_skip = self._final_skip, None
             with self.model_lock:              # waits for a preview pass to end
+                if skip is not None:
+                    # The rest of a live dictation, read with its context: only
+                    # the words after the context are new.
+                    text, self._final_before = self._timed_read(audio, skip)
+                    self.finished.emit(text.strip())
+                    return
                 if len(audio) > LONG_AUDIO_SECONDS * SAMPLE_RATE:
                     if self.model_vad is None:     # loaded on first use, not at start
                         try:
@@ -5945,7 +5982,9 @@ class Dictation(QtCore.QObject):
             typed = self.lt_done
             words = text.split()                 # skip the words typed already
             begin = self._after_typed(self._plain(words)) if words else 0
-            text = self._compose(words[begin:], words[begin - 1] if begin else None)
+            text = self._compose(words[begin:], words[begin - 1] if begin
+                                 else (self._final_before or None))
+            self._final_before = ""
             text = self.lt_pending + text
             self._lt_forget()
             if text.strip() and self.target_window \
@@ -8545,14 +8584,14 @@ class SettingsWindow(QtWidgets.QDialog):
         check("Remove filler words", REMOVE_FILLERS,
               option("REMOVE_FILLERS", "remove_fillers"),
               hint="Leaves out um, uh and erm.")
+        check("Add a space after each dictation", ADD_SPACE,
+              option("ADD_SPACE", "add_space"),
+              hint="So two dictations in a row don't run together.")
         replace_button = button("Word replacements\u2026",
                                 lambda: replacements_window(self), width=170)
         replace_button.setToolTip("Fix words the speech model gets wrong, such as names it "
                                   "doesn't know: what it writes, and what you want instead.")
         row(field("Words"), replace_button, None)
-        check("Add a space after each dictation", ADD_SPACE,
-              option("ADD_SPACE", "add_space"),
-              hint="So two dictations in a row don't run together.")
         self.after = QtWidgets.QComboBox()
         for key, label in AFTER_CHOICES:
             self.after.addItem(label, key)
