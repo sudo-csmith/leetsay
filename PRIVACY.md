@@ -46,12 +46,15 @@ to see who uses it or what they do with it.
   below. It checks this block each time it starts; the check does not leave
   your PC. The result is shown in Settings, on the Privacy tab.
 - It connects to the internet only after you agree in a window that says
-  **"This application will go online"**, and only to `huggingface.co`, a
-  third-party website that we do not run or control. That happens:
+  **"This application will go online"**, and only to `github.com` (and
+  `release-assets.githubusercontent.com`, GitHub's server that delivers the
+  files), a third-party website that we do not run or control. It downloads
+  from this project's model page there. That happens:
   - the first time you start it, to download the speech model (about 660 MB)
     and a small helper for long dictations (about 2 MB);
-  - if you choose another speech model, or a model update, in Settings;
-  - if you turn on **Check for model updates at startup** (off by default).
+  - if you choose another speech model in Settings, or download one again;
+  - if a new version of leetsay comes with a newer speech model, and you
+    agree to download it.
 - **Checking for app updates** (off by default): if you turn on **Check for
   app updates at startup**, or click **Check for app updates now**, a small
   separate helper asks `github.com`, a third-party website that we do not run
@@ -60,11 +63,9 @@ to see who uses it or what they do with it.
   installed: if there is a newer version, you are told and can open its
   download page yourself. Each switch-on, and each manual check, asks first.
 - When it connects, standard technical information that any download involves
-  (such as your IP address and the files requested) reaches huggingface.co and
-  the networks in between. That is handled under Hugging Face's (or, for the
-  app update check, GitHub's) own privacy policy, not this one. leetsay sends
-  no account details or identifiers of its own, and switches off the download
-  library's usage reporting.
+  (such as your IP address and the files requested) reaches GitHub and the
+  networks in between. That is handled under GitHub's own privacy policy, not
+  this one. leetsay sends no account details or identifiers of its own.
 - When the download or check is finished, the network block is restored.
 - Your agreement is not remembered: each of these asks again.
 
@@ -72,23 +73,22 @@ to see who uses it or what they do with it.
 
 In `%LOCALAPPDATA%\leetsay`:
 
-- `dictate.json`: your settings, and fingerprints of the speech model's files
-  (used to check they have not been changed).
+- `dictate.json`: your settings, and a note of when the speech model's files
+  were last checked against their fingerprints.
 - `dictate.log`: a short technical log of the current session (start-up, model
   loading, network check). It is designed not to contain anything you said or
   the names of programs you use, and is started afresh each time.
 - `sounds\`: the start and finish tones, generated on your PC.
-- `models\`: the speech model, if you downloaded it by hand.
+- `models\`: the speech model and the helper for long dictations.
 
-A model downloaded by leetsay is kept in `%USERPROFILE%\.cache\huggingface\hub`.
 If you turn on **Start with Windows**, one entry is added to your Windows
 start-up list. These files stay on your PC; keeping your PC secure is up to you.
 
 ## Third parties
 
-- **huggingface.co** (model downloads) and **GitHub** (where you may have
-  downloaded leetsay) are third-party websites that we do not run or control.
-  Their own terms and privacy policies apply when you use them.
+- **GitHub** (where leetsay and its speech models are published) is a
+  third-party website that we do not run or control. Its own terms and
+  privacy policy apply when you use it.
 - The speech model and libraries leetsay uses are made by others; see
   [CREDITS.md](CREDITS.md).
 

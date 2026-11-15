@@ -18,17 +18,22 @@ the [Disclaimer](#disclaimer) before using it.
 - **Your speech is turned into text on your own PC**, by a speech recognition
   model (NVIDIA's Parakeet) that runs locally. Your audio is not sent to a
   server for this, and it is not saved.
-- **The model is downloaded once**, about 660 MB from huggingface.co, after you
-  agree in a window that says "This application will go online". After that,
-  leetsay needs no internet connection to work.
+- **The model is downloaded once**, about 660 MB, from this project's own
+  model page, [leetsay-models](https://github.com/sudo-csmith/leetsay-models) on github.com, after you agree in a window that says "This
+  application will go online". The files there are converted in the open from
+  NVIDIA's originals, and leetsay checks every file against a fingerprint built
+  into it before using it. After that, leetsay needs no internet connection to
+  work.
 - **leetsay blocks its own network access while it runs.** It opens it only
-  for a download or update check you have just agreed to, only to
-  huggingface.co, and closes it again straight afterwards. It checks the block
-  every time it starts (see [Checking the network block](#checking-the-network-block)).
+  for a download you have just agreed to, only to github.com (and GitHub's
+  server that delivers the files), and closes it again straight afterwards. It
+  checks the block every time it starts (see
+  [Checking the network block](#checking-the-network-block)).
 - **App updates** are only checked if you ask: tick **Check for app updates
   at startup**, or click **Check for app updates now** (both off until you
   agree to go online, to github.com). leetsay only reads the latest version
   number and tells you; it never downloads or installs anything by itself.
+  A newer speech model only ever comes with a newer version of leetsay.
 - **This covers leetsay itself, not the programs you type into.** A chat, a web
   page or an online document may send your text over the internet; leetsay
   cannot see or control that. See the [Disclaimer](#disclaimer).
@@ -77,8 +82,9 @@ listed on the release page: in PowerShell, run
 ## The first time
 
 1. Choose a colour and a look.
-2. leetsay asks before it downloads the speech model (about 660 MB) from
-   huggingface.co, a third-party website that we do not run or control. Choose
+2. leetsay asks before it downloads the speech model (about 660 MB) from this
+   project's model page on github.com, a third-party website that we do not run
+   or control. Choose
    **Download**, or **Manual download** to fetch the files yourself with your
    web browser (the steps are shown), or **Quit**.
 3. A short introduction shows the hotkey and lets you try it.
@@ -90,8 +96,9 @@ sight.
 
 ## Using it
 
-- **Hold Ctrl+Space, speak, let go.** The text is typed where your cursor is.
-  You can change the hotkey, or switch to toggle mode, in Settings.
+- **Hold the hotkey, speak, let go.** The text is typed where your cursor is.
+  The hotkey is Ctrl+Space at first; you can change it, or switch to toggle
+  mode, in Settings.
 - **Settings:** click the leetsay icon by the clock. Starting leetsay again
   while it is running also opens Settings.
 - **Cancel** a dictation: hover over the pop-up and click it.
@@ -120,7 +127,7 @@ Good to know:
   Activity**. It should not appear there.
 
 leetsay goes online only after you agree in a window that says "This
-application will go online", and only to download or update the speech model.
+application will go online", and only to download the speech model.
 
 ## Uninstalling
 
@@ -138,7 +145,8 @@ model as well.
 2. Untick **Start with Windows** (General tab), then quit leetsay (right-click
    the icon by the clock, **Quit**).
 3. Delete the folder `%LOCALAPPDATA%\leetsay` (paste that into the File
-   Explorer address bar to open it). It holds your settings and the log.
+   Explorer address bar to open it). It holds your settings, the log and the
+   speech model.
 4. Delete the folder you put leetsay in.
 
 The Python packages can be removed with
@@ -156,9 +164,8 @@ The Python packages can be removed with
   leetsay does not control, and is not responsible for, the text the model
   produces. Check it before you use it.
 - **Speech recognition makes mistakes.** How well it works depends on your
-  voice, accent, language, microphone and background noise (see NVIDIA's
-  [model card](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2) for its
-  known limits). Always check text before you send or submit it, especially
+  voice, accent, language, microphone and background noise (NVIDIA's model
+  card, linked in [CREDITS.md](CREDITS.md), describes its known limits). Always check text before you send or submit it, especially
   if you set leetsay to press Enter after a dictation.
   Do not rely on leetsay where a wrong, missing or misplaced word could cause
   harm or loss, such as medical, legal, financial, safety or emergency use.
@@ -183,8 +190,8 @@ The Python packages can be removed with
   [CREDITS.md](CREDITS.md)). Websites mentioned here are third-party websites
   that we do not run or control.
 - **No affiliation.** leetsay is an independent project. It is not affiliated
-  with, endorsed or sponsored by NVIDIA, Hugging Face, Microsoft or the Python
-  Software Foundation. NVIDIA, Parakeet, Hugging Face, Windows and Python are
+  with, endorsed or sponsored by NVIDIA, GitHub, Microsoft or the Python
+  Software Foundation. NVIDIA, Parakeet, GitHub, Windows and Python are
   trademarks of their respective owners, used here only to describe what
   leetsay works with.
 - **Official downloads only.** Only releases published on this repository's

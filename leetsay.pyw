@@ -15,8 +15,9 @@ Run: double-click leetsay.pyw (the .pyw ending means "no console window"), or
 install it with the Windows installer (see README.md).
 
 The first start asks before downloading the speech model (several hundred MB)
-from huggingface.co. While it runs, the program blocks its own network access;
-it opens it only for a download the user has just agreed to.
+from this project's model releases on github.com. While it runs, the program
+blocks its own network access; it opens it only for a download the user has
+just agreed to.
 
 Click the tray icon for Settings; right-click it to quit. Settings and the log
 (dictate.json, dictate.log) are kept in %LOCALAPPDATA%\\leetsay.
@@ -60,7 +61,8 @@ if sys.argv[1:2] == ["--check-app-update"] and len(sys.argv) >= 3:
                 if _name.lower().startswith("leetsay-setup-") and _name.lower().endswith(".exe"):
                     _installer = str(_asset.get("browser_download_url") or "")
             _result = {"ok": True, "tag": _data.get("tag_name") or "",
-                       "url": _data.get("html_url") or "", "installer": _installer}
+                       "url": _data.get("html_url") or "", "installer": _installer,
+                       "notes": str(_data.get("body") or "")[:4000]}
         except urllib.error.HTTPError as _exc:
             if _exc.code != 404:
                 raise
@@ -68,28 +70,6 @@ if sys.argv[1:2] == ["--check-app-update"] and len(sys.argv) >= 3:
     except Exception as _exc:
         _result = {"ok": False, "error": str(_exc)}
     with open(sys.argv[2], "w", encoding="utf-8") as _fh:
-        json.dump(_result, _fh)
-    os._exit(0)
-
-if sys.argv[1:2] == ["--fetch-fingerprints"] and len(sys.argv) >= 4:
-    # Not the application: a short-lived helper, started only by "Check now"
-    # after its "This application will go online" window was agreed to. It
-    # reads the model's public file list from huggingface.co, writes it to the
-    # file it was given, and exits. It runs before anything else is loaded.
-    import json
-    import urllib.request
-    _out = {}
-    try:
-        _request = urllib.request.Request(
-            "https://huggingface.co/api/models/%s/tree/main" % sys.argv[2],
-            headers={"User-Agent": "model-check"})
-        with urllib.request.urlopen(_request, timeout=25) as _reply:
-            for _entry in json.load(_reply):
-                _out[_entry.get("path", "")] = (_entry.get("lfs") or {}).get("oid", "")
-        _result = {"ok": True, "files": _out}
-    except Exception as _exc:
-        _result = {"ok": False, "error": str(_exc)}
-    with open(sys.argv[3], "w", encoding="utf-8") as _fh:
         json.dump(_result, _fh)
     os._exit(0)
 
@@ -311,8 +291,6 @@ HOLD_TO_TALK = True                  # True: hold to record, let go to finish
                                      # False: press once to start, again to finish
 MODEL = "nemo-parakeet-tdt-0.6b-v2"  # English only. Use ...-v3 for multilingual
 QUANTIZATION = "int8"                # smaller + faster on CPU. None = full size
-# If this folder exists, the model is loaded from it and nothing is downloaded.
-MODEL_DIR = os.path.join(_HERE, "parakeet-model")
 SOUNDS = True                        # soft tone on start and on finish
 SOUND_SET = "soft"                   # soft, bright, click, low, or custom
 SOUND_START_FILE = ""                # your own .wav files, used when the set is
@@ -452,41 +430,90 @@ if isinstance(_config.get("hold_to_talk"), bool):
 # Speech models that can be picked in Settings: (name, label, quantization, size).
 MODELS = [
     ("nemo-parakeet-tdt-0.6b-v2", "English (Parakeet v2)", "int8", "about 660 MB"),
-    ("nemo-parakeet-tdt-0.6b-v3", "25 European languages (Parakeet v3)", "int8", "about 680 MB"),
+    ("nemo-parakeet-tdt-0.6b-v3", "25 European languages (Parakeet v3)", "int8", "about 670 MB"),
 ]
 if _config.get("model") in [entry[0] for entry in MODELS]:
     MODEL = _config["model"]
     QUANTIZATION = dict((entry[0], entry[2]) for entry in MODELS)[MODEL]
 
-# Where each model's files can be fetched by hand (the same files the automatic
-# download gets), and the files that are needed.
-MODEL_PAGES = {
-    "nemo-parakeet-tdt-0.6b-v2": "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v2-onnx/tree/main",
-    "nemo-parakeet-tdt-0.6b-v3": "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/tree/main",
+# Where the speech models come from: this project's own model releases on
+# github.com, converted in the open from NVIDIA's originals (see CREDITS.md).
+MODELS_REPO = "sudo-csmith/leetsay-models"
+MODELS_PAGE = "https://github.com/%s/releases" % MODELS_REPO
+# Every file of every model, with its exact size and SHA-256 fingerprint. A file
+# is used only if it matches, wherever it came from: a changed, damaged or
+# swapped file is refused. A newer model comes only with a newer version of the
+# application, which carries the new fingerprints. Each model lists its current
+# release first; older releases that are still trusted may follow, and are used
+# only while the current one cannot be downloaded. A release found to be bad is
+# simply dropped from this list in the next version, and is refused from then on.
+MODEL_RELEASES = {
+    "nemo-parakeet-tdt-0.6b-v2": [{
+        "tag": "parakeet-tdt-0.6b-v2-int8-r1",
+        "files": {
+            "config.json": (98, "21565538716b1cb134a096e3df9fa3f27f0470bc09c596d9faa578dc27d945d5"),
+            "vocab.txt": (9384, "ec182b70dd42113aff6c5372c75cac58c952443eb22322f57bbd7f53977d497d"),
+            "encoder-model.int8.onnx":
+                (652282027, "e6698cc5b6ad84289b568b47e43b8e8d056d47dfdbb7de6f71d98eb073b1bcf1"),
+            "decoder_joint-model.int8.onnx":
+                (8998286, "a449f49acd68979d418651dd2dcb737cc0f1bf0225e009e29ee326354edbf7d3"),
+        }}],
+    "nemo-parakeet-tdt-0.6b-v3": [{
+        "tag": "parakeet-tdt-0.6b-v3-int8-r1",
+        "files": {
+            "config.json": (98, "21565538716b1cb134a096e3df9fa3f27f0470bc09c596d9faa578dc27d945d5"),
+            "vocab.txt": (93939, "d58544679ea4bc6ac563d1f545eb7d474bd6cfa467f0a6e2c1dc1c7d37e3c35d"),
+            "encoder-model.int8.onnx":
+                (652282012, "89e59ef6598d7edce584759b8648b5daaf518dc221e948c1d4db2270554cafcb"),
+            "decoder_joint-model.int8.onnx":
+                (18202004, "eea7483ee3d1a30375daedc8ed83e3960c91b098812127a0d99d1c8977667a70"),
+        }}],
 }
-# (The model's page also lists nemo128.onnx. It is not needed: the speech
-# library brings its own copy of that small helper, and the automatic download
-# does not fetch it either.)
+# The small helper that finds the pauses in long dictations (Silero VAD, MIT),
+# the makers' own unchanged file.
+HELPER = "silero-vad"
+HELPER_RELEASE = {
+    "tag": "silero-vad-v6.2.3",
+    "files": {
+        "config.json": (31, "5d8aaa4970ba7f3b089d11ee1e7e8033363c52a16ce7afb2595f0c941a280996"),
+        "silero_vad.onnx": (2327524, "1a153a22f4509e292a94e67d6f9b85e8deb25b4988682b7e174c65279d8788e3"),
+    }}
 MODEL_FILES = ["config.json", "vocab.txt",
                "encoder-model.int8.onnx", "decoder_joint-model.int8.onnx"]
 
 
-def manual_model_dir(name=None):
-    """The folder to put a model's files in when downloading them by hand."""
+def current_release(name=None):
+    """The release of a model this version of the application uses."""
+    releases = MODEL_RELEASES.get(name or MODEL) or [None]
+    return releases[0]
+
+
+def release_page(release):
+    return "https://github.com/%s/releases/tag/%s" % (MODELS_REPO, release["tag"])
+
+
+def model_dir(name=None):
+    """The folder a model's files are kept in, downloaded or put there by hand:
+    %LOCALAPPDATA%\\leetsay\\models\\<model>."""
     return os.path.join(_DATA, "models", name or MODEL)
 
 
-def local_model_dir():
-    """A folder of model files put there by hand, or '' if there is none.
-    When there is one the model is loaded from it and nothing is downloaded."""
-    folder = manual_model_dir()
-    if all(os.path.isfile(os.path.join(folder, name)) for name in MODEL_FILES):
+def helper_dir():
+    return os.path.join(_DATA, "models", HELPER)
+
+
+def local_model_dir(name=None):
+    """The model's folder if all its files are there ('' if not). Whether they
+    are the right files is checked separately, before anything is loaded."""
+    folder = model_dir(name)
+    if all(os.path.isfile(os.path.join(folder, item)) for item in MODEL_FILES):
         return folder
-    # The older place, next to the program: only if every file is really there
-    # (an empty or half-filled folder must not stop the download being offered).
-    if all(os.path.isfile(os.path.join(MODEL_DIR, name)) for name in MODEL_FILES):
-        return MODEL_DIR
     return ""
+
+
+def helper_on_disk():
+    return all(os.path.isfile(os.path.join(helper_dir(), item))
+               for item in HELPER_RELEASE["files"])
 
 
 def engine_options():
@@ -654,17 +681,6 @@ def set_type_text(on):
     save_setting("type_text", TYPE_TEXT)
 
 
-# Off by default: when on, the next start goes online to ask Hugging Face
-# whether the model files have changed, and downloads them if so.
-CHECK_UPDATES = _config.get("check_updates") is True
-
-
-def set_check_updates(on):
-    global CHECK_UPDATES
-    CHECK_UPDATES = bool(on)
-    save_setting("check_updates", CHECK_UPDATES)
-
-
 # Off by default: when on, each start asks github.com (in a separate helper, so
 # this program's own network block stays closed) whether a newer version of
 # the application has been published. Nothing is downloaded by it.
@@ -717,6 +733,12 @@ def fetch_latest_release():
     installer = str(result.get("installer") or "")
     if not installer.startswith("https://github.com/%s/releases/download/" % APP_REPO):
         installer = ""                           # not this repository's: not offered
+    # A release can say that older versions should no longer be used, with a
+    # line "Minimum safe version: x.y.z" in its notes.
+    import re
+    found = re.search(r"minimum safe version:\s*v?([0-9]+(?:\.[0-9]+)*)",
+                      str(result.get("notes") or ""), re.IGNORECASE)
+    _app_update_work["minimum"] = found.group(1) if found else ""
     return str(result.get("tag") or ""), page, installer, None
 
 
@@ -813,84 +835,8 @@ def set_startup(on):
 
 
 # ----------------------------------------------------------------------------
-# Model file fingerprints: a changed, damaged or swapped file is caught
+# Model files: checked against their built-in fingerprints, downloaded safely
 # ----------------------------------------------------------------------------
-# The published SHA-256 fingerprint of each model file, per model. Left empty,
-# the fingerprints are recorded the first time the files are used and every
-# later start is checked against that record. Filled in (for a release), the
-# files must match these exactly, including straight after downloading.
-MODEL_CHECKSUMS = {
-    # istupakov/parakeet-tdt-0.6b-v2-onnx, revision 0bbb45a3. The two .onnx
-    # values are the SHA-256 that huggingface.co publishes for those files (their
-    # LFS ids); the two small files were hashed from that same download.
-    "nemo-parakeet-tdt-0.6b-v2": {
-        "config.json": "666903c76b9798caf2c210afd4f6cd60b08a8dbf9800ec8d7a3bc0d2148ac466",
-        "vocab.txt": "ec182b70dd42113aff6c5372c75cac58c952443eb22322f57bbd7f53977d497d",
-        "encoder-model.int8.onnx":
-            "3e0581fda6ab843888b51e56d7ee78b6d5bc3237ec113af1f732d1d5286aa155",
-        "decoder_joint-model.int8.onnx":
-            "a449f49acd68979d418651dd2dcb737cc0f1bf0225e009e29ee326354edbf7d3",
-    },
-    # nemo-parakeet-tdt-0.6b-v3: not filled in yet (fingerprints are recorded
-    # the first time its files are used, as before).
-}
-
-
-_SILERO_REPO = "istupakov/silero-vad-onnx"     # the pause-detection helper
-
-
-def model_repo(name=None):
-    """The Hugging Face repository a model is downloaded from, e.g.
-    "istupakov/parakeet-tdt-0.6b-v2-onnx" ('' if unknown)."""
-    page = MODEL_PAGES.get(name or MODEL, "")
-    if "huggingface.co/" not in page:
-        return ""
-    return page.split("huggingface.co/", 1)[1].split("/tree/")[0]
-
-
-def cache_folder_for(repo):
-    """The download cache's folder for exactly this repository. (Matching on a
-    part of the name would also catch other programs' models, such as the
-    original NVIDIA one, and Remove would delete them.)"""
-    if not repo:
-        return ""
-    hub = os.path.dirname(model_location_root())
-    return os.path.join(hub, "models--" + repo.replace("/", "--"))
-
-
-def current_snapshot(root):
-    """The version of the files the speech library loads (refs/main), not an
-    older one still lying in the cache after an update."""
-    try:
-        with open(os.path.join(root, "refs", "main"), encoding="utf-8") as fh:
-            ref = fh.read().strip()
-        folder = os.path.join(root, "snapshots", ref)
-        return folder if ref and os.path.isdir(folder) else ""
-    except Exception:
-        return ""
-
-
-def model_files():
-    """{file name: full path} of the model's files on this PC, wherever they
-    are: the by-hand folder, or the cache the automatic download fills."""
-    found = {}
-    folder = local_model_dir()
-    if folder:
-        for name in MODEL_FILES:
-            path = os.path.join(folder, name)
-            if os.path.isfile(path):
-                found[name] = path
-        return found
-    root, _size = model_location()
-    snapshot = current_snapshot(root) if root else ""
-    if snapshot:
-        for name in MODEL_FILES:
-            path = os.path.join(snapshot, name)
-            if os.path.isfile(path):
-                found[name] = path
-    return found
-
-
 def file_fingerprint(path):
     import hashlib
     digest = hashlib.sha256()
@@ -900,137 +846,170 @@ def file_fingerprint(path):
     return digest.hexdigest()
 
 
-def uses_own_files(name=None):
-    """True if the user knowingly accepted model files that differ from the
-    built-in fingerprints, for this model."""
-    accepted = _config.get("own_model_files")
-    return isinstance(accepted, list) and (name or MODEL) in accepted
-
-
-def set_uses_own_files(on, name=None):
-    name = name or MODEL
-    accepted = _config.get("own_model_files")
-    accepted = [m for m in accepted if isinstance(m, str)] if isinstance(accepted, list) else []
-    if on and name not in accepted:
-        accepted.append(name)
-    elif not on and name in accepted:
-        accepted.remove(name)
-    save_setting("own_model_files", accepted)
-
-
-def check_model_files():
-    """Check the model's files against their fingerprints.
-
-    Returns (changed, record): the names of files that do not match what is
-    expected, and a fresh record {name: [size, modified time, fingerprint]}.
-    A file whose size and time are as recorded is taken as unchanged without
-    being read again, so the check costs nothing on an ordinary start."""
+def check_files(folder, files, key):
+    """Compare the files in `folder` with {name: (size, SHA-256)}. Returns the
+    names that are missing or do not match. A file whose size and time are as
+    recorded the last time it matched is not read again, so the check costs
+    nothing on an ordinary start; any change means it is read in full."""
     saved = _config.get("model_files")
-    known = saved.get(MODEL, {}) if isinstance(saved, dict) else {}
-    fetched = _config.get("published_fingerprints")
-    # The built-in fingerprints apply unless the user knowingly took other files
-    # for this model (an agreed update, or "Use them anyway"): then the record
-    # of the files they accepted is what every later start checks against.
-    pinned = {} if uses_own_files() else (MODEL_CHECKSUMS.get(MODEL) or {})
-    published = pinned or (fetched.get(MODEL, {}) if isinstance(fetched, dict) else {})
-    changed, record = [], {}
-    for name, path in sorted(model_files().items()):
+    known = saved.get(key, {}) if isinstance(saved, dict) else {}
+    bad, record = [], {}
+    for name, (size, sha) in sorted(files.items()):
+        path = os.path.join(folder, name)
         try:
             info = os.stat(path)
+            if info.st_size != size:
+                bad.append(name)
+                continue
             old = known.get(name)
-            same = (isinstance(old, list) and len(old) == 3 and old[0] == info.st_size
-                    and abs(float(old[1]) - info.st_mtime) < 2.0)
-            mark = old[2] if same else file_fingerprint(path)
-            expected = published.get(name) or (old[2] if isinstance(old, list)
-                                               and len(old) == 3 else None)
-            if expected and mark.lower() != str(expected).lower():
-                changed.append(name)
-            record[name] = [info.st_size, info.st_mtime, mark]
+            same = (isinstance(old, list) and len(old) == 3 and old[0] == size
+                    and abs(float(old[1]) - info.st_mtime) < 2.0 and old[2] == sha)
+            if not same and file_fingerprint(path) != sha:
+                bad.append(name)
+                continue
+            record[name] = [size, info.st_mtime, sha]
+        except OSError:
+            bad.append(name)
         except Exception as exc:
             print("Could not check %s: %s" % (name, exc), file=sys.stderr)
-    return changed, record
+            bad.append(name)
+    if record != known:
+        saved = dict(saved) if isinstance(saved, dict) else {}
+        saved[key] = record
+        save_setting("model_files", saved)
+    return bad
 
 
-_FETCH_SCRIPT = r"""
-import json, sys, urllib.request
-out = {}
-try:
-    request = urllib.request.Request(
-        "https://huggingface.co/api/models/%s/tree/main" % sys.argv[1],
-        headers={"User-Agent": "leetsay-model-check"})
-    with urllib.request.urlopen(request, timeout=25) as reply:
-        for entry in json.load(reply):
-            out[entry.get("path", "")] = (entry.get("lfs") or {}).get("oid", "")
-    result = {"ok": True, "files": out}
-except Exception as exc:
-    result = {"ok": False, "error": str(exc)}
-with open(sys.argv[2], "w", encoding="utf-8") as fh:
-    json.dump(result, fh)
-"""
+def matching_release(name=None):
+    """The trusted release that the model's files on this PC are exactly (the
+    current one is tried first), or None."""
+    name = name or MODEL
+    if not local_model_dir(name):
+        return None
+    for release in MODEL_RELEASES.get(name) or []:
+        if not check_files(model_dir(name), release["files"], "%s|%s" % (name, release["tag"])):
+            return release
+    return None
 
 
-def fetch_published_fingerprints():
-    """Ask the model's own website for the published fingerprint of each of its
-    files. Returns ({file name: sha256 or ''}, None) or (None, why it failed).
+def model_mismatches(name=None):
+    """The model's files that are missing or differ from the current release."""
+    name = name or MODEL
+    release = current_release(name)
+    if release is None:
+        return list(MODEL_FILES)
+    return check_files(model_dir(name), release["files"], "%s|%s" % (name, release["tag"]))
 
-    This is the one thing here that goes online, and only when the user asks.
-    It runs in a separate short-lived process, so this program's own block on
-    network access stays exactly as it is. Nothing is sent but the request for
-    the public file list."""
-    import subprocess
-    import tempfile
-    page = MODEL_PAGES.get(MODEL, "")
-    if "huggingface.co/" not in page:
-        return None, "no page is known for this model"
-    repo = page.split("huggingface.co/", 1)[1].split("/tree/")[0]
-    handle, out_path = tempfile.mkstemp(suffix=".json")
-    os.close(handle)
-    try:
-        helper = ([sys.executable, "--fetch-fingerprints", repo, out_path] if FROZEN
-                  else [sys.executable, "-I", "-c", _FETCH_SCRIPT, repo, out_path])
-        subprocess.run(helper,
-                       timeout=40, creationflags=0x08000000 if os.name == "nt" else 0)
-        with open(out_path, encoding="utf-8") as fh:
-            result = json.load(fh)
-    except Exception as exc:
-        return None, str(exc)
-    finally:
-        try:
-            os.remove(out_path)
-        except Exception:
-            pass
-    if not result.get("ok"):
-        return None, result.get("error") or "the website could not be reached"
-    return result.get("files") or {}, None
+
+def helper_ok():
+    return helper_on_disk() and not check_files(
+        helper_dir(), HELPER_RELEASE["files"], "%s|%s" % (HELPER, HELPER_RELEASE["tag"]))
+
+
+def model_files():
+    """{file name: full path} of the model's files that are on this PC."""
+    folder = model_dir()
+    return {name: os.path.join(folder, name) for name in MODEL_FILES
+            if os.path.isfile(os.path.join(folder, name))}
+
+
+def _download_file(url, path, size, sha):
+    """Fetch one file, carrying on from a part that an earlier, interrupted try
+    left behind. Kept only if it is exactly the right size and fingerprint;
+    otherwise it is deleted and the attempt fails."""
+    import urllib.request
+    part = path + ".part"
+    have = os.path.getsize(part) if os.path.isfile(part) else 0
+    if have > size:
+        os.remove(part)
+        have = 0
+    if have < size:
+        request = urllib.request.Request(url, headers={"User-Agent": APP_TITLE})
+        if have:
+            request.add_header("Range", "bytes=%d-" % have)
+        with urllib.request.urlopen(request, timeout=30) as reply:
+            if have and getattr(reply, "status", 200) != 206:
+                have = 0                         # sent from the start again
+            with open(part, "ab" if have else "wb") as out:
+                while True:
+                    block = reply.read(1024 * 1024)
+                    if not block:
+                        break
+                    out.write(block)
+    got = os.path.getsize(part)
+    if got < size:
+        # The connection ended early: keep what arrived, the next try carries on.
+        raise ConnectionError("%s stopped at %d of %d bytes"
+                              % (os.path.basename(path), got, size))
+    if got != size or file_fingerprint(part) != sha:
+        os.remove(part)
+        raise IOError("%s did not match its fingerprint, so it was deleted"
+                      % os.path.basename(path))
+    os.replace(part, path)
+
+
+def download_release(release, folder):
+    """Fetch every file of a release into a separate folder beside `folder`,
+    check each one, and only then put the new folder in place of the old one.
+    If the connection drops or a file does not match, what is already in
+    `folder` is untouched (and still used), and the files that did arrive
+    complete are kept, so the next try carries on from there."""
+    import shutil
+    staging = folder + ".download"
+    os.makedirs(staging, exist_ok=True)
+    for name, (size, sha) in sorted(release["files"].items(), key=lambda item: item[1][0]):
+        target = os.path.join(staging, name)
+        if os.path.isfile(target) and os.path.getsize(target) == size \
+                and file_fingerprint(target) == sha:
+            continue                             # arrived complete in an earlier try
+        _download_file("https://github.com/%s/releases/download/%s/%s"
+                       % (MODELS_REPO, release["tag"], name), target, size, sha)
+    old = folder + ".old"
+    shutil.rmtree(old, ignore_errors=True)
+    if os.path.isdir(old):
+        old = "%s.old%d" % (folder, int(time.time()))
+    if os.path.isdir(folder):
+        os.replace(folder, old)
+    os.replace(staging, folder)
+    shutil.rmtree(old, ignore_errors=True)
+    print("Downloaded and checked %s (%d files)." % (release["tag"], len(release["files"])))
+
+
+def _release_bytes(release):
+    return sum(size for size, _sha in release["files"].values())
 
 
 def model_total_bytes():
-    """Roughly how big the chosen model's download is (from the size shown to
-    the user, e.g. "about 660 MB")."""
-    words = dict((entry[0], entry[3]) for entry in MODELS).get(MODEL, "")
-    digits = "".join(ch for ch in words if ch.isdigit())
-    return int(digits) * 1024 * 1024 if digits else 0
+    """How much this download fetches: the model, plus the helper if missing."""
+    release = current_release()
+    total = _release_bytes(release) if release else 0
+    if not helper_on_disk():
+        total += _release_bytes(HELPER_RELEASE)
+    return total
 
 
 def model_bytes_on_disk():
-    """How much of the model is on this PC so far, part-finished files included."""
-    folder = model_location()[0]
-    return folder_bytes(folder) if folder else 0
+    """How much of this download has arrived so far (partly arrived files too)."""
+    got = 0
+    for folder, release in ((model_dir(), current_release()), (helper_dir(), HELPER_RELEASE)):
+        if release is None:
+            continue
+        if os.path.isdir(folder + ".download"):
+            got += folder_bytes(folder + ".download")
+        elif folder == helper_dir() and helper_on_disk():
+            got += _release_bytes(release)
+        elif folder == model_dir() and local_model_dir():
+            got += _release_bytes(release)
+    return got
 
 
 def folder_bytes(folder):
-    """The real size of a model folder. Shortcuts are followed to the file they
-    point to (which may be in the download library's shared store), and each
-    real file is counted once, however many shortcuts lead to it."""
-    seen, total = set(), 0
+    """The size of everything in a folder."""
+    total = 0
     for where, _dirs, files in os.walk(folder):
         for name in files:
-            path = os.path.join(where, name)
             try:
-                real = os.path.normcase(os.path.realpath(path))
-                if real not in seen:
-                    seen.add(real)
-                    total += os.path.getsize(path)
+                total += os.path.getsize(os.path.join(where, name))
             except Exception:
                 pass
     return total
@@ -1045,247 +1024,91 @@ def size_words(count):
     return "%d MB" % (count // (1024 * 1024))
 
 
-def model_location_root():
-    """The folder the automatic download keeps models in (one sub-folder each)."""
-    cache = os.environ.get("HF_HUB_CACHE") or os.path.join(
-        os.environ.get("HF_HOME") or os.path.join(
-            os.path.expanduser("~"), ".cache", "huggingface"), "hub")
-    return os.path.join(cache, "x")              # dirname() of this is the hub folder
+def folder_megabytes(folder):
+    return int(folder_bytes(folder) / (1024 * 1024))
+
+
+def _models_root():
+    return os.path.normcase(os.path.abspath(os.path.join(_DATA, "models")))
 
 
 def finish_pending_removal():
-    """Delete a model folder that could not be fully removed while the program
-    was running. Only folders in the places models are kept are ever touched."""
+    """Delete model files that could not be removed while the program was
+    running. Only folders inside the application's own models folder are ever
+    touched."""
     pending = _config.get("delete_at_start")
     if not pending:
         return
     save_setting("delete_at_start", "")
-    # One folder (as earlier versions saved it) or a list of folders and files.
+    import shutil
     for item in (pending if isinstance(pending, list) else [pending]):
         try:
-            import shutil
             wanted = os.path.normcase(os.path.abspath(str(item)))
-            allowed = [os.path.normcase(os.path.abspath(os.path.dirname(model_location_root()))),
-                       os.path.normcase(os.path.abspath(os.path.join(_DATA, "models")))]
-            if not any(wanted.startswith(place + os.sep) for place in allowed):
+            if not wanted.startswith(_models_root() + os.sep):
                 continue
             if os.path.isdir(wanted):
                 shutil.rmtree(wanted, ignore_errors=True)
             elif os.path.isfile(wanted):
                 os.remove(wanted)
-                try:
-                    os.remove(wanted + ".refs")
-                except FileNotFoundError:
-                    pass
         except Exception as exc:
             print("Could not finish removing the model:", exc, file=sys.stderr)
 
 
-def folder_megabytes(folder):
-    return int(folder_bytes(folder) / (1024 * 1024))
-
-
-def _shared_files_of(folder):
-    """The files in the download library's shared store ("hub\\blobs") that
-    shortcuts inside this model folder point to."""
-    hub = os.path.normcase(os.path.abspath(os.path.dirname(model_location_root())))
-    store = os.path.join(hub, "blobs") + os.sep
-    found = set()
-    for where, _dirs, files in os.walk(folder):
-        for name in files:
-            path = os.path.join(where, name)
-            try:
-                if os.path.islink(path):
-                    real = os.path.normcase(os.path.realpath(path))
-                    if real.startswith(store) and os.path.isfile(real):
-                        found.add(real)
-            except Exception:
-                pass
-    return found
-
-
-def _still_used_elsewhere(shared):
-    """True if any other model in the cache still has a shortcut to this shared
-    file. The store lists who uses each file in "<file>.refs"; every entry is
-    checked on disk. If that list can't be read, the file counts as in use:
-    better to leave it than to delete something another program needs."""
-    hub = os.path.dirname(os.path.dirname(os.path.dirname(shared)))
-    try:
-        with open(shared + ".refs", encoding="utf-8") as fh:
-            entries = [line.strip() for line in fh.read().splitlines() if line.strip()]
-    except Exception:
-        return True
-    for entry in entries:
-        user = os.path.join(hub, *entry.split("/"))
-        try:
-            if os.path.islink(user) and \
-                    os.path.normcase(os.path.realpath(user)) == os.path.normcase(shared):
-                return True
-        except Exception:
-            return True
-    return False
-
-
-def _remove_model_folder(folder, report):
-    """Delete one model folder and the shared-store files only it was using."""
-    import shutil
-    shared = _shared_files_of(folder)
-    size = folder_megabytes(folder)
-    shutil.rmtree(folder, ignore_errors=True)
-    left = [folder] if os.path.isdir(folder) else []
-    kept = 0
-    for path in shared:
-        if _still_used_elsewhere(path):
-            kept += os.path.getsize(path)
-            continue
-        try:
-            os.remove(path)
-            try:
-                os.remove(path + ".refs")
-            except FileNotFoundError:
-                pass
-        except FileNotFoundError:
-            pass
-        except Exception:
-            left.append(path)                # still open: removed at the next start
-    remaining = kept
-    for item in left:
-        try:
-            remaining += folder_bytes(item) if os.path.isdir(item) else os.path.getsize(item)
-        except Exception:
-            pass
-    report["freed"] += max(0, size - int(remaining / (1024 * 1024)))
-    if left:
-        report["left"].extend(left)
-    else:
-        report["removed"].append(folder)
-    return left
-
-
-def model_folders():
-    """Every folder on this PC that holds this model: the by-hand folder, and
-    any folder for it in the automatic download's cache."""
-    found = []
-    by_hand = manual_model_dir()
-    if os.path.isdir(by_hand):
-        found.append(by_hand)
-    if local_model_dir() == MODEL_DIR:           # the older place, next to the program
-        found.append(MODEL_DIR)
-    cached = cache_folder_for(model_repo())
-    if cached and os.path.isdir(cached):
-        found.append(cached)
-    return found
-
-
-def download_cache_folder():
-    """Where the download library keeps its own extra cache of downloaded
-    pieces (shared by any program on this PC that uses the same library)."""
-    return os.environ.get("HF_XET_CACHE") or os.path.join(
-        os.environ.get("HF_HOME") or os.path.join(
-            os.path.expanduser("~"), ".cache", "huggingface"), "xet")
+def model_folders(name=None):
+    """The folders on this PC that belong to this model: its own folder and any
+    download in progress or left behind."""
+    base = model_dir(name)
+    return [folder for folder in (base, base + ".download", base + ".old")
+            if os.path.isdir(folder)]
 
 
 def forget_model():
-    """Delete this model from this PC, everywhere it is kept, and every note
-    about it, so the next start downloads it afresh (after asking, as on a
-    first launch). Returns a short account of what was done."""
+    """Delete this model from this PC, with every note about it, so the next
+    start offers to download it afresh (after asking). The helper goes too,
+    unless another model is still here that uses it. Returns what was done."""
     import shutil
-    report = {"removed": [], "left": [], "freed": 0, "cache_freed": 0}
-    for folder in model_folders():
-        _remove_model_folder(folder, report)
-    # (The download library's "xet" cache is not touched: it is shared with any
-    # other program that uses the library, and this application never uses it.)
-    have = [m for m in downloaded_models() if m != _marker_text()]
-    try:
-        with open(_MARKER, "w", encoding="utf-8") as fh:
-            fh.write("\n".join(have))
-    except Exception:
-        pass
-    # The small pause-detection helper fetched alongside it goes too.
-    try:
-        helper = cache_folder_for(_SILERO_REPO)
-        if os.path.isdir(helper):
-            _remove_model_folder(helper, {"removed": [], "left": report["left"], "freed": 0})
-    except Exception:
-        pass
+    report = {"removed": [], "left": [], "freed": 0}
+    folders = model_folders()
+    others = [entry[0] for entry in MODELS if entry[0] != MODEL and local_model_dir(entry[0])]
+    if not others:
+        folders += [folder for folder in (helper_dir(), helper_dir() + ".download")
+                    if os.path.isdir(folder)]
+    for folder in folders:
+        size = folder_megabytes(folder)
+        shutil.rmtree(folder, ignore_errors=True)
+        if os.path.isdir(folder):
+            report["left"].append(folder)        # Windows still holds a file open
+            report["freed"] += max(0, size - folder_megabytes(folder))
+        else:
+            report["removed"].append(folder)
+            report["freed"] += size
     if report["left"]:
-        # Windows would not let go of a file the running program still has
-        # open. Finish the job at the next start, before anything is loaded.
+        # Finished at the next start, before anything is loaded.
         save_setting("delete_at_start", list(report["left"]))
-    if uses_own_files():
-        set_uses_own_files(False)                 # a fresh download is checked as new
-    for key in ("model_files", "published_fingerprints"):
-        saved = _config.get(key)
-        if isinstance(saved, dict) and MODEL in saved:
-            saved = dict(saved)
-            saved.pop(MODEL, None)
-            save_setting(key, saved)
-    if _config.get("download_yes_once") or _config.get("download_ok"):
-        save_setting("download_ok", "")
+    saved = _config.get("model_files")
+    if isinstance(saved, dict):
+        save_setting("model_files", {key: value for key, value in saved.items()
+                                     if not key.startswith(MODEL + "|")})
+    if _config.get("download_yes_once"):
         save_setting("download_yes_once", "")
     print("Model removed: %s" % report)
     return report
 
 
-def remember_model_files(record):
-    saved = _config.get("model_files")
-    saved = dict(saved) if isinstance(saved, dict) else {}
-    saved[MODEL] = record
-    save_setting("model_files", saved)
-
-
-# ----------------------------------------------------------------------------
-# Where the model lives on disk (for the About box)
-# ----------------------------------------------------------------------------
 def model_location():
-    """Return (folder, size in MB) of the downloaded model, or (None, 0)."""
-    folder = None
-    if local_model_dir():
-        folder = local_model_dir()
-    else:
-        cached = cache_folder_for(model_repo())
-        if cached and os.path.isdir(cached):
-            folder = cached
-    if folder is None:
+    """Return (folder, size in MB) of the model on this PC, or (None, 0)."""
+    folder = model_dir()
+    if not os.path.isdir(folder) or not model_files():
         return None, 0
     return folder, folder_megabytes(folder)
 
 
-# ----------------------------------------------------------------------------
-# Privacy: once the model has been downloaded, cut this program off the network
-# ----------------------------------------------------------------------------
-_MARKER = os.path.join(_DATA, "dictate.ready")   # written after the first good start
-
-
-def _marker_text(model=None, quantization=None):
-    return "%s|%s" % (MODEL if model is None else model,
-                      QUANTIZATION if model is None else quantization)
-
-
-def downloaded_models():
-    """The models this PC already has, one "name|quantization" per line."""
-    try:
-        with open(_MARKER, encoding="utf-8") as fh:
-            return [line.strip() for line in fh.read().splitlines() if line.strip()]
-    except Exception:
-        return []
-
-
 def is_downloaded(name):
-    quantization = dict((entry[0], entry[2]) for entry in MODELS).get(name, QUANTIZATION)
-    return _marker_text(name, quantization) in downloaded_models()
+    return bool(local_model_dir(name))
 
 
 def _setup_done():
-    return _marker_text() in downloaded_models()
-
-
-def mark_downloaded():
-    have = downloaded_models()
-    if _marker_text() not in have:
-        have.append(_marker_text())
-        with open(_MARKER, "w", encoding="utf-8") as fh:
-            fh.write("\n".join(have))
+    return bool(local_model_dir())
 
 
 # The network guard. It is installed when the program starts and cannot be
@@ -1293,10 +1116,12 @@ def mark_downloaded():
 # (looking up a name, connecting, sending) to it first, from whatever library
 # or module it comes, and the guard refuses it. Only after the user has agreed,
 # in a window that says "This application will go online", is it opened for
-# this run, and then only towards huggingface.co. It closes again as soon as
-# the download or check is done.
+# this run, and then only towards github.com, where this project's speech
+# models are published (and GitHub's own server that delivers the files). It
+# closes again as soon as the download is done.
 _NET_MESSAGE = APP_TITLE + ": network access is blocked (offline)"
-_NET_ALLOWED_DOMAINS = ("huggingface.co", "hf.co")
+_NET_ALLOWED_HOSTS = frozenset(("github.com", "release-assets.githubusercontent.com",
+                                "objects.githubusercontent.com"))
 _NET_EVENTS = frozenset(("socket.connect", "socket.getaddrinfo", "socket.gethostbyname",
                          "socket.gethostbyaddr", "socket.getnameinfo", "socket.sendto",
                          "socket.sendmsg", "socket.bind"))
@@ -1338,7 +1163,7 @@ def _host_allowed(host):
     if isinstance(host, bytes):
         host = host.decode("ascii", "replace")
     host = str(host or "").lower().rstrip(".")
-    if any(host == domain or host.endswith("." + domain) for domain in _NET_ALLOWED_DOMAINS):
+    if host in _NET_ALLOWED_HOSTS:
         return True
     return host in _proxy_hosts()
 
@@ -1361,26 +1186,19 @@ def _network_guard(event, args):
             if event == "socket.sendmsg":
                 target = args[-1] if args else None
             if _address_of(target) not in _net["ips"]:
-                print("Network: refused a connection to %r (not huggingface.co)"
+                print("Network: refused a connection to %r (not an allowed address)"
                       % (_address_of(target),), file=sys.stderr)
                 raise NetworkBlocked(_NET_MESSAGE)
             return
         if event in ("socket.getaddrinfo", "socket.gethostbyname"):
             host = args[0] if args else None
             if not _host_allowed(host):
-                print("Network: refused a lookup of %r (only huggingface.co is allowed)"
+                print("Network: refused a lookup of %r (only github.com is allowed)"
                       % (host,), file=sys.stderr)
                 raise NetworkBlocked(_NET_MESSAGE)
             if host not in _net["hosts"]:
                 _net["hosts"].add(host)
                 print("Network: connecting to %s (agreed: %s)" % (host, _net["why"]))
-    elif event == "import":
-        # The download library's native file engine does its own networking,
-        # out of the guard's sight. It is never used: every download goes
-        # through Python, where the guard sees it.
-        name = str(args[0]) if args else ""
-        if name == "hf_xet" or name.startswith("hf_xet."):
-            raise ImportError("hf_xet is not used by " + APP_TITLE)
     elif event == "ctypes.dlopen" and not _net["open"]:
         name = os.path.basename(str(args[0] if args else "")).lower()
         if name.endswith(".dll"):
@@ -1421,10 +1239,9 @@ _remember_addresses()
 
 
 def open_network(why):
-    """Allow network access towards huggingface.co for this run. Only ever
-    called right after the user agreed to go online (or for a start that a
-    "go online" window in Settings covered)."""
-    os.environ["HF_HUB_OFFLINE"] = "0"
+    """Allow network access towards github.com for this run. Only ever called
+    right after the user agreed to go online (or for a start that a "go online"
+    window in Settings covered)."""
     _net["why"] = why
     _net["open"] = True
     print("Network: opened for this run (%s)." % why)
@@ -1434,7 +1251,6 @@ def close_network(reason="done"):
     if _net["open"]:
         _net["open"] = False
         _net["ips"].clear()
-        os.environ["HF_HUB_OFFLINE"] = "1"
         print("Network: closed again (%s)." % reason)
 
 
@@ -1474,13 +1290,13 @@ def network_words(short=False):
     """How the network stands, in words for Settings and About."""
     if short:                                    # the status line in Settings
         if _net["open"]:
-            return "Open for this download only (huggingface.co)"
+            return "Open for this download only (github.com)"
         if _net["verified"] is False:
             return "Blocked, but the check at start failed (see the log)"
         return ("Blocked for %s · checked at start" % APP_TITLE if _net["verified"]
                 else "Blocked for %s" % APP_TITLE)
     if _net["open"]:
-        return "open for this run only, to huggingface.co (%s)" % _net["why"]
+        return "open for this run only, to github.com (%s)" % _net["why"]
     if _net["verified"]:
         return "blocked for this program (offline, checked at start)"
     if _net["verified"] is False:
@@ -1489,50 +1305,27 @@ def network_words(short=False):
 
 
 # Ask the libraries not to phone home, in any mode.
-os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
-# The download library can keep a second, hidden copy of what it downloads (a
-# "chunk cache") so that a repeat download is quick. That copy would survive
-# removing the model, so it is switched off: one copy only, in one known place.
-os.environ["HF_XET_CHUNK_CACHE_SIZE_BYTES"] = "0"
-# Newer versions of the download library also keep files in a store shared by
-# every model ("hub\blobs"), leaving only shortcuts in the model's own folder.
-# Removing the model folder would then free nothing, and a later "download"
-# would quietly re-link the old files. Switched off: the files stay in the
-# model's own folder. (Files already in that store are cleared on removal.)
-os.environ["HF_HUB_DISABLE_SHARED_BLOBS"] = "1"
 os.environ["DO_NOT_TRACK"] = "1"
-# Every download goes through Python, where the network guard sees it.
-os.environ["HF_HUB_DISABLE_XET"] = "1"
 
 START_WITHOUT_MODEL = False              # set at start-up when the user chooses to
                                          # come in without a speech model for now
 
-# "Check now" in Settings found a newer model and the user asked for it: this
-# one start goes online to fetch it, then everything is offline again.
-UPDATE_ONCE = _config.get("update_once") is True
-# A download agreed to in Settings (switching to a model not on this PC yet, or
-# another try at a stalled download) covers this one start. Both one-shot yeses
-# are used up the moment they are read, so a start that fails later on cannot
-# leave them behind for another start to use without asking.
+# A download agreed to in Settings (switching to a model not on this PC yet,
+# downloading it again, or another try at a stalled download) covers this one
+# start. The yes is used up the moment it is read, so a start that fails later
+# on cannot leave it behind for another start to use without asking.
 DOWNLOAD_AGREED_ONCE = _config.get("download_yes_once") == MODEL
-if UPDATE_ONCE:
-    save_setting("update_once", False)
 if _config.get("download_yes_once") or _config.get("download_ok"):
     save_setting("download_yes_once", "")
     save_setting("download_ok", "")             # an older, lasting yes: dropped unread
-UPDATING = CHECK_UPDATES or UPDATE_ONCE          # the model's files may change this run
-# Offline unless this start was agreed to in a "go online" window: the update
-# check at startup (switched on with a warning), a model update or a model
-# switch chosen in Settings. The first download asks later, in main().
-os.environ["HF_HUB_OFFLINE"] = "1"           # use the files on disk, never check online
-if UPDATE_ONCE:
-    open_network("model update chosen in Settings")
-elif CHECK_UPDATES:
-    open_network("update check at startup, switched on in Settings")
-elif DOWNLOAD_AGREED_ONCE:
+# Settings that earlier test versions kept and that no longer exist.
+for _old_key in ("check_updates", "update_once", "own_model_files", "published_fingerprints"):
+    if _old_key in _config:
+        save_setting(_old_key, None)
+# Offline unless this start was agreed to in a "go online" window in Settings.
+# The first download asks later, in main().
+if DOWNLOAD_AGREED_ONCE:
     open_network("download agreed to in Settings")
-
-
 
 
 # ----------------------------------------------------------------------------
@@ -3718,7 +3511,7 @@ class Dictation(QtCore.QObject):
         self.model_ready.connect(self.on_model_ready)
         self.model_failed.connect(self.on_model_failed)
         self.model_suspect.connect(self.on_model_suspect)
-        self.accept_changed = False            # the user chose to use changed files
+        self.model_outdated = False            # loaded an older trusted release
         self.finished.connect(self.on_finished)
         self.live_text.connect(self.on_live_text)
         self.hotkey_captured.connect(self.on_hotkey_captured)
@@ -3783,59 +3576,53 @@ class Dictation(QtCore.QObject):
                 onnxruntime.disable_telemetry_events()
             except Exception:
                 pass
-            # Files already here are checked against their fingerprints before
-            # they are used. (With the update check on, a change is expected.)
-            saved = _config.get("model_files")
-            expecting = bool(MODEL_CHECKSUMS.get(MODEL)) or (
-                isinstance(saved, dict) and bool(saved.get(MODEL)))
-            if expecting and not self.accept_changed and not UPDATING:
-                changed, _record = check_model_files()
-                if changed:
+            release = current_release()
+            if release is None:
+                raise RuntimeError("no download is known for the model %r" % MODEL)
+            if network_is_open():
+                # A download the user agreed to. The files go into a separate
+                # folder and are checked against their fingerprints; only then
+                # do they take the place of anything already here. If it fails
+                # (no connection, a file that does not match), the model already
+                # on this PC, if it is a trusted one, is used instead.
+                try:
+                    if matching_release() is not release:
+                        download_release(release, model_dir())
+                    if not helper_ok():
+                        try:
+                            download_release(HELPER_RELEASE, helper_dir())
+                        except Exception as exc:
+                            # Only long dictations use it; they work without.
+                            print("The helper for long dictations could not be "
+                                  "downloaded: %s" % exc, file=sys.stderr)
+                except Exception as exc:
+                    if matching_release() is None:
+                        raise                    # nothing usable here: this try failed
+                    print("The download did not finish (%s); using the model already "
+                          "on this PC." % exc, file=sys.stderr)
+                # Everything agreed to is done: shut the door again at once.
+                close_network("the download is done")
+            using = matching_release()
+            if using is None:
+                if local_model_dir():
+                    # Files are here but are not the official ones: refuse them.
+                    changed = model_mismatches()
                     print("Model files differ from their fingerprints:", ", ".join(changed),
                           file=sys.stderr)
                     self.model_suspect.emit(", ".join(changed))
                     return
+                raise FileNotFoundError("the speech model's files are not on this PC")
+            self.model_outdated = using is not release
             import onnx_asr
             kwargs = {"quantization": QUANTIZATION} if QUANTIZATION else {}
-            by_hand = local_model_dir()
-            if not by_hand and network_is_open():
-                # A download (or update check) the user agreed to. The files are
-                # fetched first and checked against their fingerprints BEFORE
-                # anything is loaded from them. (The speech library would also
-                # never look online while older files are on disk, so an update
-                # must ask huggingface.co itself.)
-                from huggingface_hub import snapshot_download
-                try:
-                    folder = snapshot_download(model_repo(), allow_patterns=MODEL_FILES)
-                    print("Fetched the model from huggingface.co (version %s)."
-                          % os.path.basename(folder))
-                except Exception:
-                    if not UPDATING or not model_files():
-                        raise                    # no model at all: the download failed
-                    print("Could not check for a newer model; using the one on this PC.",
-                          file=sys.stderr)
-                if MODEL_CHECKSUMS.get(MODEL) and not self.accept_changed and not UPDATING \
-                        and not uses_own_files():
-                    changed, _record = check_model_files()
-                    if changed:
-                        print("Downloaded model files do not match the published "
-                              "fingerprints:", ", ".join(changed), file=sys.stderr)
-                        close_network("the downloaded files did not match")
-                        self.model_suspect.emit(", ".join(changed))
-                        return
             # Lighter engine settings (measured): no memory pool saves about
             # 250 MB, and 4 threads are as fast as all of them for dictation.
             kwargs["sess_options"] = engine_options()
-            if by_hand:
-                # Model files were downloaded by hand: load them, no network.
-                print("Loading model from", by_hand)
-                self.model = onnx_asr.load_model(MODEL, by_hand, **kwargs)
-            else:
-                self.model = onnx_asr.load_model(MODEL, **kwargs)
+            print("Loading model %s from %s" % (using["tag"], model_dir()))
+            self.model = onnx_asr.load_model(MODEL, model_dir(), **kwargs)
             self.load_seconds = time.perf_counter() - started
-            print("Model loaded in %.1fs (%.1fs since launch, %s)" % (
-                self.load_seconds, time.perf_counter() - _T0,
-                "online, agreed" if network_is_open() else "offline"))
+            print("Model loaded in %.1fs (%.1fs since launch, offline)" % (
+                self.load_seconds, time.perf_counter() - _T0))
             self.model_ready.emit()        # usable now
             try:   # then one silent run, so the first real dictation isn't slower.
                 # It holds the model for a moment; a dictation started meanwhile
@@ -3845,56 +3632,10 @@ class Dictation(QtCore.QObject):
                     self.model.recognize(quiet, sample_rate=SAMPLE_RATE)
             except Exception:
                 pass
-            if network_is_open():
-                try:   # first run: fetch the small pause-detection model too, so
-                    onnx_asr.load_vad("silero")    # it is on disk for offline use
-                except Exception:
-                    pass
-            # Everything agreed to is on disk now: shut the door again at once,
-            # rather than leaving it open until the next start.
-            close_network("the model is on this PC")
-            try:   # remember that everything is on disk -> offline from now on
-                mark_downloaded()
-            except Exception:
-                pass
-            try:
-                # Record each file's fingerprint (read in full only the first
-                # time, or after a change). Freshly downloaded files are held
-                # to the published fingerprints, when there are any.
-                if UPDATING:
-                    # A newer model may just have been fetched: the published
-                    # fingerprints saved for the old one no longer apply.
-                    fetched = _config.get("published_fingerprints")
-                    if isinstance(fetched, dict) and MODEL in fetched:
-                        fetched = dict(fetched)
-                        fetched.pop(MODEL, None)
-                        save_setting("published_fingerprints", fetched)
-                    # An agreed update may bring files newer than the built-in
-                    # fingerprints: those files are the ones checked from now on.
-                    if MODEL_CHECKSUMS.get(MODEL) and not uses_own_files() \
-                            and check_model_files()[0]:
-                        set_uses_own_files(True)
-                changed, record = check_model_files()
-                if changed and MODEL_CHECKSUMS.get(MODEL) and not self.accept_changed \
-                        and not UPDATING:
-                    print("Downloaded model files do not match the published "
-                          "fingerprints:", ", ".join(changed), file=sys.stderr)
-                    self.model = None
-                    self.model_suspect.emit(", ".join(changed))
-                else:
-                    remember_model_files(record)
-            except Exception as exc:
-                print("Could not record the model's fingerprints:", exc, file=sys.stderr)
         except Exception as exc:
-            if not network_is_open() and not model_files():
+            if not network_is_open() and not local_model_dir():
                 # Files went missing: the next start asks again (as on a first
                 # launch) before going online to fetch them.
-                try:
-                    have = [m for m in downloaded_models() if m != _marker_text()]
-                    with open(_MARKER, "w", encoding="utf-8") as fh:
-                        fh.write("\n".join(have))
-                except Exception:
-                    pass
                 print("Model files weren't found on this PC. Quit and start "
                       "the program again to download them.", file=sys.stderr)
                 self.model_failed.emit("Model files missing: restart to download")
@@ -4008,6 +3749,8 @@ class Dictation(QtCore.QObject):
         self.state = "idle"
         if not self.intro_open:                    # now usable: where Settings live
             QtCore.QTimer.singleShot(2500, self.maybe_show_tray_tip)
+        if self.model_outdated:                    # an older trusted model is in use
+            QtCore.QTimer.singleShot(6000, self.offer_newer_model)
         if self.intro_open and not was_waiting:
             return                                 # the introduction says it is ready
         if self.overlay.mode == "welcome" and was_waiting:
@@ -4098,32 +3841,49 @@ class Dictation(QtCore.QObject):
         return True
 
     def on_model_suspect(self, names):
-        """The model's files are not the ones checked before. Nothing is loaded
-        from them unless the user says so."""
+        """The model's files are not the official ones. They are never loaded:
+        the only choices are to download them again, or to quit."""
         self.on_cancel()                       # a dictation under way: mic off first
         self.state = "loading"
         self.overlay.dismiss(force=True)
-        use = dialog(
-            None, "%s: speech model changed" % APP_TITLE,
-            "The speech model's files have changed",
-            "These files no longer match the fingerprints %s checks them against:"
-            "\n\n%s\n\nThat can mean they were replaced, damaged, or updated by "
-            "something else. If you were not expecting it, do not continue: quit, "
-            "delete the model's folder and download it again.\n\n"
-            "The folder is shown under Settings, General, Speech model."
-            % (APP_TITLE, names),
-            accept="Use them anyway", reject="Quit")
-        if use is True:
-            self.accept_changed = True
-            if MODEL_CHECKSUMS.get(MODEL):
-                set_uses_own_files(True)         # do not ask again at every start
-            try:
-                remember_model_files(check_model_files()[1])
-            except Exception:
-                pass
-            self._begin_load()
+        again = dialog(
+            None, "%s: speech model does not match" % APP_TITLE,
+            "The speech model's files do not match",
+            "These files are not exactly the official ones that %(app)s checks them "
+            "against:\n\n%(names)s\n\nThey may be damaged, only partly downloaded, or "
+            "replaced by something else, so %(app)s will not use them.\n\n"
+            "Download again deletes them and restarts. This application will go "
+            "online once, to github.com (a third-party website that we do not run or "
+            "control), to download fresh copies from this project's model page, and "
+            "checks every file before using it." % {"app": APP_TITLE, "names": names},
+            accept="Download again", reject="Quit")
+        if again is True:
+            forget_model()
+            save_setting("download_yes_once", MODEL)
+            restart_app()
         else:
             QtWidgets.QApplication.quit()
+
+    def offer_newer_model(self):
+        """The model on this PC is an older trusted release (the newer one, which
+        came with this version, could not be downloaded yet). It works; offer
+        the newer one, once per release, after a "go online" warning."""
+        release = current_release()
+        if not self.model_outdated or release is None \
+                or _config.get("model_update_offered") == release["tag"]:
+            return
+        save_setting("model_update_offered", release["tag"])
+        if dialog(None, "%s: newer speech model" % APP_TITLE,
+                  "This application will go online",
+                  "This version of %(app)s comes with a newer release of the speech "
+                  "model (%(size)s). The one on this PC still works and stays in use "
+                  "until the new one has fully arrived and been checked.\n\n"
+                  "Download it now? %(app)s restarts and goes online once, to github.com "
+                  "(a third-party website that we do not run or control)."
+                  % {"app": APP_TITLE, "size": size_words(_release_bytes(release))},
+                  accept="Download and restart", reject="Not now") is True:
+            save_setting("download_yes_once", MODEL)
+            restart_app()
 
     def _begin_load(self):
         """Start loading the model (which downloads it first if need be)."""
@@ -4597,9 +4357,14 @@ class Dictation(QtCore.QObject):
                 if len(audio) > LONG_AUDIO_SECONDS * SAMPLE_RATE:
                     if self.model_vad is None:     # loaded on first use, not at start
                         try:
+                            if not helper_ok():    # only the official file is used
+                                raise FileNotFoundError("the helper is not on this PC")
                             import onnx_asr
-                            self.model_vad = self.model.with_vad(onnx_asr.load_vad("silero"))
-                        except Exception:
+                            self.model_vad = self.model.with_vad(
+                                onnx_asr.load_vad("silero", helper_dir()))
+                        except Exception as exc:
+                            print("Long dictation without the helper: %s" % exc,
+                                  file=sys.stderr)
                             self.model_vad = False
                 if self.model_vad and len(audio) > LONG_AUDIO_SECONDS * SAMPLE_RATE:
                     try:
@@ -5044,7 +4809,7 @@ _PORTABLE_CHECKS = {
 for _key in ("add_space", "always_show", "accent_outline", "outline_light", "glow_from_app",
              "hotkey_hint", "return_focus", "screen_glow", "show_app_icon", "show_app_name",
              "show_popup", "show_timer", "show_waveform", "sounds", "tray_live", "wide_card",
-             "hold_to_talk", "live_preview", "type_text", "keep_last", "check_updates",
+             "hold_to_talk", "live_preview", "type_text", "keep_last",
              "check_app_updates"):
     _PORTABLE_CHECKS[_key] = lambda v: isinstance(v, bool)
 
@@ -5057,9 +4822,6 @@ _PORTABLE_CAREFUL = {
     "check_app_updates": (True, "Check for app updates at startup (this application will "
                                 "go online, to github.com, a third-party website that we "
                                 "do not run or control)"),
-    "check_updates": (True, "Check for model updates at startup (this application will "
-                            "go online, to huggingface.co, a third-party website that we "
-                            "do not run or control)"),
 }
 
 
@@ -5106,7 +4868,6 @@ def read_settings_line(line):
         risky = _PORTABLE_CAREFUL.get(key)
         if risky and value == risky[0] and _config.get(key, globals().get(
                 {"type_text": "TYPE_TEXT", "keep_last": "KEEP_LAST",
-                 "check_updates": "CHECK_UPDATES",
                  "check_app_updates": "CHECK_APP_UPDATES"}[key])) != value:
             careful[key] = value                 # would switch it on here: ask first
         else:
@@ -5222,7 +4983,7 @@ QPushButton#primary { background: %(accent)s; color: #101114; border: 1px solid 
             box.adjustSize()
             return
         if careful:
-            online = "check_updates" in careful or "check_app_updates" in careful
+            online = "check_app_updates" in careful
             names = "\n".join(
                 "•  " + (_PORTABLE_CAREFUL[key][1] if key in _PORTABLE_CAREFUL
                          else "A key pressed for you after dictating (it can send or "
@@ -5410,10 +5171,9 @@ QPushButton#primary { background: %(accent)s; color: #101114; border: 1px solid 
     buttons = QtWidgets.QHBoxLayout()
     again = QtWidgets.QPushButton("Download the model again")
     again.setVisible(False)                      # offered when something is wrong
-    online = QtWidgets.QPushButton("Check against the published files")
     show = QtWidgets.QPushButton("Show fingerprints")
     close = QtWidgets.QPushButton("Close")
-    for button in (again, online, show):
+    for button in (again, show):
         buttons.addWidget(button)
     buttons.addStretch(1)
     buttons.addWidget(close)
@@ -5427,7 +5187,7 @@ QPushButton#primary { background: %(accent)s; color: #101114; border: 1px solid 
         rows[name].setStyleSheet({"good": "color: #3DDC97;", "bad": "color: #FF6B6B;"}
                                  .get(kind, "color: #A9ABB5;"))
 
-    def verdict(problems, checked_online):
+    def verdict(problems):
         if problems:
             headline.setText("Something is wrong with the model's files")
             summary.setText(
@@ -5441,20 +5201,13 @@ QPushButton#primary { background: %(accent)s; color: #101114; border: 1px solid 
             again.setVisible(True)
             again.setObjectName("primary")
             again.setStyleSheet("")
-        elif checked_online:
-            headline.setText("The model's files are genuine")
-            summary.setText("They match the fingerprints published on the model's own "
-                            "website. Those fingerprints are now saved on this PC. Every "
-                            "time %s starts it checks the files against them without "
-                            "going online. Nothing needs doing." % APP_TITLE)
         else:
-            headline.setText("The model's files are unchanged")
+            headline.setText("The model's files are the official ones")
             summary.setText(
-                "They are exactly as they were when %s first used them. Every time it "
-                "starts it checks them again on this PC without going online. Nothing "
-                "needs doing.\n\nTo also "
-                "confirm they match the files published on the model's website, click "
-                "\"Check against the published files\"." % APP_TITLE)
+                "Every file matches the fingerprint built into %s, so it is exactly "
+                "the file published on this project's model page. %s checks them again "
+                "each time it starts, on this PC, without going online. Nothing needs "
+                "doing." % (APP_TITLE, APP_TITLE))
         box.adjustSize()
 
     def local_check():
@@ -5464,82 +5217,17 @@ QPushButton#primary { background: %(accent)s; color: #101114; border: 1px solid 
             summary.setText("The speech model has not been downloaded yet.")
             for name in MODEL_FILES:
                 paint(name, "not found", "plain")
-            online.setEnabled(False)
             show.setEnabled(False)
             return
-        changed, _record = check_model_files()
+        changed = model_mismatches()
         for name in MODEL_FILES:
             if name not in files:
                 paint(name, "missing", "bad")
             elif name in changed:
-                paint(name, "changed since it was first checked", "bad")
+                paint(name, "does NOT match the official file", "bad")
             else:
-                paint(name, "unchanged", "good")
-        verdict([n for n in MODEL_FILES if n in changed or n not in files], False)
-
-    def online_work():
-        published, why = fetch_published_fingerprints()
-        mine = {}
-        if published is not None:
-            for name, path in model_files().items():
-                try:
-                    mine[name] = file_fingerprint(path)
-                except Exception:
-                    mine[name] = ""
-        work["result"] = (published, why, mine)
-
-    def online_check():
-        if work["busy"]:
-            return
-        if not dialog(box, "Go online to check?", "This application will go online",
-                      "It will connect to huggingface.co once, now, to read the published "
-                      "fingerprints of the model's files. That is a third-party website "
-                      "that we do not run or control.\n\nNothing about you or your files "
-                      "is sent. The comparison is done on this PC.",
-                      accept="Check now", reject="Cancel"):
-            return
-        work["busy"], work["result"] = True, None
-        online.setEnabled(False)
-        headline.setText("Checking against the published files…")
-        summary.setText("Reading the published fingerprints and comparing each file. "
-                        "This takes a few seconds.")
-        threading.Thread(target=online_work, daemon=True).start()
-        poll.start()
-
-    def online_done():
-        if work["result"] is None:
-            return
-        poll.stop()
-        work["busy"] = False
-        online.setEnabled(True)
-        published, why, mine = work["result"]
-        if published is None:
-            headline.setText("The website could not be reached")
-            summary.setText("Nothing was compared, and nothing has changed. Check your "
-                            "Internet connection and try again.\n\n(%s)" % why)
-            box.adjustSize()
-            return
-        problems, good = [], {}
-        for name in MODEL_FILES:
-            want, have = published.get(name, ""), mine.get(name, "")
-            if not have:
-                paint(name, "missing", "bad")
-                problems.append(name)
-            elif not want:
-                paint(name, "no published fingerprint (small file)", "plain")
-            elif want.lower() == have.lower():
-                paint(name, "matches the published file", "good")
-                good[name] = have
-            else:
-                paint(name, "does NOT match the published file", "bad")
-                problems.append(name)
-        if not problems and good:
-            # From now on every start is checked against the published values.
-            saved = _config.get("published_fingerprints")
-            saved = dict(saved) if isinstance(saved, dict) else {}
-            saved[MODEL] = good
-            save_setting("published_fingerprints", saved)
-        verdict(problems, True)
+                paint(name, "matches the official file", "good")
+        verdict([n for n in MODEL_FILES if n in changed or n not in files])
 
     def show_details():
         marks = []
@@ -5563,28 +5251,22 @@ QPushButton#primary { background: %(accent)s; color: #101114; border: 1px solid 
             forget_model()
             restart_app()
 
-    poll = QtCore.QTimer(box)
-    poll.setInterval(200)
-    poll.timeout.connect(online_done)
     again.clicked.connect(lambda _checked=False: download_again())
-    online.clicked.connect(lambda _checked=False: online_check())
-    online.setToolTip("Goes online once, after asking, to read the published fingerprints.")
     show.clicked.connect(lambda _checked=False: show_details())
     close.clicked.connect(lambda _checked=False: box.reject())
     local_check()
     box.exec()
-    poll.stop()
 
 
 STUCK_HELP = ("Some of the speech model has arrived, but the rest is not coming through. "
-              "The small files download from huggingface.co; the large ones come from "
-              "other addresses ending in hf.co. When only the small ones arrive, "
-              "something between this PC and those addresses is usually blocking them: "
-              "a firewall, an ad blocker, or a DNS filter (a Pi-hole, for "
-              "example).\n\n"
+              "The model comes from this project's model page on github.com, and GitHub "
+              "sends the files themselves from release-assets.githubusercontent.com. "
+              "When nothing more arrives, something between this PC and those addresses "
+              "is usually blocking them: a firewall, an ad blocker, or a DNS filter (a "
+              "Pi-hole, for example).\n\n"
               "What you can do:\n\n"
-              "1.  Allow huggingface.co and addresses ending in hf.co in whatever is "
-              "filtering your network, then start %s again. It carries on from where "
+              "1.  Allow github.com and release-assets.githubusercontent.com in whatever "
+              "is filtering your network, then start %s again. It carries on from where "
               "it stopped.\n\n"
               "2.  Or download the model yourself with your web browser, on this PC or "
               "another one. Click \"Manual download\" for the steps.\n\n"
@@ -5615,10 +5297,12 @@ def manual_download_steps():
     program never went online at all. The link to the model's page stays hidden
     until it is asked for: it is someone else's website, and going there is the
     user's own decision."""
-    folder = manual_model_dir()
-    page = MODEL_PAGES.get(MODEL, "https://huggingface.co/istupakov")
+    folder, helper = model_dir(), helper_dir()
+    release = current_release()
+    page = release_page(release) if release else MODELS_PAGE
     try:
         os.makedirs(folder, exist_ok=True)
+        os.makedirs(helper, exist_ok=True)
     except Exception:
         pass
     box = QtWidgets.QDialog(None)
@@ -5653,9 +5337,9 @@ QPushButton#primary:hover { background: %(accent)s; border-color: #FFFFFF; }
     text("Download the speech model yourself", "headline")
     text("%s will not go online. Fetch the model with your web browser instead "
          "(about 660 MB), on this PC or any other." % APP_TITLE)
-    text("1.  Open the model's page.")
-    text("Please note: this is a third-party website that we do not run or control. "
-         "Opening it and downloading from it is your choice.", "aside")
+    text("1.  Open this project's model page on github.com.")
+    text("Please note: github.com is a third-party website that we do not run or "
+         "control. Opening it and downloading from it is your choice.", "aside")
     reveal = QtWidgets.QPushButton("Click to view the link")
     link = text(page, "link")
     link.setVisible(False)                       # shown only when asked for
@@ -5679,12 +5363,14 @@ QPushButton#primary:hover { background: %(accent)s; border-color: #FFFFFF; }
     row.addWidget(copy)
     row.addStretch(1)
     layout.addLayout(row)
-    text("2.  Download these %s files:\n%s"
-         % ({4: "four", 5: "five"}.get(len(MODEL_FILES), str(len(MODEL_FILES))),
-            "\n".join("     " + name for name in MODEL_FILES)))
-    text("3.  Put them in this folder:\n%s" % folder)
-    text("4.  Start %s again. It finds the files, downloads nothing, and goes "
-         "straight to the introduction." % APP_TITLE)
+    text("2.  Under %s, download these four files and put them in this folder:\n%s"
+         "\n\n%s" % (release["tag"] if release else "the newest release",
+                     "\n".join("     " + name for name in MODEL_FILES), folder))
+    text("3.  For long dictations, also download silero_vad.onnx and config.json "
+         "from the release %s (on the same page's list of releases), and put them in "
+         "this folder:\n%s" % (HELPER_RELEASE["tag"], helper))
+    text("4.  Start %s again. It checks every file against its fingerprint, "
+         "downloads nothing, and goes straight to the introduction." % APP_TITLE)
     layout.addSpacing(8)
     buttons = QtWidgets.QHBoxLayout()
     buttons.addStretch(1)
@@ -5772,6 +5458,14 @@ def show_app_update_result(parent, tag, page, why, manual, installer=""):
                    "No version of %s has been published on github.com yet." % APP_TITLE)
         return
     latest = tag.lstrip("vV")
+    minimum = _app_update_work.get("minimum") or ""
+    if minimum and version_tuple(VERSION) < version_tuple(minimum) \
+            and version_tuple(latest) > version_tuple(VERSION):
+        # This version has been withdrawn: say so plainly, even at startup.
+        print("App update check: this version (%s) is below the minimum safe "
+              "version %s." % (VERSION, minimum))
+        offer_update(parent, latest, page, installer, unsafe=True)
+        return
     if version_tuple(latest) <= version_tuple(VERSION):
         print("App update check: up to date (%s)." % VERSION)
         if manual:
@@ -5827,8 +5521,9 @@ def announce_update(latest, page, installer, notify=True):
                          app_icon(), 10000)
 
 
-def offer_update(parent, latest, page, installer):
-    """The update window: Download now / What's new / Not now."""
+def offer_update(parent, latest, page, installer, unsafe=False):
+    """The update window: Download now / What's new / Not now. unsafe=True:
+    the newest release says this version should no longer be used."""
     if installer:
         how = ("Download now opens the new installer in your web browser, which "
                "downloads it from github.com. Then run it: your settings and speech "
@@ -5836,10 +5531,17 @@ def offer_update(parent, latest, page, installer):
     else:
         how = ("What's new opens the release page, where you can download the new "
                "installer and run it. Your settings and speech model are kept.")
-    choice = dialog(parent, "%s update" % APP_TITLE, "%s %s is available" % (APP_TITLE, latest),
-                    "You have version %s.\n\n%s\n\ngithub.com is a third-party website "
-                    "that we do not run or control. Nothing has been downloaded yet."
-                    % (VERSION, how),
+    if unsafe:
+        headline = "Please update %s" % APP_TITLE
+        why = ("A problem was found in earlier versions, including yours (%s), and "
+               "they should no longer be used. Version %s fixes it. Details are on "
+               "the release page (What's new)." % (VERSION, latest))
+    else:
+        headline = "%s %s is available" % (APP_TITLE, latest)
+        why = "You have version %s." % VERSION
+    choice = dialog(parent, "%s update" % APP_TITLE, headline,
+                    "%s\n\n%s\n\ngithub.com is a third-party website that we do not run "
+                    "or control. Nothing has been downloaded yet." % (why, how),
                     accept="Download now" if installer else "What's new",
                     reject="Not now", other="What's new" if installer else None)
     if choice is True:
@@ -7586,9 +7288,6 @@ class SettingsWindow(QtWidgets.QDialog):
                 report = forget_model() or {}
                 show_model_button()
                 lines = ["Deleted from this PC: about %d MB." % report.get("freed", 0)]
-                if report.get("cache_freed"):
-                    lines.append("Also cleared the download library's own cache, which "
-                                 "held a second copy: about %d MB." % report["cache_freed"])
                 if report.get("left"):
                     lines.append("Windows is still holding some of the files open. They "
                                  "will be deleted the next time the application starts:"
@@ -7609,30 +7308,8 @@ class SettingsWindow(QtWidgets.QDialog):
         note("Check files compares the model's files with their known fingerprints. "
              "Removing frees about 630 MB; it can be downloaded again later.")
 
-        heading("Updates")
-        self.updates = check("Check for model updates at startup",
-                             CHECK_UPDATES, self._updates_changed,
-                             tip="Off by default. With this ticked, the application goes "
-                                 "online each time it starts and checks whether a newer "
-                                 "version of the speech model is available. A newer "
-                                 "version is downloaded automatically.\n\nLeft "
-                                 "unticked, the application does not go online for "
-                                 "updates and keeps using the model already on this PC.")
-        # Each "Check now" sits on the same line as its option, on the right.
-        self.update_button = button("Check now", self._check_update_now, width=96)
-        self.update_button.setToolTip("Checks once, now, for a newer speech model "
-                                      "(goes online after asking).")
-        page["layout"].removeWidget(self.updates)
-        row(self.updates, None, self.update_button)
-        self.update_note = QtWidgets.QLabel("")
-        self.update_note.setObjectName("info")
-        self.update_note.setWordWrap(True)
-        self.update_note.setVisible(False)       # shown only when it has something to say
-        page["layout"].addWidget(self.update_note)
-        self._update_work = {"result": None}
-        self._update_poll = QtCore.QTimer(self)
-        self._update_poll.setInterval(200)
-        self._update_poll.timeout.connect(self._update_checked)
+        note("A newer speech model only ever comes with a newer version of %s, "
+             "together with its fingerprints (see Updates on the Privacy tab)." % APP_TITLE)
 
         end_tab()
 
@@ -7928,9 +7605,10 @@ class SettingsWindow(QtWidgets.QDialog):
             agreed = dialog(self, "Download speech model?",
                             "This application will go online",
                             "%s is not on this PC yet.\n\nThe application will restart "
-                            "and connect to huggingface.co once to download it (%s). That "
-                            "is a third-party website that we do not run or control. "
-                            "After that it works offline again."
+                            "and connect to github.com once to download it (%s) from this "
+                            "project's model page. github.com is a third-party website "
+                            "that we do not run or control. Every file is checked before "
+                            "it is used, and after that it works offline again."
                             % (model_label(name), size),
                             accept="Download and restart", reject="Cancel")
         if agreed:
@@ -7971,78 +7649,6 @@ class SettingsWindow(QtWidgets.QDialog):
         set_option("LIVE_LINES", "live_lines", int(self.lines.itemData(index)))
         self.dictation.refresh_popup()
 
-    # -- check for a model update, once, now -----------------------------------------
-    def _check_update_now(self):
-        if not model_files():
-            self._say_update("The speech model has not been downloaded yet.")
-            return
-        if not dialog(self, "Go online to check?", "This application will go online",
-                      "It will connect to huggingface.co once, now, to see whether a "
-                      "newer version of the speech model has been published. That is a "
-                      "third-party website that we do not run or control.\n\nNothing "
-                      "about you or your files is sent, and nothing is downloaded unless "
-                      "you then choose to update.",
-                      accept="Check now", reject="Cancel"):
-            return
-        self.update_button.setEnabled(False)
-        self._say_update("Checking\u2026")
-        self._update_work["result"] = None
-
-        def work():
-            published, why = fetch_published_fingerprints()
-            mine = {}
-            if published is not None:
-                for name, path in model_files().items():
-                    if published.get(name):          # only files that have one published
-                        try:
-                            mine[name] = file_fingerprint(path)
-                        except Exception:
-                            mine[name] = ""
-            self._update_work["result"] = (published, why, mine)
-
-        threading.Thread(target=work, daemon=True).start()
-        self._update_poll.start()
-
-    def _update_checked(self):
-        if self._update_work["result"] is None:
-            return
-        self._update_poll.stop()
-        self.update_button.setEnabled(True)
-        published, why, mine = self._update_work["result"]
-        if published is None:
-            self._say_update("The website could not be reached, so nothing was "
-                                     "checked. (%s)" % why)
-            return
-        differs = [name for name, mark in mine.items()
-                   if mark.lower() != str(published.get(name, "")).lower()]
-        if not mine:
-            self._say_update("The website lists no fingerprints to compare with, "
-                                     "so it is not possible to tell.")
-        elif not differs:
-            self._say_update("You have the latest version of this speech model.")
-        elif local_model_dir():
-            self._say_update(
-                "A different version of this model is published. You downloaded yours "
-                "by hand, so to update, download the files again from the model's page "
-                "and replace the ones in your model folder.")
-        else:
-            self._say_update("A newer version of this speech model is published.")
-            size = dict((entry[0], entry[3]) for entry in MODELS).get(MODEL, "several hundred MB")
-            if dialog(self, "Update the speech model?", "This application will go online",
-                      "A newer version of the speech model is available.\n\nThe "
-                      "application will restart and connect to huggingface.co once more "
-                      "to download it (%s). That is a third-party website that we do "
-                      "not run or control. After that it is offline again, as before."
-                      % size,
-                      accept="Update and restart", reject="Not now"):
-                save_setting("update_once", True)
-                restart_app()
-
-    def _say_update(self, text):
-        """Show a line under the update buttons (hidden while there is none)."""
-        self.update_note.setText(text)
-        self.update_note.setVisible(bool(text))
-
     def _app_updates_changed(self, on):
         if on and not ask_app_update_check(self, at_startup=True):
             self.app_updates.blockSignals(True)  # untick it again, quietly
@@ -8065,23 +7671,6 @@ class SettingsWindow(QtWidgets.QDialog):
                 pass                             # the window was closed meanwhile
 
         run_app_update_check(self, manual=True, done=done)
-
-    def _updates_changed(self, on):
-        if not on:
-            set_check_updates(False)
-            return
-        if dialog(self, "Go online at startup?", "This application will go online",
-                  "With this setting enabled, the application will connect to "
-                  "huggingface.co every time it starts, to check for updates to the "
-                  "speech model, and download a newer version if there is one. That is "
-                  "a third-party website that we do not run or control.",
-                  accept="Turn on", reject="Keep offline"):
-            set_check_updates(True)
-        else:                                    # untick it again, quietly
-            self.updates.blockSignals(True)
-            self.updates.setChecked(False)
-            self.updates.blockSignals(False)
-            set_check_updates(False)
 
     # -- missed text safety: the paste-again hotkey -----------------------------
     def _refresh_paste_row(self):
@@ -8511,8 +8100,6 @@ def show_about(dictation):
         lines.append("Still loading…")
     lines += [
         "Network:  %s" % network_words(),
-        "Model update check:  %s" % ("on (takes effect at the next start)"
-                                     if CHECK_UPDATES else "off"),
         "",
         "Hotkey:  %s  (%s)" % (pretty(HOTKEY),
                                "hold to talk" if HOLD_TO_TALK else "toggle mode"),
@@ -8905,11 +8492,9 @@ def main():
     if not network_is_open():
         verify_network_block()                         # proves the guard works, offline
     finish_pending_removal()
-    print("Model on this PC at start: %s | marked as downloaded: %s | download cache: %s"
+    print("Model on this PC at start: %s | helper: %s"
           % ([(folder, folder_megabytes(folder)) for folder in model_folders()] or "none",
-             _setup_done(),
-             ("%d MB" % folder_megabytes(download_cache_folder()))
-             if os.path.isdir(download_cache_folder()) else "none"))
+             "yes" if helper_on_disk() else "no"))
     # Nothing is downloaded without saying so first. If the speech model is not
     # on this PC yet, explain the one-time download and wait for a yes.
     # (Settings can ask for these first-launch screens to be shown again, as a
@@ -8951,9 +8536,9 @@ def main():
             "This application will go online once, to download what %(app)s needs "
             "to turn your speech into text on this PC: a speech model, %(model)s, "
             "%(size)s, plus a small helper for long dictations (about 2 MB).\n\n"
-            "They come from huggingface.co, a third-party website that we do not "
-            "run or control. After that, %(app)s works without an internet "
-            "connection."
+            "They come from this project's model page on github.com, a third-party "
+            "website that we do not run or control, and every file is checked before "
+            "it is used. After that, %(app)s works without an internet connection."
             % dict(app=APP_TITLE, model=model_label(MODEL), size=size),
             accept="Download", reject="Quit", other="Manual download")
         if agreed == "other":

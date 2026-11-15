@@ -12,25 +12,23 @@ from PyInstaller.utils.hooks import collect_data_files, collect_submodules, copy
 APP = "leetsay"
 
 # onnx_asr ships small model helpers (such as the audio preprocessor) as data
-# files, and loads some of its parts by name. It (and the download library)
-# also read their own version information at run time, so that goes in too.
+# files, and loads some of its parts by name. Some libraries also read their
+# own version information at run time, so that goes in too.
 datas = collect_data_files("onnx_asr")
 datas += copy_metadata("onnx-asr", recursive=True)
-for _dist in ("huggingface_hub", "onnxruntime", "numpy", "tqdm", "filelock", "fsspec",
-              "packaging", "PyYAML", "sounddevice"):
+for _dist in ("onnxruntime", "numpy", "packaging", "sounddevice"):
     try:
         datas += copy_metadata(_dist)
     except Exception:
         pass
-hiddenimports = collect_submodules("onnx_asr") + collect_submodules("huggingface_hub")
+hiddenimports = collect_submodules("onnx_asr")
 
 a = Analysis(
     ["leetsay.pyw"],
     datas=datas,
     hiddenimports=hiddenimports,
-    # hf_xet does its own networking out of the app's network guard's sight and
-    # is never used; the others are not needed.
-    excludes=["hf_xet", "tkinter", "unittest", "pydoc_data", "PySide6.QtNetwork",
+    # Not needed (the speech models are downloaded by leetsay itself).
+    excludes=["tkinter", "unittest", "pydoc_data", "PySide6.QtNetwork",
               "PySide6.QtQml", "PySide6.QtQuick", "PySide6.QtWebEngineCore",
               "PySide6.QtMultimedia", "PySide6.Qt3DCore", "PySide6.QtCharts",
               "PySide6.QtDataVisualization", "PySide6.QtPdf"],
@@ -58,10 +56,8 @@ python_licence = os.path.join(sys.base_prefix, "LICENSE.txt")
 if os.path.exists(python_licence):
     shutil.copy(python_licence, os.path.join(out, "Python-LICENSE.txt"))
 for dist in ("PySide6", "PySide6_Essentials", "shiboken6", "onnxruntime", "onnx-asr",
-             "numpy", "sounddevice", "keyboard", "huggingface_hub", "cffi", "pycparser",
-             "filelock", "fsspec", "PyYAML", "packaging", "tqdm", "typing_extensions",
-             "httpx", "httpcore", "anyio", "certifi", "idna", "h11", "sniffio",
-             "colorama"):
+             "numpy", "sounddevice", "keyboard", "cffi", "pycparser", "packaging",
+             "protobuf", "flatbuffers"):
     try:
         files = importlib.metadata.files(dist) or []
     except importlib.metadata.PackageNotFoundError:

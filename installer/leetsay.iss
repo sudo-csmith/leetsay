@@ -58,30 +58,10 @@ Filename: "{app}\{#AppName}.exe"; Description: "Start {#AppName} now"; Flags: no
 const
   RunKey = 'Software\Microsoft\Windows\CurrentVersion\Run';
 
-function HubFolder(): String;
-begin
-  { Where the download library keeps models: the same rules leetsay uses. }
-  Result := GetEnv('HF_HUB_CACHE');
-  if Result = '' then
-  begin
-    Result := GetEnv('HF_HOME');
-    if Result = '' then
-      Result := ExpandConstant('{%USERPROFILE}') + '\.cache\huggingface';
-    Result := Result + '\hub';
-  end;
-end;
-
 procedure RemoveLeetsayData();
-var
-  Hub: String;
 begin
-  { Settings, log and any model downloaded by hand. }
+  { Settings, log and the speech models: all in leetsay's own folder. }
   DelTree(ExpandConstant('{localappdata}\{#AppName}'), True, True, True);
-  { Only the exact model folders leetsay downloads: never anything else. }
-  Hub := HubFolder();
-  DelTree(Hub + '\models--istupakov--parakeet-tdt-0.6b-v2-onnx', True, True, True);
-  DelTree(Hub + '\models--istupakov--parakeet-tdt-0.6b-v3-onnx', True, True, True);
-  DelTree(Hub + '\models--istupakov--silero-vad-onnx', True, True, True);
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
