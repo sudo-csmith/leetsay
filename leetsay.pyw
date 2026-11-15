@@ -54,8 +54,13 @@ if sys.argv[1:2] == ["--check-app-update"] and len(sys.argv) >= 3:
         try:
             with urllib.request.urlopen(_request, timeout=20) as _reply:
                 _data = json.load(_reply)
+            _installer = ""
+            for _asset in _data.get("assets") or []:
+                _name = str(_asset.get("name") or "")
+                if _name.lower().startswith("leetsay-setup-") and _name.lower().endswith(".exe"):
+                    _installer = str(_asset.get("browser_download_url") or "")
             _result = {"ok": True, "tag": _data.get("tag_name") or "",
-                       "url": _data.get("html_url") or ""}
+                       "url": _data.get("html_url") or "", "installer": _installer}
         except urllib.error.HTTPError as _exc:
             if _exc.code != 404:
                 raise
@@ -103,7 +108,7 @@ from ctypes import wintypes
 
 
 
-VERSION = "0.59.2"              # shown in Settings and About
+VERSION = "0.59.3"              # shown in Settings and About
 APP_TITLE = "leetsay"                # the name shown to the user (one place)
 _HERE = os.path.dirname(_SELF)        # the program's own folder
 
@@ -655,8 +660,9 @@ def version_tuple(text):
 
 def fetch_latest_release():
     """Ask github.com for the latest published version, in a separate helper
-    process (see --check-app-update at the top). Returns (tag, page, None),
-    ("", "", None) if nothing is published, or (None, None, why it failed)."""
+    process (see --check-app-update at the top). Returns (tag, page, installer,
+    None), with "" for what is not there, or (None, None, None, why it failed).
+    Links are only ever accepted if they point at this repository."""
     import subprocess
     import tempfile
     handle, out_path = tempfile.mkstemp(suffix=".json")
@@ -668,18 +674,21 @@ def fetch_latest_release():
         with open(out_path, encoding="utf-8") as fh:
             result = json.load(fh)
     except Exception as exc:
-        return None, None, str(exc)
+        return None, None, None, str(exc)
     finally:
         try:
             os.remove(out_path)
         except Exception:
             pass
     if not result.get("ok"):
-        return None, None, result.get("error") or "github.com could not be reached"
+        return None, None, None, result.get("error") or "github.com could not be reached"
     page = str(result.get("url") or "")
     if not page.startswith("https://github.com/%s/" % APP_REPO):
         page = APP_RELEASES_PAGE                 # only ever this repository's page
-    return str(result.get("tag") or ""), page, None
+    installer = str(result.get("installer") or "")
+    if not installer.startswith("https://github.com/%s/releases/download/" % APP_REPO):
+        installer = ""                           # not this repository's: not offered
+    return str(result.get("tag") or ""), page, installer, None
 
 
 ACCENT_CHOICES = [("Mint", "#3DDC97"), ("Sky", "#4DA3FF"), ("Violet", "#9B8CFF"),
@@ -4903,6 +4912,12 @@ QCheckBox { spacing: 9px; }
 QCheckBox:disabled, QLabel:disabled { color: #6B6D77; }
 QTabWidget::pane { border: 1px solid #2A2C33; border-radius: 10px; background: #1B1C21;
     top: -1px; }
+QScrollArea#tabscroll, QWidget#tabpage { background: transparent; border: none; }
+QScrollBar:vertical { background: transparent; width: 10px; margin: 6px 2px 6px 0; }
+QScrollBar::handle:vertical { background: #3A3D46; border-radius: 4px; min-height: 30px; }
+QScrollBar::handle:vertical:hover { background: #4A4E59; }
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: none; }
 QTabBar { qproperty-drawBase: 0; }
 QTabBar::tab { background: transparent; color: #9A9CA6; font-size: 13px;
     padding: 7px 14px; border: none; border-bottom: 2px solid transparent; }
@@ -5646,16 +5661,16 @@ def run_app_update_check(parent=None, manual=True, done=None):
         poll.stop()
         poll.deleteLater()
         _app_update_work["busy"] = False
-        tag, page, why = _app_update_work["result"]
+        tag, page, installer, why = _app_update_work["result"]
         if done is not None:
             done()
-        show_app_update_result(parent, tag, page, why, manual)
+        show_app_update_result(parent, tag, page, why, manual, installer)
 
     poll.timeout.connect(check)
     poll.start()
 
 
-def show_app_update_result(parent, tag, page, why, manual):
+def show_app_update_result(parent, tag, page, why, manual, installer=""):
     if why is not None:
         print("App update check: github.com could not be reached (%s)." % why)
         if manual:
@@ -5679,12 +5694,22 @@ def show_app_update_result(parent, tag, page, why, manual):
     if not manual and _config.get("app_update_seen") == latest:
         return                                   # already mentioned once: no nagging
     save_setting("app_update_seen", latest)
-    if dialog(parent, "%s update" % APP_TITLE, "%s %s is available" % (APP_TITLE, latest),
-              "You have version %s.\n\nThe download page is on github.com, a third-party "
-              "website that we do not run or control. There you can download the new "
-              "installer and run it; your settings and speech model are kept.\n\n"
-              "Nothing has been downloaded." % VERSION,
-              accept="Open the download page", reject="Not now") is True:
+    if installer:
+        how = ("Download now opens the new installer in your web browser, which "
+               "downloads it from github.com. Then run it: your settings and speech "
+               "model are kept.")
+    else:
+        how = ("What's new opens the release page, where you can download the new "
+               "installer and run it. Your settings and speech model are kept.")
+    choice = dialog(parent, "%s update" % APP_TITLE, "%s %s is available" % (APP_TITLE, latest),
+                    "You have version %s.\n\n%s\n\ngithub.com is a third-party website "
+                    "that we do not run or control. Nothing has been downloaded yet."
+                    % (VERSION, how),
+                    accept="Download now" if installer else "What's new",
+                    reject="Not now", other="What's new" if installer else None)
+    if choice is True:
+        QtGui.QDesktopServices.openUrl(QtCore.QUrl(installer or page))
+    elif choice == "other":
         QtGui.QDesktopServices.openUrl(QtCore.QUrl(page))
 
 
@@ -6553,11 +6578,21 @@ class SettingsWindow(QtWidgets.QDialog):
         page = {"layout": None}          # the tab currently being filled
 
         def tab(title):
+            # Each tab scrolls if it does not fit, so on a small screen nothing
+            # is ever cut off (the window itself is kept within the screen).
             holder = QtWidgets.QWidget()
+            holder.setObjectName("tabpage")
             layout = QtWidgets.QVBoxLayout(holder)
             layout.setContentsMargins(16, 14, 16, 14)
             layout.setSpacing(10)
-            tabs.addTab(holder, title)
+            area = QtWidgets.QScrollArea()
+            area.setObjectName("tabscroll")
+            area.setWidgetResizable(True)
+            area.setFrameShape(QtWidgets.QFrame.NoFrame)
+            area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+            area.setWidget(holder)
+            area.viewport().setAutoFillBackground(False)
+            tabs.addTab(area, title)
             page["layout"] = layout
 
         def end_tab():
@@ -7147,7 +7182,7 @@ class SettingsWindow(QtWidgets.QDialog):
         self.paste_clear = button("Clear", self._clear_paste_hotkey, width=84)
         row(indent(), self.paste_record, self.paste_clear, None)
         self._refresh_paste_row()
-        heading("Updates (these go online, after asking)")
+        heading("Updates")
         self.updates = check("Check for model updates at startup",
                              CHECK_UPDATES, self._updates_changed,
                              tip="Off by default. With this ticked, the application goes "
@@ -7162,14 +7197,18 @@ class SettingsWindow(QtWidgets.QDialog):
             tip="Off by default. With this ticked, every start asks github.com "
                 "whether a newer version of the application has been published, and "
                 "tells you once if there is. Nothing is downloaded or installed.")
-        self.update_button = button("Check model now", self._check_update_now)
+        # Each "Check now" sits on the same line as its option, on the right.
+        self.update_button = button("Check now", self._check_update_now, width=96)
         self.update_button.setToolTip("Checks once, now, for a newer speech model "
                                       "(goes online after asking).")
-        self.app_update_button = button("Check app now", self._check_app_now)
+        self.app_update_button = button("Check now", self._check_app_now, width=96)
         self.app_update_button.setToolTip("Checks once, now, for a newer version of the "
                                           "application (goes online after asking; only "
                                           "reads the latest version number).")
-        row(self.update_button, self.app_update_button, None)
+        for box, check_now in ((self.updates, self.update_button),
+                               (self.app_updates, self.app_update_button)):
+            page["layout"].removeWidget(box)
+            row(box, None, check_now)
         self.update_note = QtWidgets.QLabel("")
         self.update_note.setObjectName("info")
         self.update_note.setWordWrap(True)
@@ -7192,6 +7231,8 @@ class SettingsWindow(QtWidgets.QDialog):
         # the application is running; nothing is written to disk for this).
         tabs.setCurrentIndex(min(_settings_open.get("tab", 0), tabs.count() - 1))
         tabs.currentChanged.connect(lambda index: _settings_open.update(tab=int(index)))
+        self._tabs = tabs
+        tabs.currentChanged.connect(lambda _index: self._fit_height())
 
         bottom = QtWidgets.QHBoxLayout()
         bottom.addWidget(button("Reset all settings", self._reset_all))
@@ -7206,6 +7247,33 @@ class SettingsWindow(QtWidgets.QDialog):
         bottom.addWidget(quit_button)
         bottom.addWidget(button("Close", self.close, width=84))
         outer.addLayout(bottom)
+
+    # -- size: fits the tab that is showing, and never more than the screen ----
+    def showEvent(self, event):
+        super().showEvent(event)
+        QtCore.QTimer.singleShot(0, self._fit_height)
+
+    def _fit_height(self):
+        """Make the window as tall as the tab that is showing needs, so a short
+        tab has no empty space at the bottom, but never taller than the screen:
+        on a small screen the tab scrolls instead, and Close and Quit stay in
+        view."""
+        try:
+            area = self._tabs.currentWidget()
+            content = area.widget().sizeHint().height()       # the tab, unclipped
+            around = self.height() - area.viewport().height() # tabs, buttons, margins
+            screen = self.screen() or QtGui.QGuiApplication.primaryScreen()
+            room = screen.availableGeometry()
+            title_bar = max(0, self.frameGeometry().height() - self.height())
+            limit = room.height() - title_bar - 16
+            height = max(320, min(around + content, limit))
+            if height != self.height():
+                self.resize(self.width(), height)
+            frame = self.frameGeometry()
+            if frame.bottom() > room.bottom() or frame.top() < room.top():
+                self.move(self.x(), max(room.top(), room.bottom() - frame.height()))
+        except Exception as exc:
+            print("Settings could not fit its height:", exc, file=sys.stderr)
 
     # -- handlers ------------------------------------------------------------
     def _paint_swatches(self):
@@ -7488,7 +7556,7 @@ class SettingsWindow(QtWidgets.QDialog):
         def done():
             try:
                 self.app_update_button.setEnabled(True)
-                self.app_update_button.setText("Check app now")
+                self.app_update_button.setText("Check now")
             except RuntimeError:
                 pass                             # the window was closed meanwhile
 
