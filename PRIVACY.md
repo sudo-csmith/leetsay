@@ -50,6 +50,12 @@ to see who uses it or what they do with it.
   It does not read the text in it, the page, the window's title or the
   program's name. The answer is used on the spot and is not stored, logged or
   sent anywhere. Turn it off and Windows is not asked at all.
+- **Word replacements** (the ones you add in Settings) are kept in your
+  settings file on this PC. They are not included when you export your
+  settings, and are never sent anywhere.
+- For the glow along the bottom of the screen, leetsay reads one Windows
+  setting (whether the taskbar is see-through) to place the glow behind it.
+  It changes nothing in Windows.
 - To show a red status light when no microphone is connected, leetsay asks
   Windows every few seconds how many microphones there are, while its pop-up
   is showing. This does not open or listen to any microphone.

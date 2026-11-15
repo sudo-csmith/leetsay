@@ -87,7 +87,10 @@ listed on the release page: in PowerShell, run
    or control. Choose
    **Download**, or **Manual download** to fetch the files yourself with your
    web browser (the steps are shown), or **Quit**.
-3. A short introduction shows the hotkey and lets you try it.
+3. A short introduction shows the hotkey and lets you try it, and asks two
+   things: whether your words should appear all at once when you let go (most
+   accurate, the default) or as you speak, and whether it should look lively
+   or calm.
 
 After that, leetsay starts in the background (with Windows, if you like) and
 shows a small icon by the clock. Windows may hide new icons behind the **^**
@@ -121,6 +124,9 @@ instead of all at once when you let go. You can keep holding the hotkey.
   on (the default), it also waits until the cursor is in a text box, so that
   on a web page or a video your words are not taken as keyboard shortcuts.
   The pop-up says **No text box selected** while it waits.
+- **Word replacements** (Settings, General) fix names and words the speech
+  model doesn't know, such as "leaked say" written for "leetsay": you list what
+  it writes and what you want instead. The list stays on this PC.
 - **Remove filler words** (on by default) leaves out "um", "uh" and "erm", in
   both modes.
 
@@ -154,7 +160,8 @@ application will go online", and only to download the speech model.
 ### If you used the installer
 
 Open Windows **Settings → Apps → Installed apps**, find **leetsay**, and
-choose **Uninstall**. The uninstaller removes the program and its start-up
+choose **Uninstall**, or click **Uninstall leetsay…** in leetsay's own Settings
+(Privacy tab). The uninstaller removes the program and its start-up
 entry, then asks whether to remove your settings and the downloaded speech
 model as well.
 
