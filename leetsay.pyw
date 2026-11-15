@@ -4082,7 +4082,7 @@ class PointerBadge(QtWidgets.QWidget):
         font.setWeight(QtGui.QFont.DemiBold)
         self.font_ = font
         width = QtGui.QFontMetricsF(font).horizontalAdvance(self.text)
-        self.resize(int(width + 34), 24)
+        self.resize(int(width + 41), 24)          # room for the leetsay logo
         self.timer = QtCore.QTimer(self)
         # Follows the pointer about 100 times a second while it shows (30 a
         # second looked jerky beside the pointer itself).
@@ -4134,12 +4134,20 @@ class PointerBadge(QtWidgets.QWidget):
             p.setPen(QtGui.QPen(QtGui.QColor(theme["warning"]), 1.0))
             p.setBrush(fill)
             p.drawRoundedRect(box, box.height() / 2.0, box.height() / 2.0)
+            # leetsay's logo (its four 1337 bars) in amber, so it is clear
+            # where the note comes from.
             p.setPen(Qt.NoPen)
             p.setBrush(QtGui.QColor(theme["warning"]))
-            p.drawEllipse(QtCore.QPointF(13.0, box.center().y()), 3.5, 3.5)
+            bar, gap, tallest = 2.4, 1.6, 11.0
+            unit = tallest / float(max(ICON_BARS))
+            cy = box.center().y()
+            for i, units in enumerate(ICON_BARS):
+                h = max(2.4, unit * units)
+                p.drawRoundedRect(QtCore.QRectF(10.0 + i * (bar + gap), cy - h / 2.0, bar, h),
+                                  bar / 2.0, bar / 2.0)
             p.setFont(self.font_)
             p.setPen(theme["text"])
-            p.drawText(QtCore.QRectF(22, 0, self.width() - 26, self.height()),
+            p.drawText(QtCore.QRectF(29, 0, self.width() - 33, self.height()),
                        Qt.AlignLeft | Qt.AlignVCenter, self.text)
         finally:
             p.end()
