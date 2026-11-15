@@ -5833,7 +5833,7 @@ class Dictation(QtCore.QObject):
         words = clean_words(text.split())
         plain = self._plain(words)
         begin = self._after_typed(plain)
-        self.on_live_text(session, " ".join(words[begin:]) or text)   # the card
+        self._show_typed(session, words[begin:])  # the card: as it is in your app
         fresh = plain[begin:]
         # Compare only the words not typed yet: a typed word read a little
         # differently again must not hold up everything after it.
@@ -5869,6 +5869,16 @@ class Dictation(QtCore.QObject):
         self.lt_commit = max(self.lt_commit, end)
         self.lt_prev = []
         self.lt_seg_words = []                   # the next piece starts afresh
+        self._show_typed(session, [])
+
+    def _show_typed(self, session, coming):
+        """The card, while typing as you speak: the text as it is in your app
+        (typed, or waiting to be) and then the newest words still being
+        settled, so the card and the text box match. Only the last few
+        dozen words: the card shows the end."""
+        words = (self.lt_done + self.lt_pending).split() + list(coming)
+        if words:
+            self.on_live_text(session, " ".join(words[-60:]))
 
     def _flush_live(self):
         """Words are waiting: start typing them (see _pace_tick)."""
