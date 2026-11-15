@@ -24,7 +24,9 @@ jobs:
           python-version: "3.13"
 
       - name: Install the packages (exact versions, each checked by its fingerprint)
-        run: python -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r requirements-build.txt
+        # (On its own line: ":all: " on the same line as "run:" breaks the file.)
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r requirements-build.txt
 
       - name: Read the version from leetsay.pyw
         id: version
