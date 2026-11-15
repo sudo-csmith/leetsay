@@ -320,6 +320,7 @@ SCREEN_GLOW_SIZE = 56                # how far it reaches in from the edge, 20-2
 SCREEN_GLOW_FLOW = True              # a light moves along it, and it ripples with your voice
 SCREEN_GLOW_EDGES = "bottom"         # where: one side ("bottom", "top", "left", "right")
                                      # or "all" (a border round the whole screen)
+SCREEN_GLOW_FOCUS = "middle"         # one side's glow gathers "middle" or in the "corners"
 SCREEN_GLOW_SCREENS = "popup"        # on which screens: "popup" (the pop-up's), "all", "main"
 TRAY_LIVE = False                    # the tray icon's bars move with your voice
 SHOW_HOTKEY_HINT = True              # show the hotkey on that pill and at startup
@@ -652,6 +653,8 @@ if _config.get("pill_mark") in PILL_MARKS:
     PILL_MARK = _config["pill_mark"]
 elif isinstance(_config.get("pill_logo"), bool):   # saved by an earlier 0.2.0 build
     PILL_MARK = "logo" if _config["pill_logo"] else "dot"
+if _config.get("screen_glow_focus") in ("middle", "corners"):
+    SCREEN_GLOW_FOCUS = _config["screen_glow_focus"]
 if _config.get("screen_glow_screens") in ("popup", "all", "main"):
     SCREEN_GLOW_SCREENS = _config["screen_glow_screens"]
 if _config.get("screen_glow_edges") in ("bottom", "top", "left", "right", "all"):
@@ -4012,7 +4015,7 @@ class EdgeStrip(QtWidgets.QWidget):
         """The strip's brightness as a picture (white, see-through), made at
         the screen's real pixels, with a whisper of noise so the soft fade
         shows no bands."""
-        key = (w, h, self.side, round(ratio, 2), self.alone)
+        key = (w, h, self.side, round(ratio, 2), self.alone, SCREEN_GLOW_FOCUS)
         if self._mask is not None and self._mask[0] == key:
             return self._mask[1]
         pw, ph = max(1, int(round(w * ratio))), max(1, int(round(h * ratio)))
@@ -4042,10 +4045,15 @@ class EdgeStrip(QtWidgets.QWidget):
             # there it reaches the full depth, in the middle (where people
             # read, and the pop-up sits) only a slim band, faint.
             side = np.abs(2.0 * along - 1.0)             # 0 in the middle, 1 at the ends
-            reach = depth * (0.38 + 0.62 * side ** 1.4)
+            # "corners": fullest at the two ends; "middle": rising highest in
+            # the centre, like the system itself listening.
+            gather = side if SCREEN_GLOW_FOCUS == "corners" else 1.0 - side
+            if SCREEN_GLOW_FOCUS != "corners":
+                depth = depth * 0.72                     # the middle stays low over text
+            reach = depth * (0.38 + 0.62 * gather ** 1.4)
             rise = 0.85 * np.exp(-(np.maximum(dist, 0.0) / (0.45 * reach)) ** 1.3)
             alpha = np.minimum(1.0, self.light(dist, reach) * 2.0 + rise)
-            alpha = alpha * (0.15 + 0.85 * side ** 1.3)
+            alpha = alpha * (0.15 + 0.85 * gather ** 1.3)
         else:
             alpha = self.light(dist, depth)
         alpha = alpha + (np.random.default_rng(7).random(alpha.shape, dtype=np.float32)
@@ -4081,10 +4089,12 @@ class EdgeStrip(QtWidgets.QWidget):
                               int(base.blue() + (shifted.blue() - base.blue()) * light))
         strength = (0.8 + 0.2 * light) if self.alone else (0.55 + 0.45 * light)
         if self.alone and self.voice:
-            # Your voice, rippling in from both corners: the newest sound at
-            # the ends, older sounds further in.
-            spot = min(len(self.voice) - 1,
-                       int((1.0 - abs(along - 0.5) * 2.0) * len(self.voice)))
+            # Your voice, rippling out from the middle (or in from the
+            # corners): the newest sound there, older sounds further along.
+            out = abs(along - 0.5) * 2.0
+            if SCREEN_GLOW_FOCUS == "corners":
+                out = 1.0 - out
+            spot = min(len(self.voice) - 1, int(out * len(self.voice)))
             strength += 0.6 * self.voice[-1 - spot]
         colour.setAlphaF(min(1.0, strength))
         return colour
@@ -5399,7 +5409,7 @@ class Dictation(QtCore.QObject):
     def demo_screen_glow(self):
         """From Settings: show the screen glow for a moment (nothing records)."""
         if self.state in ("idle", "loading", "nomodel"):
-            self.fx_demo_until = time.monotonic() + 1.6
+            self.fx_demo_until = time.monotonic() + 3.0   # long enough to look at
             self._start_effects(demo=True)
 
     def _start_effects(self, demo=False):
@@ -6510,6 +6520,7 @@ for _key in ("add_space", "always_show", "accent_outline", "outline_light", "glo
 _PORTABLE_CHECKS["card_style"] = lambda v: v in [key for key, _label in CARD_STYLES]
 _PORTABLE_CHECKS["screen_glow_edges"] = lambda v: v in ("bottom", "top", "left", "right", "all")
 _PORTABLE_CHECKS["screen_glow_screens"] = lambda v: v in ("popup", "all", "main")
+_PORTABLE_CHECKS["screen_glow_focus"] = lambda v: v in ("middle", "corners")
 _PORTABLE_CHECKS["pill_mark"] = lambda v: v in PILL_MARKS
 _PORTABLE_CHECKS["replacements"] = valid_replacements
 
@@ -8683,7 +8694,9 @@ class SettingsWindow(QtWidgets.QDialog):
 
         # ================= General =================
         tab("General")
-        heading("Dictation hotkey", first=True)
+        heading("Startup", first=True)
+        check("Start with Windows", starts_with_windows(), set_startup)
+        heading("Dictation hotkey")
         self.record = button(self.RECORD_LABEL, self._record_hotkey, width=84)
         self.record.setToolTip("Click, then press any key or key combination to "
                                "use it as the hotkey. Esc cancels.")
@@ -8837,16 +8850,13 @@ class SettingsWindow(QtWidgets.QDialog):
                    "your words still go to the window you were in when you pressed "
                    "the hotkey.")
 
-        heading("Startup")
-        check("Start with Windows", starts_with_windows(), set_startup)
-
         end_tab()
 
         # ================= Pop-up =================
         tab("Pop-up")
         def screen_glow_changed(on):
             set_option("SCREEN_GLOW", "screen_glow", bool(on))
-            self._flash_glow()                   # show what it looks like (or that it is off)
+            dictation.demo_screen_glow()         # the screen glow only, not the pop-up
 
         def popup_changed(on):
             set_option("SHOW_POPUP", "show_popup", bool(on))
@@ -9033,7 +9043,7 @@ class SettingsWindow(QtWidgets.QDialog):
                 globals()[name] = int(slider.value())
                 if not slider.isSliderDown():    # arrow keys, a click on the track
                     save_setting(key, int(slider.value()))
-                self._flash_glow()
+                self.dictation.demo_screen_glow()   # these change the screen glow only
 
             slider.valueChanged.connect(moved)
             slider.sliderReleased.connect(
@@ -9059,6 +9069,18 @@ class SettingsWindow(QtWidgets.QDialog):
                                       self.glow_where.itemData(index)),
                            dictation.demo_screen_glow()))
         row(field("Edge glow"), self.glow_where, None)
+        self.glow_focus = QtWidgets.QComboBox()
+        self.glow_focus.addItem("In the middle", "middle")
+        self.glow_focus.addItem("In the corners", "corners")
+        self.glow_focus.setCurrentIndex(max(0, self.glow_focus.findData(SCREEN_GLOW_FOCUS)))
+        self.glow_focus.setToolTip("Where a glow along one side is strongest: rising in "
+                                   "the middle, or gathered in its two corners (keeps the "
+                                   "middle clear for reading). Not for the full border.")
+        self.glow_focus.currentIndexChanged.connect(
+            lambda index: (set_option("SCREEN_GLOW_FOCUS", "screen_glow_focus",
+                                      self.glow_focus.itemData(index)),
+                           dictation.demo_screen_glow()))
+        row(field("Light from"), self.glow_focus, None)
         self.glow_screens = QtWidgets.QComboBox()
         self.glow_screens.addItem("The pop-up's screen", "popup")
         self.glow_screens.addItem("All screens", "all")
@@ -9604,7 +9626,7 @@ class SettingsWindow(QtWidgets.QDialog):
     def _glow_changed(self, index):
         set_option("GLOW", "glow", self.glow.itemData(index))
         self.dictation.refresh_popup()
-        self._flash_glow()
+        self.dictation.preview_popup()           # the pop-up's own glow: the pop-up only
 
     def _flash_glow(self):
         """Show a glow change for a moment: the pop-up, and the screen glow too."""
