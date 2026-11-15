@@ -302,7 +302,7 @@ HIDE_CONSOLE = True                  # run in the background, no command prompt
 SHOW_TRANSCRIBING = False            # False: pop-up vanishes as soon as you finish
 STARTUP_MESSAGE = False              # show a "Loading..." pop-up while starting
 STARTUP_FLASH = True                 # briefly show the pop-up once it can be used
-ALWAYS_SHOW = False                  # keep a small pill on screen between dictations
+ALWAYS_SHOW = False                  # always show a small status pill on screen
 ACCENT_OUTLINE = True                # a ring in the accent colour round the pop-up
 CARD_STYLE = "glow"                  # the dictation card: "clean" (a soft neutral
                                      # shadow and a crisp edge), "accent" (the same,
@@ -399,6 +399,7 @@ MIC_QUIET_PEAK = 0.01                # below this it can barely hear anything
 N_DOTS = 46                          # how much level history is kept
 ACCENT = "#3DDC97"                   # pop-up colour (any hex colour)
 POPUP_BG = "#16171B"                 # pop-up background; text adapts to light or dark
+MENU_THEME = "dark"                  # Settings and the other windows: "dark" or "light"
 LONG_AUDIO_SECONDS = 30              # above this, split on pauses before transcribing
 
 # ----------------------------------------------------------------------------
@@ -703,6 +704,8 @@ for _name, _key in (("SOUND_SET", "sound_set"), ("SOUND_START_FILE", "sound_star
                     ("GLOW_COLOUR", "glow_colour"), ("ACTION_KEY", "action_key")):
     if isinstance(_config.get(_key), str):
         globals()[_name] = _config[_key]
+if _config.get("menu_theme") in ("dark", "light"):
+    MENU_THEME = _config["menu_theme"]
 for _name, _key in (("PASTE_HOTKEY", "paste_hotkey"), ("ACTION_HOTKEY", "action_hotkey")):
     if valid_hotkey(_config.get(_key), empty_ok=True) and _config[_key] != HOTKEY:
         globals()[_name] = _config[_key]
@@ -6712,7 +6715,7 @@ def tick_image():
 def dark_title_bar(window):
     """Ask Windows to draw this window's title bar dark, to match its contents."""
     try:
-        value = ctypes.c_int(1)
+        value = ctypes.c_int(0 if light_menus() else 1)   # dark, or light menus
         for attribute in (20, 19):               # DWMWA_USE_IMMERSIVE_DARK_MODE
             if ctypes.windll.dwmapi.DwmSetWindowAttribute(
                     wintypes.HWND(int(window.winId())), attribute,
@@ -6720,6 +6723,28 @@ def dark_title_bar(window):
                 break
     except Exception:
         pass
+
+
+def light_menus():
+    """Settings and the other windows in the light look (not in 1337 mode)."""
+    return MENU_THEME == "light" and not LEET_MODE
+
+
+def menu_palette():
+    """The colours Qt uses for menus and dialogs: dark or light."""
+    if not light_menus():
+        return dark_palette()
+    palette = QtGui.QPalette()
+    roles = QtGui.QPalette
+    for role, colour in ((roles.Window, "#F4F5F7"), (roles.WindowText, "#1B1D22"),
+                         (roles.Base, "#FFFFFF"), (roles.AlternateBase, "#F0F1F4"),
+                         (roles.Text, "#1B1D22"), (roles.Button, "#FFFFFF"),
+                         (roles.ButtonText, "#1B1D22"), (roles.ToolTipBase, "#FFFFFF"),
+                         (roles.ToolTipText, "#1B1D22"), (roles.Highlight, "#DDE0E6"),
+                         (roles.HighlightedText, "#111216"),
+                         (roles.PlaceholderText, "#7A7E89")):
+        palette.setColor(role, QtGui.QColor(colour))
+    return palette
 
 
 def dark_palette():
@@ -6754,7 +6779,46 @@ QSlider::handle:horizontal { width: 14px; height: 14px; margin: -5px 0;
 QSlider::handle:horizontal:disabled { background: #6B6D77; }
 QSlider::sub-page:horizontal:disabled { background: #454852; }
 """ % {"accent": ACCENT, "tick": ('image: url("%s");' % tick) if tick else ""} + (
-        LEET_STYLE if LEET_MODE else "")
+        LEET_STYLE if LEET_MODE else LIGHT_STYLE if light_menus() else "")
+
+
+# The light look for Settings and the other windows. Laid over the dark one;
+# each rule starts with "QDialog" so it wins over the windows' own additions.
+LIGHT_STYLE = """
+QDialog { background: #F4F5F7; }
+QDialog QLabel, QDialog QCheckBox { color: #1B1D22; }
+QDialog QLabel#field { color: #5A5E69; }
+QDialog QLabel#heading { color: #111216; }
+QDialog QLabel#headline { color: #111216; }
+QDialog QLabel#body { color: #4A4E59; }
+QDialog QLabel#note { color: #3A3E47; }
+QDialog QLabel#info { color: #6B6F7A; }
+QDialog QFrame#rule { background: #DDE0E6; }
+QDialog QFrame#panel { background: #FFFFFF; border: 1px solid #E0E2E7; }
+QDialog QComboBox, QDialog QPushButton { background: #FFFFFF; color: #1B1D22;
+    border: 1px solid #CDD0D7; }
+QDialog QPushButton:hover, QDialog QComboBox:hover { background: #F0F1F4; border-color: #B5B9C2; }
+QDialog QPushButton:pressed { background: #E6E8EC; }
+QDialog QPushButton:disabled { color: #9A9EA8; }
+QDialog QComboBox:disabled { color: #9A9EA8; background: #F4F5F7; border-color: #E0E2E7; }
+QDialog QComboBox QAbstractItemView { background: #FFFFFF; color: #1B1D22;
+    border: 1px solid #CDD0D7; selection-background-color: #E6E8EC; }
+QDialog QCheckBox:disabled, QDialog QLabel:disabled { color: #A3A7B0; }
+QDialog QCheckBox::indicator { border: 1px solid #B5B9C2; background: #FFFFFF; }
+QDialog QCheckBox::indicator:hover { border-color: #7A7E89; }
+QDialog QTabWidget::pane { border: 1px solid #E0E2E7; background: #FFFFFF; }
+QDialog QTabBar::tab { color: #5A5E69; }
+QDialog QTabBar::tab:hover { color: #1B1D22; }
+QDialog QTabBar::tab:selected { color: #111216; }
+QDialog QScrollBar::handle:vertical { background: #CDD0D7; }
+QDialog QScrollBar::handle:vertical:hover { background: #B5B9C2; }
+QDialog QSlider::groove:horizontal, QDialog QSlider::add-page:horizontal { background: #DDE0E6; }
+QDialog QSlider::handle:horizontal { background: #FFFFFF; border: 1px solid #B5B9C2; }
+QDialog QProgressBar { background: #E6E8EC; }
+QDialog QPlainTextEdit, QDialog QLineEdit { background: #FFFFFF; color: #1B1D22;
+    border: 1px solid #CDD0D7; }
+QToolTip { background: #FFFFFF; color: #1B1D22; border: 1px solid #CDD0D7; }
+"""
 
 
 # 1337 mode's Settings: green on black in a typewriter font (the red Quit button
@@ -6903,6 +6967,7 @@ _PORTABLE_CHECKS = {
     "after_delay": lambda v: v in [d[0] for d in AFTER_DELAYS],
     "accent": lambda v: _is_colour(v),
     "popup_bg": lambda v: _is_colour(v),
+    "menu_theme": lambda v: v in ("dark", "light"),
     "glow_colour": lambda v: _is_colour(v, empty_ok=True),
     "glow": lambda v: v in [g[0] for g in GLOW_LEVELS],
     "sound_set": lambda v: v in [s[0] for s in SOUND_SETS if s[0] != "custom"],
@@ -7818,13 +7883,16 @@ def swatch_picture(colour, chosen, ratio):
     p.setRenderHint(QtGui.QPainter.Antialiasing)
     p.scale(ratio, ratio)
     middle = QtCore.QPointF(size / 2.0, size / 2.0)
-    p.setPen(Qt.NoPen)
+    light = light_menus()
+    # On the light look a very light colour gets a faint edge, or it is lost.
+    faint = light and QtGui.QColor(colour).lightnessF() > 0.85
+    p.setPen(QtGui.QPen(QtGui.QColor("#B5B9C2"), 1.0) if faint else Qt.NoPen)
     p.setBrush(QtGui.QColor(colour))
     dot = 7.0 if chosen else 9.0
     p.drawEllipse(middle, dot, dot)
     if chosen:
         p.setBrush(Qt.NoBrush)
-        p.setPen(QtGui.QPen(QtGui.QColor("#FFFFFF"), 1.6))
+        p.setPen(QtGui.QPen(QtGui.QColor("#1B1D22" if light else "#FFFFFF"), 1.6))
         p.drawEllipse(middle, 10.4, 10.4)
     p.end()
     picture.setDevicePixelRatio(ratio)
@@ -8059,16 +8127,24 @@ class ChoiceButton(QtWidgets.QPushButton):
         p = QtGui.QPainter(self)
         p.setRenderHint(QtGui.QPainter.Antialiasing)
         hover = self.underMouse()
-        fill = QtGui.QColor("#2D3037" if hover else "#24262C")
-        if self.isDown():
-            fill = QtGui.QColor("#1E2025")
-        edge = QtGui.QColor(ACCENT) if self._chosen else QtGui.QColor(
-            "#454852" if hover else "#34363E")
+        light = light_menus()
+        if light:
+            fill = QtGui.QColor("#F0F1F4" if hover else "#FFFFFF")
+            if self.isDown():
+                fill = QtGui.QColor("#E6E8EC")
+            edge = QtGui.QColor(accent_on_light(QtGui.QColor(ACCENT))) if self._chosen \
+                else QtGui.QColor("#B5B9C2" if hover else "#CDD0D7")
+        else:
+            fill = QtGui.QColor("#2D3037" if hover else "#24262C")
+            if self.isDown():
+                fill = QtGui.QColor("#1E2025")
+            edge = QtGui.QColor(ACCENT) if self._chosen else QtGui.QColor(
+                "#454852" if hover else "#34363E")
         p.setPen(QtGui.QPen(edge, 1.0))
         p.setBrush(fill)
         p.drawRoundedRect(QtCore.QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5),
                           self._radius, self._radius)
-        p.setPen(QtGui.QColor("#E6E7EC"))
+        p.setPen(QtGui.QColor("#1B1D22" if light else "#E6E7EC"))
         p.setFont(self.font())
         p.drawText(self.rect(), Qt.AlignCenter, self.text())
         p.end()
@@ -8305,6 +8381,39 @@ def auto_key_warning(parent, key):
         "Hold to confirm: turn it on", "Cancel")
 
 
+def dot_off():
+    """The colour of a page dot that is not the current page."""
+    return "#CDD0D7" if light_menus() else "#3A3D46"
+
+
+def set_menu_theme(theme):
+    """Dark or light Settings (and the other windows), applied at once to
+    every window that is open."""
+    set_option("MENU_THEME", "menu_theme", theme)
+    app = QtWidgets.QApplication.instance()
+    if app is None:
+        return
+    app.setPalette(menu_palette())
+    for widget in QtWidgets.QApplication.topLevelWidgets():
+        try:
+            if isinstance(widget, SettingsWindow):
+                widget.setStyleSheet(settings_style())
+                widget._paint_swatches()
+                widget._paint_backgrounds()
+                widget._paint_menu_theme()
+            elif isinstance(widget, IntroWindow):
+                widget._restyle()
+                widget._paint_swatches()
+                widget._go(widget.stack.currentIndex())
+            if widget.isVisible() and isinstance(widget, QtWidgets.QDialog):
+                dark_title_bar(widget)
+            for child in widget.findChildren(QtWidgets.QWidget):
+                child.update()
+            widget.update()
+        except Exception as exc:
+            print("A window could not change its look:", exc, file=sys.stderr)
+
+
 class _PageStack(QtWidgets.QStackedWidget):
     """The setup window's pages. Says it has no height-for-width: otherwise
     Qt tells Windows the window may never be shorter than its longest page
@@ -8469,7 +8578,14 @@ class IntroWindow(QtWidgets.QDialog):
             button_.clicked.connect(lambda _checked=False, v=value: self._theme(v))
             self.themes.append((button_, value))
         line(look, field("Pop-up"), *([b for b, _v in self.themes] + [None]))
-        self.pill = QtWidgets.QCheckBox("Keep a small pill on screen between dictations")
+        self.menu_themes = []
+        for name, value in (("Dark", "dark"), ("Light", "light")):
+            button_ = ChoiceButton(name)
+            button_.setMinimumWidth(68)
+            button_.clicked.connect(lambda _checked=False, v=value: set_menu_theme(v))
+            self.menu_themes.append((button_, value))
+        line(look, field("Settings"), *([b for b, _v in self.menu_themes] + [None]))
+        self.pill = QtWidgets.QCheckBox("Always show a small status pill on screen")
         self.pill.setChecked(bool(ALWAYS_SHOW))
         self.pill.toggled.connect(self._pill_toggled)
         look.addWidget(self.pill)
@@ -8519,9 +8635,7 @@ class IntroWindow(QtWidgets.QDialog):
         second.addWidget(self.try_label)
         self.try_box = QtWidgets.QPlainTextEdit()
         self.try_box.setFixedHeight(52)
-        self.try_box.setStyleSheet("QPlainTextEdit { background: #17181C; color: #F0F0F4; "
-                                   "border: 1px solid #34363E; border-radius: 6px; "
-                                   "padding: 5px; }")
+        self.try_box.setStyleSheet("QPlainTextEdit { border-radius: 6px; padding: 5px; }")
         second.addWidget(self.try_box)
         # Shown for a few seconds when the hotkey is held and nothing is heard.
         self.mic_note = QtWidgets.QLabel(self.CANT_HEAR)
@@ -8682,8 +8796,9 @@ QCheckBox { font-size: 13px; spacing: 10px; }
 QProgressBar { border: none; border-radius: 3px; background: #2A2C33; max-height: 6px;
     min-height: 6px; }
 QProgressBar::chunk { border-radius: 3px; background: %(accent)s; }
-QPlainTextEdit { font-size: 13px; }
-""" % {"accent": ACCENT})
+QPlainTextEdit { font-size: 13px; background: #17181C; color: #F0F0F4;
+    border: 1px solid #34363E; }
+""" % {"accent": ACCENT} + (LIGHT_STYLE if light_menus() else ""))
 
     def _paint_swatches(self):
         for button, value in self.swatches:
@@ -8694,6 +8809,8 @@ QPlainTextEdit { font-size: 13px; }
             button.setIconSize(QtCore.QSize(24, 24))
         for button, value in self.themes:
             button.setChosen(value.lower() == POPUP_BG.lower())
+        for button, value in getattr(self, "menu_themes", []):
+            button.setChosen(value == MENU_THEME)
 
     def _redraw(self):
         for sketch in self.sketches:
@@ -8723,7 +8840,7 @@ QPlainTextEdit { font-size: 13px; }
         self.next.setText("Get started" if last else "Next")
         for i, dot in enumerate(self.dots):
             dot.setStyleSheet("border-radius: 4px; background: %s;"
-                              % (ACCENT if i == index else "#3A3D46"))
+                              % (ACCENT if i == index else dot_off()))
         if not early:
             self._refresh_status()
         self._redraw()
@@ -8955,7 +9072,7 @@ QPlainTextEdit { font-size: 13px; }
         index = self.stack.currentIndex()
         for i, dot in enumerate(self.dots):
             dot.setStyleSheet("border-radius: 4px; background: %s;"
-                              % (ACCENT if i == index else "#3A3D46"))
+                              % (ACCENT if i == index else dot_off()))
         self._redraw()
         self._live(index == self.look_page)      # the real glow, in the new colour
 
@@ -9399,7 +9516,7 @@ class SettingsWindow(QtWidgets.QDialog):
         self.text_size.currentIndexChanged.connect(self._text_size_changed)
         row(field("Text size"), self.text_size, None)
         heading("Between dictations")
-        check("Always keep a small pill on screen", ALWAYS_SHOW,
+        check("Always show a small status pill on screen", ALWAYS_SHOW,
               option("ALWAYS_SHOW", "always_show", refresh=True),
               tip="Shows a small pill between dictations so you can see the app is "
                   "running. The microphone stays off until you press the hotkey.")
@@ -9457,6 +9574,16 @@ class SettingsWindow(QtWidgets.QDialog):
             background_row.append(choice)
         row(*(background_row + [button("Custom", self._background_custom), None]))
         self._paint_backgrounds()
+        self.menu_themes = []
+        menu_row = [field("Settings")]
+        for label, value in (("Dark", "dark"), ("Light", "light")):
+            choice = ChoiceButton(label)
+            choice.setToolTip("How this window and the other %s windows look." % APP_TITLE)
+            choice.clicked.connect(lambda _checked=False, v=value: set_menu_theme(v))
+            self.menu_themes.append((choice, value))
+            menu_row.append(choice)
+        row(*(menu_row + [None]))
+        self._paint_menu_theme()
         heading("Card")
         self.card_style = QtWidgets.QComboBox()
         for key, label in CARD_STYLES:
@@ -9988,6 +10115,10 @@ class SettingsWindow(QtWidgets.QDialog):
     def _paint_backgrounds(self):
         for button, value in self.backgrounds:
             button.setChosen(value.lower() == POPUP_BG.lower())
+
+    def _paint_menu_theme(self):
+        for button, value in getattr(self, "menu_themes", []):
+            button.setChosen(value == MENU_THEME)
 
     def _background_chosen(self, colour):
         set_option("POPUP_BG", "popup_bg", colour)
@@ -11058,7 +11189,7 @@ def main():
     app = QtWidgets.QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
     app.setStyle("Fusion")                             # same look on every PC
-    app.setPalette(dark_palette())                     # dark menus and dialogs
+    app.setPalette(menu_palette())                     # dark (or light) menus and dialogs
     app.setWindowIcon(app_icon())
     # Listen for a newer copy asking this one to close from the very start, so
     # it works even while a question is on screen (before, this began later,
