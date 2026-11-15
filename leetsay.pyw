@@ -5599,6 +5599,12 @@ class Dictation(QtCore.QObject):
         if self.state != "recording" or not (LIVE_PREVIEW or self.lt_active):
             self.live_timer.stop()
             return
+        if getattr(self.recorder, "peak", 1.0) < MIC_SILENT_PEAK:
+            # No sound at all yet (a muted microphone): nothing to read. Quiet
+            # audio is turned up before reading, and pure noise turned up
+            # makes the speech model "hear" a word such as "Okay", which would
+            # then be shown and typed.
+            return
         if self.lt_active:
             self._flush_live()                   # back in the right window: catch up
             if TEXTBOX_ONLY and self.target_window \
