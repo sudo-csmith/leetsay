@@ -7942,6 +7942,16 @@ class Sketch(QtWidgets.QWidget):
             p.end()
 
     @staticmethod
+    def _edge():
+        """Outlines in the pictures: soft on the light look, as on the dark."""
+        return "#C4C8CF" if light_menus() else "#4A4D57"
+
+    @staticmethod
+    def _quiet():
+        """Small captions in the pictures."""
+        return "#6B6F7A" if light_menus() else "#8E909A"
+
+    @staticmethod
     def _font(size, bold=False):
         font = ui_font()
         font.setPixelSize(size)
@@ -8013,23 +8023,25 @@ class Sketch(QtWidgets.QWidget):
         sizes = [max(46.0, metrics.horizontalAdvance(key) + 26.0) for key in keys]
         total = sum(sizes) + 22.0 * (len(keys) - 1)
         x = (w - total) / 2.0
+        light = light_menus()                    # keys to match the window's look
         for i, (key, size) in enumerate(zip(keys, sizes)):
-            p.setPen(QtGui.QPen(QtGui.QColor("#4A4D57"), 1.2))
-            p.setBrush(QtGui.QColor("#24262C"))
+            p.setPen(QtGui.QPen(QtGui.QColor(self._edge()), 1.2))
+            p.setBrush(QtGui.QColor("#FFFFFF" if light else "#24262C"))
             p.drawRoundedRect(QtCore.QRectF(x, h / 2 - 20, size, 40), 8, 8)
-            p.setPen(QtGui.QColor("#F0F0F4"))
+            p.setPen(QtGui.QColor("#1B1D22" if light else "#F0F0F4"))
             p.drawText(QtCore.QRectF(x, h / 2 - 20, size, 40), Qt.AlignCenter, key)
             x += size
             if i < len(keys) - 1:
-                p.setPen(QtGui.QColor("#8E909A"))
+                p.setPen(QtGui.QColor(self._quiet()))
                 p.drawText(QtCore.QRectF(x, h / 2 - 20, 22, 40), Qt.AlignCenter, "+")
                 x += 22.0
 
     def _look(self, p, w, h):
         # A little screen, with the glow round its edge if that is switched on.
         screen = QtCore.QRectF(w / 2 - 150, 4, 300, h - 8)
-        p.setPen(QtGui.QPen(QtGui.QColor("#34363E"), 1.0))
-        p.setBrush(QtGui.QColor("#0E0F12"))
+        light = light_menus()                    # a light grey screen in the light look
+        p.setPen(QtGui.QPen(QtGui.QColor("#D5D8DE" if light else "#34363E"), 1.0))
+        p.setBrush(QtGui.QColor("#E9EBEF" if light else "#0E0F12"))
         p.drawRoundedRect(screen, 6, 6)
         if SCREEN_GLOW:
             # The screen glow in miniature: light coming in from each edge and
@@ -8084,7 +8096,7 @@ class Sketch(QtWidgets.QWidget):
                                             ("As you speak", 0.55))):
             left = w / 2.0 - box_w - 10.0 if i == 0 else w / 2.0 + 10.0
             box = QtCore.QRectF(left, 14, box_w, 48)
-            p.setPen(QtGui.QPen(QtGui.QColor("#4A4D57"), 1.2))
+            p.setPen(QtGui.QPen(QtGui.QColor(self._edge()), 1.2))
             p.setBrush(QtGui.QColor(POPUP_BG))
             p.drawRoundedRect(box, 8, 8)
             ink = QtGui.QColor("#1D1D1F" if light else "#E8E9EE")
@@ -8099,7 +8111,7 @@ class Sketch(QtWidgets.QWidget):
                 p.setBrush(QtGui.QColor(ACCENT))
                 p.drawRect(QtCore.QRectF(box.left() + 17 + second, box.top() + 25, 2, 11))
             p.setFont(self._font(11))
-            p.setPen(QtGui.QColor("#8E909A"))
+            p.setPen(QtGui.QColor(self._quiet()))
             p.drawText(QtCore.QRectF(box.left(), box.bottom() + 6, box.width(), 18),
                        Qt.AlignCenter, label)
 
@@ -8109,7 +8121,7 @@ class Sketch(QtWidgets.QWidget):
         p.setFont(self._font(12))
         pill_w = QtGui.QFontMetricsF(p.font()).horizontalAdvance(text) + 52.0
         pill = QtCore.QRectF(w / 2 - pill_w / 2, h / 2 - 18, pill_w, 36)
-        p.setPen(QtGui.QPen(QtGui.QColor("#4A4D57"), 1.2))
+        p.setPen(QtGui.QPen(QtGui.QColor(self._edge()), 1.2))
         p.setBrush(QtGui.QColor(POPUP_BG))
         p.drawRoundedRect(pill, 18, 18)
         p.setPen(Qt.NoPen)
@@ -8118,7 +8130,7 @@ class Sketch(QtWidgets.QWidget):
         p.setPen(QtGui.QColor("#1D1D1F" if is_light(POPUP_BG) else "#F0F0F4"))
         p.drawText(pill.adjusted(30, 0, -8, 0), Qt.AlignLeft | Qt.AlignVCenter, text)
         p.setFont(self._font(11))
-        p.setPen(QtGui.QColor("#8E909A"))
+        p.setPen(QtGui.QColor(self._quiet()))
         p.drawText(QtCore.QRectF(0, h / 2 - 18, pill.left() - 12, 36),
                    Qt.AlignRight | Qt.AlignVCenter, "Click: dictate")
         p.drawText(QtCore.QRectF(pill.right() + 12, h / 2 - 18, w - pill.right() - 12, 36),
