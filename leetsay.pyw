@@ -108,7 +108,7 @@ from ctypes import wintypes
 
 
 
-VERSION = "0.60.4"              # shown in Settings and About
+VERSION = "0.60.5"              # shown in Settings and About
 APP_TITLE = "leetsay"                # the name shown to the user (one place)
 _HERE = os.path.dirname(_SELF)        # the program's own folder
 
@@ -7031,7 +7031,8 @@ class SettingsWindow(QtWidgets.QDialog):
 
                 def try_out(colour):
                     globals()["GLOW_COLOUR"] = colour    # shown, not yet saved
-                picked = self._pick_colour("Glow colour", GLOW_COLOUR or ACCENT, try_out)
+                picked = self._pick_colour("Glow colour", GLOW_COLOUR or ACCENT, try_out,
+                                           edge_glow=True)
                 if picked:
                     set_option("GLOW_FROM_APP", "glow_from_app", False)
                     set_option("GLOW_COLOUR", "glow_colour", picked)
@@ -7452,24 +7453,44 @@ class SettingsWindow(QtWidgets.QDialog):
         self.dictation.overlay.update()
         self.dictation.preview_popup()
 
-    def _pick_colour(self, title, start, try_out):
+    def _pick_colour(self, title, start, try_out, edge_glow=False):
         """Open a colour picker that shows each colour on the pop-up as you move
         through them. Returns the chosen colour's name, or None if cancelled
-        (the caller's try_out is then called with the starting colour again)."""
+        (the caller's try_out is then called with the starting colour again).
+        edge_glow=True: the colour also tints the glow round the screen, so that
+        stays on, following each colour, for as long as the picker is open."""
         picker = QtWidgets.QColorDialog(QtGui.QColor(start), self)
         picker.setWindowTitle(title)
         picker.setOption(QtWidgets.QColorDialog.DontUseNativeDialog, True)   # live updates
         picker.setWindowFlag(Qt.WindowStaysOnTopHint, True)
-        overlay = self.dictation.overlay
-        can_show = self.dictation.state in ("idle", "loading", "nomodel") and overlay.mode != "welcome"
+        dictation = self.dictation
+        overlay = dictation.overlay
+        can_show = dictation.state in ("idle", "loading", "nomodel") and overlay.mode != "welcome"
+        show_edges = can_show and edge_glow and SCREEN_GLOW
+
+        def edges_on():                          # (re)start, in the colour tried now
+            dictation.fx_demo_until = time.monotonic() + 3600
+            dictation._start_effects(demo=True)
+
         if can_show:
             overlay.preview(ms=None)             # stays up for as long as you are choosing
-        picker.currentColorChanged.connect(
-            lambda colour: (try_out(colour.name()), overlay.update()))
+        if show_edges:
+            edges_on()
+
+        def tried(colour):
+            try_out(colour.name())
+            overlay.update()
+            if show_edges:
+                edges_on()
+
+        picker.currentColorChanged.connect(tried)
         accepted = picker.exec() == QtWidgets.QDialog.Accepted
         chosen = picker.selectedColor().name() if accepted else None
         if not accepted:
             try_out(start)
+        if show_edges:                           # show the result a moment, then fade
+            edges_on()
+            dictation.fx_demo_until = time.monotonic() + 1.2
         if can_show and overlay.previewing:
             overlay.preview(ms=1600)             # linger a moment on the result, then go
         return chosen
@@ -7496,7 +7517,9 @@ class SettingsWindow(QtWidgets.QDialog):
     def _accent_custom(self):
         def try_out(colour):
             globals()["ACCENT"] = colour         # shown, not yet saved
-        chosen = self._pick_colour("Accent colour", ACCENT, try_out)
+        # The screen glow uses the accent colour unless a glow colour is chosen.
+        chosen = self._pick_colour("Accent colour", ACCENT, try_out,
+                                   edge_glow=not GLOW_COLOUR and not GLOW_FROM_APP)
         if chosen:
             self._accent_chosen(chosen)
 
