@@ -639,12 +639,20 @@ for _name, _key, _low, _high in (("SCREEN_GLOW_STRENGTH", "screen_glow_strength"
     _value = _config.get(_key)
     if isinstance(_value, (int, float)) and not isinstance(_value, bool):
         globals()[_name] = int(max(_low, min(_high, _value)))
+def plain_text(part):
+    """Ordinary text only: no control or invisible formatting characters
+    (typed into an app, some of them act as keys: one of them pastes)."""
+    import unicodedata
+    return all(unicodedata.category(c)[0] != "C" for c in part)
+
+
 def valid_replacements(value):
-    """A list of [heard, write] pairs of short, non-empty, one-line texts."""
+    """A list of [heard, write] pairs of short, non-empty, one-line, plain
+    texts."""
     return (isinstance(value, list) and len(value) <= REPLACE_MAX and all(
         isinstance(pair, list) and len(pair) == 2 and all(
             isinstance(part, str) and part.strip() and len(part) <= REPLACE_LEN
-            and "\n" not in part and "\r" not in part for part in pair)
+            and plain_text(part) for part in pair)
         for pair in value))
 
 
@@ -1779,6 +1787,10 @@ def replace_words(words):
             if plain[i:i + len(key)] == key and write:
                 last = words[i + len(key) - 1]
                 end = last[len(last.rstrip(".,!?;:\u2026")):]
+                write = list(write)
+                first = words[i]
+                if first[:1].isupper() and write[0][:1].islower():
+                    write[0] = write[0][0].upper() + write[0][1:]   # a sentence's capital
                 out.extend(write[:-1] + [write[-1] + end])
                 i += len(key)
                 break
@@ -4262,17 +4274,21 @@ class ScreenGlow:
                 room = screen.availableGeometry()
             rx, ry, rw, rh = room.x(), room.y(), room.width(), room.height()
             # The bottom glow lives in the taskbar. With a see-through taskbar
-            # (Windows' default) it sits behind it, filling its height, and
-            # shines through behind the icons: nothing is covered. With a solid
-            # taskbar, a soft glow low in front of it instead (11 px).
+            # (Windows' default) on the main screen it sits behind it, filling
+            # its height, and shines through behind the icons: nothing is
+            # covered.
             taskbar = (y + h) - (ry + rh)
-            behind = taskbar > 0 and taskbar_see_through()
+            main = QtGui.QGuiApplication.primaryScreen()
+            on_main = main is not None and main.geometry() == area
+            behind = taskbar > 0 and on_main and taskbar_see_through()
             if behind:
-                low = taskbar
+                bottom_rect = QtCore.QRect(rx, y + h - taskbar, rw, taskbar)
             else:
-                low = 11 if taskbar > 0 else max(10, int(SCREEN_GLOW_SIZE * 0.22))
+                # Another screen's taskbar, or a solid one: a slim glow just
+                # above it, so its icons and their marks are never covered.
+                bottom_rect = QtCore.QRect(rx, ry + rh - depth, rw, depth)
             place = {"top": QtCore.QRect(rx, ry, rw, depth),
-                     "bottom": QtCore.QRect(rx, y + h - low, rw, low),
+                     "bottom": bottom_rect,
                      "left": QtCore.QRect(rx, ry, depth, rh),
                      "right": QtCore.QRect(rx + rw - depth, ry, depth, rh)}[SCREEN_GLOW_EDGES]
             one = strips[("top", "bottom", "left", "right").index(SCREEN_GLOW_EDGES)]
@@ -4309,8 +4325,7 @@ class ScreenGlow:
             strip.span = span
             strip.colour = QtGui.QColor(colour)
             self._move(strip, QtCore.QRect(*place))
-            if not self.showing:
-                strip.setWindowOpacity(0.0)
+            strip.setWindowOpacity(self._shown(strip) if self.showing else 0.0)
             strip.show()
             strip.update()
 
@@ -5590,8 +5605,13 @@ class Dictation(QtCore.QObject):
                 # after two checks in a row, so a quick change of focus doesn't
                 # make it flicker on and off.
                 missing = not self._in_text_box(self.target_window)
-                self.lt_missing = (getattr(self, "lt_missing", 0) + 1) if missing else 0
-                self.overlay.box_missing = self.lt_missing >= 2
+                fresh = self.lt_box.get("at", 0.0) != getattr(self, "lt_missing_at", None)
+                if not missing:
+                    self.lt_missing = 0
+                elif fresh:                      # count each new answer once
+                    self.lt_missing = getattr(self, "lt_missing", 0) + 1
+                    self.lt_missing_at = self.lt_box.get("at", 0.0)
+                self.overlay.box_missing = getattr(self, "lt_missing", 0) >= 2
             else:
                 self.lt_missing = 0
                 self.overlay.box_missing = False
@@ -5892,6 +5912,7 @@ class Dictation(QtCore.QObject):
         self.lt_done = self.lt_pending = ""
         self.lt_all, self.lt_prev, self.lt_seg_words = [], [], []
         self.lt_held = None
+        self._final_before, self._final_skip, self._final_timed = "", None, None
 
     def _text_box_now(self, target):
         """The same question, answered now (waits at most half a second)."""
@@ -6036,9 +6057,14 @@ class Dictation(QtCore.QObject):
                 self.overlay.dismiss()
                 QtCore.QTimer.singleShot(0, lambda: self.on_finished(""))
                 return
-            first = max(0, self.lt_commit - int(self.LT_CONTEXT * SAMPLE_RATE))
-            audio = whole[first:]
-            self._final_skip = (self.lt_commit - first) / float(SAMPLE_RATE)
+            if len(rest) > LONG_AUDIO_SECONDS * SAMPLE_RATE:
+                # A long stretch with no pause: read in pieces like any long
+                # dictation (without the context; matched to the typed words).
+                audio = rest
+            else:
+                first = max(0, self.lt_commit - int(self.LT_CONTEXT * SAMPLE_RATE))
+                audio = whole[first:]
+                self._final_skip = (self.lt_commit - first) / float(SAMPLE_RATE)
         if SHOW_TRANSCRIBING and getattr(self, "popup_shown", True):
             self.overlay.show_transcribing()
         else:
@@ -6590,7 +6616,6 @@ _PORTABLE_CHECKS["screen_glow_edges"] = lambda v: v in ("bottom", "top", "left",
 _PORTABLE_CHECKS["screen_glow_screens"] = lambda v: v in ("popup", "all", "main")
 _PORTABLE_CHECKS["screen_glow_focus"] = lambda v: v in ("middle", "corners", "even")
 _PORTABLE_CHECKS["pill_mark"] = lambda v: v in PILL_MARKS
-_PORTABLE_CHECKS["replacements"] = valid_replacements
 
 # Turning these on touches the clipboard, keeps text, or goes online. For
 # "type_text" it is turning it OFF that switches to pasting via the clipboard.
@@ -7380,12 +7405,13 @@ def replacements_window(parent):
     done.clicked.connect(lambda _checked=False: box.accept())
     buttons.addWidget(done)
     layout.addLayout(buttons)
-    if box.exec() != QtWidgets.QDialog.Accepted:
-        return
+    box.exec()                                   # Save, the X or Esc: kept either way
     pairs = []
     for row_index in range(table.rowCount()):
         cells = [table.item(row_index, col) for col in (0, 1)]
         heard, write = [(" ".join(c.text().split()) if c else "")[:REPLACE_LEN] for c in cells]
+        heard = "".join(c for c in heard if plain_text(c))      # pasted oddities out
+        write = "".join(c for c in write if plain_text(c))
         if heard and write and len(pairs) < REPLACE_MAX:
             pairs.append([heard, write])
     globals()["REPLACEMENTS"] = pairs
@@ -7397,8 +7423,12 @@ def uninstaller_path():
     not found)."""
     if not FROZEN:
         return None
-    path = os.path.join(os.path.dirname(os.path.abspath(sys.executable)), "unins000.exe")
-    return path if os.path.isfile(path) else None
+    folder = os.path.dirname(os.path.abspath(sys.executable))
+    path = os.path.join(folder, "unins000.exe")
+    # Only the installer's own uninstaller: it always comes with its .dat file.
+    if os.path.isfile(path) and os.path.isfile(os.path.join(folder, "unins000.dat")):
+        return path
+    return None
 
 
 def start_uninstall(parent):
@@ -9066,7 +9096,11 @@ class SettingsWindow(QtWidgets.QDialog):
                 set_option("SCREEN_GLOW_EDGES", "screen_glow_edges", key)
             self.glow_focus.setEnabled(SCREEN_GLOW and SCREEN_GLOW_EDGES != "all")
             self.screen_strength.setEnabled(SCREEN_GLOW)
-            dictation.demo_screen_glow()
+            if key == "off":                     # gone at once, no preview to wait out
+                dictation.fx_demo_until = 0.0
+                dictation.screen_glow.stop()
+            else:
+                dictation.demo_screen_glow()
 
         self.glow_where.currentIndexChanged.connect(glow_where_chosen)
         row(field("Screen glow"), self.glow_where, None)
@@ -9204,6 +9238,7 @@ class SettingsWindow(QtWidgets.QDialog):
             finally:
                 page["layout"] = outer_layout
             box.exec()
+            box.deleteLater()                    # not kept: one window per opening
 
         more = button("More glow options\u2026", more_glow_options, width=170)
         more.setToolTip("Glow colour, size, which screens, the moving light and the "
