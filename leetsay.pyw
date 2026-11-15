@@ -2705,7 +2705,11 @@ class Overlay(QtWidgets.QWidget):
         font.setWeight(QtGui.QFont.DemiBold)
         title_w = QtGui.QFontMetricsF(font).horizontalAdvance(title)
         font.setWeight(QtGui.QFont.Normal)
-        font.setPixelSize(11)
+        # A stalled download's hint is what to do next: a size larger, in the
+        # ordinary text colour (amber small print was hard to read; the amber
+        # bar already says something is wrong).
+        hint_size = 12 if stuck else 11
+        font.setPixelSize(hint_size)
         words_w = QtGui.QFontMetricsF(font).horizontalAdvance(words)
         lead = 40.0 if self._own_icon else 0.0
         group = lead + max(title_w, words_w)
@@ -2721,9 +2725,9 @@ class Overlay(QtWidgets.QWidget):
         p.drawText(QtCore.QRectF(text_left, top + 11, title_w + 4, 20),
                    Qt.AlignLeft | Qt.AlignVCenter, title)
         font.setWeight(QtGui.QFont.Normal)
-        font.setPixelSize(11)
+        font.setPixelSize(hint_size)
         p.setFont(font)
-        p.setPen(theme["warning"] if stuck else theme["muted"])
+        p.setPen(theme["text"] if stuck else theme["muted"])
         p.drawText(QtCore.QRectF(text_left, top + 29, words_w + 4, 18),
                    Qt.AlignLeft | Qt.AlignVCenter, words)
         font.setPixelSize(12)
