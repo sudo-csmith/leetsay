@@ -20,6 +20,21 @@ the [Disclaimer](#disclaimer) before using it.
 
 ## Installing
 
+### With the installer (recommended)
+
+1. Open the [Releases](https://github.com/sudo-csmith/leetsay/releases) page
+   and download the newest `leetsay-setup-<version>.exe`.
+2. Run it. leetsay installs for your Windows user only, so no administrator
+   password is needed. You can choose a desktop shortcut and whether leetsay
+   starts with Windows.
+
+**"Windows protected your PC".** The installer is not signed with a paid
+code-signing certificate yet, so Windows SmartScreen may show this warning for
+a new download. To continue, choose **More info**, then **Run anyway**. If you
+prefer to check the file first, compare its SHA-256 fingerprint with the one
+listed on the release page: in PowerShell, run
+`Get-FileHash .\leetsay-setup-<version>.exe` in the folder you saved it to.
+
 ### With Python
 
 1. Install [Python 3.13](https://www.python.org/downloads/) (64-bit). During
@@ -54,8 +69,7 @@ sight.
 ## Using it
 
 - **Hold Ctrl+Space, speak, let go.** The text is typed where your cursor is.
-  You can change the hotkey, or switch to "press once to start, again to
-  stop", in Settings.
+  You can change the hotkey, or switch to toggle mode, in Settings.
 - **Settings:** click the leetsay icon by the clock. Starting leetsay again
   while it is running also opens Settings.
 - **Cancel** a dictation: hover over the pop-up and click it.
@@ -80,13 +94,22 @@ Good to know:
   `Network block check: verified, all network access is refused`.
 - You can also watch it yourself: open **Resource Monitor** (press Windows+R,
   type `resmon`, press Enter), go to the **Network** tab, and look for
-  `pythonw.exe` running leetsay under **Network Activity**. It should not
-  appear there.
+  `leetsay.exe` (or `pythonw.exe`, if you run it with Python) under **Network
+  Activity**. It should not appear there.
 
 leetsay goes online only after you agree in a window that says "This
 application will go online", and only to download or update the speech model.
 
 ## Uninstalling
+
+### If you used the installer
+
+Open Windows **Settings → Apps → Installed apps**, find **leetsay**, and
+choose **Uninstall**. The uninstaller removes the program and its start-up
+entry, then asks whether to remove your settings and the downloaded speech
+model as well.
+
+### If you used Python
 
 1. In Settings, on the **General** tab, choose **Remove the model from this
    PC**. This deletes the speech model (about 630 MB).

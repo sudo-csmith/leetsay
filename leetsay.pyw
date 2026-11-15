@@ -28,9 +28,34 @@ import sys
 # there first, so a stray file such as "json.py" or "keyboard.py" next to it
 # (easily the case in a Downloads folder) would otherwise be run inside this
 # program, which sees every key pressed. Only installed libraries are used.
-_SCRIPT_DIR = os.path.normcase(os.path.dirname(os.path.abspath(__file__)))
-sys.path[:] = [entry for entry in sys.path
-               if entry and os.path.normcase(os.path.abspath(entry)) != _SCRIPT_DIR]
+FROZEN = bool(getattr(sys, "frozen", False))     # installed: running as leetsay.exe
+_SELF = sys.executable if FROZEN else os.path.abspath(__file__)   # what to start again
+if not FROZEN:   # (the installed program carries its own libraries, nothing else)
+    _SCRIPT_DIR = os.path.normcase(os.path.dirname(os.path.abspath(__file__)))
+    sys.path[:] = [entry for entry in sys.path
+                   if entry and os.path.normcase(os.path.abspath(entry)) != _SCRIPT_DIR]
+
+if sys.argv[1:2] == ["--fetch-fingerprints"] and len(sys.argv) >= 4:
+    # Not the application: a short-lived helper, started only by "Check now"
+    # after its "This application will go online" window was agreed to. It
+    # reads the model's public file list from huggingface.co, writes it to the
+    # file it was given, and exits. It runs before anything else is loaded.
+    import json
+    import urllib.request
+    _out = {}
+    try:
+        _request = urllib.request.Request(
+            "https://huggingface.co/api/models/%s/tree/main" % sys.argv[2],
+            headers={"User-Agent": "model-check"})
+        with urllib.request.urlopen(_request, timeout=25) as _reply:
+            for _entry in json.load(_reply):
+                _out[_entry.get("path", "")] = (_entry.get("lfs") or {}).get("oid", "")
+        _result = {"ok": True, "files": _out}
+    except Exception as _exc:
+        _result = {"ok": False, "error": str(_exc)}
+    with open(sys.argv[3], "w", encoding="utf-8") as _fh:
+        json.dump(_result, _fh)
+    os._exit(0)
 
 import ctypes  # noqa: E402  (after the path is made safe)
 import json
@@ -47,9 +72,9 @@ from ctypes import wintypes
 
 
 
-VERSION = "0.57.0"              # shown in Settings and About
+VERSION = "0.58.1"              # shown in Settings and About
 APP_TITLE = "leetsay"                # the name shown to the user (one place)
-_HERE = os.path.dirname(os.path.abspath(__file__))
+_HERE = os.path.dirname(_SELF)        # the program's own folder
 
 
 def is_former_folder(path):
@@ -606,6 +631,8 @@ _OLD_RUN_NAME = "DictatePy"            # the entry made under the former name
 
 
 def _startup_command():
+    if FROZEN:
+        return '"%s"' % sys.executable
     exe = sys.executable or "pythonw.exe"
     folder, name = os.path.split(exe)
     windowless = os.path.join(folder, "pythonw.exe")
@@ -623,9 +650,16 @@ def startup_command_saved():
         return None
 
 
+def starts_with_windows():
+    """True if the "Start with Windows" entry starts this very copy."""
+    return startup_command_saved() == _startup_command()
+
+
 def carry_over_startup():
-    """Start with Windows was switched on under the former name: point it at
-    this file under the new name, and remove the old entry."""
+    """Start with Windows was switched on under the former name: remove that old
+    entry (it starts a program that is no longer there). Nothing is written in
+    its place: the user ticks "Start with Windows" again if they want it, since
+    a program must never add itself to start-up on its own."""
     try:
         import winreg
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _RUN_KEY, 0,
@@ -634,8 +668,8 @@ def carry_over_startup():
                 winreg.QueryValueEx(key, _OLD_RUN_NAME)
             except FileNotFoundError:
                 return False
-            winreg.SetValueEx(key, _RUN_NAME, 0, winreg.REG_SZ, _startup_command())
             winreg.DeleteValue(key, _OLD_RUN_NAME)
+            print("Removed the start-up entry made under the former name.")
             return True
     except Exception as exc:
         print("Could not carry over the startup setting:", exc, file=sys.stderr)
@@ -832,7 +866,9 @@ def fetch_published_fingerprints():
     handle, out_path = tempfile.mkstemp(suffix=".json")
     os.close(handle)
     try:
-        subprocess.run([sys.executable, "-I", "-c", _FETCH_SCRIPT, repo, out_path],
+        helper = ([sys.executable, "--fetch-fingerprints", repo, out_path] if FROZEN
+                  else [sys.executable, "-I", "-c", _FETCH_SCRIPT, repo, out_path])
+        subprocess.run(helper,
                        timeout=40, creationflags=0x08000000 if os.name == "nt" else 0)
         with open(out_path, encoding="utf-8") as fh:
             result = json.load(fh)
@@ -3582,7 +3618,7 @@ class Dictation(QtCore.QObject):
             # Up straight away while the model loads behind it: just a small
             # pill with a word on it. No waveform, no timer, nothing recorded.
             self.overlay.show_message(
-                "Starting…" if (_setup_done() or local_model_dir())
+                "Startingâ€¦" if (_setup_done() or local_model_dir())
                 else self.DOWNLOADING, ms=None)
             if not (_setup_done() or local_model_dir()):
                 self.overlay.progress = 0.0     # the download card, from the start
@@ -3830,7 +3866,7 @@ class Dictation(QtCore.QObject):
     DOWNLOADING = "Downloading the speech model"
     NO_MODEL = "No speech model  \u00b7  download it in Settings"
     STUCK = "The download is not moving  \u00b7  click for help"
-    BLOCKED = "The download seems blocked  ·  click for help"
+    BLOCKED = "The download seems blocked  Â·  click for help"
     GIVE_UP_AFTER = 3                          # failed attempts before stopping
     STUCK_AFTER = 20.0                         # seconds with nothing new arriving
     RETRY_AFTER = 15.0                         # seconds between download attempts
@@ -4001,7 +4037,7 @@ class Dictation(QtCore.QObject):
             self.overlay.show_message(self.NO_MODEL, ms=3000)
         elif self.state == "loading":
             if not self.overlay.isVisible():
-                self.overlay.show_message("Still loading the speech model…", ms=None)
+                self.overlay.show_message("Still loading the speech modelâ€¦", ms=None)
             # otherwise the welcome or "Starting" card already says so
         elif self.state == "idle":
             self._start()
@@ -4987,7 +5023,7 @@ QPushButton#primary { background: %(accent)s; color: #101114; border: 1px solid 
         layout.addWidget(label)
     field = QtWidgets.QPlainTextEdit()
     field.setFixedSize(420, 110)
-    field.setPlaceholderText(_PORTABLE_PREFIX + "…")
+    field.setPlaceholderText(_PORTABLE_PREFIX + "â€¦")
     layout.addWidget(field)
     problem = QtWidgets.QLabel("")
     problem.setObjectName("problem")
@@ -5014,7 +5050,7 @@ QPushButton#primary { background: %(accent)s; color: #101114; border: 1px solid 
             return
         if careful:
             online = "check_updates" in careful
-            names = "\n".join("•  " + _PORTABLE_CAREFUL[key][1] for key in careful)
+            names = "\n".join("â€¢  " + _PORTABLE_CAREFUL[key][1] for key in careful)
             agreed = dialog(box, "Switch these on too?",
                             "This application will go online" if online
                             else "These options are off on this PC",
@@ -5054,7 +5090,8 @@ def restart_app():
     """Start a fresh copy; it takes over from this one and reads the settings anew."""
     try:
         import subprocess
-        subprocess.Popen([sys.executable, os.path.abspath(__file__), RESTART_FLAG],
+        subprocess.Popen(([sys.executable] if FROZEN else [sys.executable, _SELF])
+                         + [RESTART_FLAG],
                          creationflags=0x00000008 | 0x00000200, close_fds=True)
     except Exception as exc:
         print("Could not restart:", exc, file=sys.stderr)
@@ -5157,7 +5194,7 @@ QPushButton#primary { background: %(accent)s; color: #101114; border: 1px solid 
         made.setTextInteractionFlags(Qt.TextSelectableByMouse)
         return made
 
-    headline = label("Checking…", "headline")
+    headline = label("Checkingâ€¦", "headline")
     layout.addWidget(headline)
     summary = label("")
     layout.addWidget(summary)
@@ -5268,7 +5305,7 @@ QPushButton#primary { background: %(accent)s; color: #101114; border: 1px solid 
             return
         work["busy"], work["result"] = True, None
         online.setEnabled(False)
-        headline.setText("Checking against the published files…")
+        headline.setText("Checking against the published filesâ€¦")
         summary.setText("Reading the published fingerprints and comparing each file. "
                         "This takes a few seconds.")
         threading.Thread(target=online_work, daemon=True).start()
@@ -5956,8 +5993,8 @@ class IntroWindow(QtWidgets.QDialog):
         self.hotkey_label.setObjectName("info")
         labelled("Hotkey", self.record, self.hotkey_label, None)
         self.mode = QtWidgets.QComboBox()
-        self.mode.addItem("Hold while I speak", True)
-        self.mode.addItem("Press to start and stop", False)
+        self.mode.addItem("Hold to talk", True)
+        self.mode.addItem("Toggle mode", False)
         self.mode.setCurrentIndex(0 if HOLD_TO_TALK else 1)
         self.mode.setFixedWidth(210)
         self.mode.currentIndexChanged.connect(
@@ -6038,7 +6075,7 @@ class IntroWindow(QtWidgets.QDialog):
         fourth.addWidget(self.pill)
         fourth.addSpacing(6)                     # room between the two choices
         self.startup = QtWidgets.QCheckBox("Start with Windows")
-        self.startup.setChecked(startup_command_saved() is not None)
+        self.startup.setChecked(starts_with_windows())
         self.startup.toggled.connect(lambda on: set_startup(bool(on)))
         fourth.addWidget(self.startup)
         fourth.addSpacing(12)                    # the button is a separate thing
@@ -6411,7 +6448,7 @@ class SettingsWindow(QtWidgets.QDialog):
         self.hotkey.currentIndexChanged.connect(self._hotkey_changed)
         self.mode = QtWidgets.QComboBox()
         self.mode.addItem("Hold to talk", True)
-        self.mode.addItem("Press to start and stop", False)
+        self.mode.addItem("Toggle mode", False)
         self.mode.setCurrentIndex(0 if HOLD_TO_TALK else 1)
         self.mode.currentIndexChanged.connect(self._mode_changed)
         row(self.record, self.hotkey, self.mode, None)
@@ -6513,7 +6550,7 @@ class SettingsWindow(QtWidgets.QDialog):
                    "the hotkey.")
 
         heading("Startup")
-        check("Start with Windows", startup_command_saved() is not None, set_startup)
+        check("Start with Windows", starts_with_windows(), set_startup)
 
         heading("Speech model")
         self.model = QtWidgets.QComboBox()
@@ -7650,14 +7687,14 @@ def show_about(dictation):
     if dictation.load_seconds is not None:
         lines.append("Loaded in:  %.1f seconds" % dictation.load_seconds)
     elif dictation.state == "loading":
-        lines.append("Still loading…")
+        lines.append("Still loadingâ€¦")
     lines += [
         "Network:  %s" % network_words(),
         "Model update check:  %s" % ("on (takes effect at the next start)"
                                      if CHECK_UPDATES else "off"),
         "",
         "Hotkey:  %s  (%s)" % (pretty(HOTKEY),
-                               "hold to talk" if HOLD_TO_TALK else "press to start and stop"),
+                               "hold to talk" if HOLD_TO_TALK else "toggle mode"),
         "Tip:  tap the hotkey to paste your last dictation again." if KEEP_LAST else "",
         "Settings file:  %s" % _CONFIG_FILE,
         "Log file:  %s" % os.path.join(_DATA, "dictate.log"),
@@ -7730,7 +7767,7 @@ def _note_running_copy():
     try:
         with open(_PID_FILE, "w", encoding="utf-8") as fh:
             fh.write("%d\n%s\n%s" % (os.getpid(),
-                                     os.path.basename(os.path.abspath(__file__)), VERSION))
+                                     os.path.basename(_SELF), VERSION))
     except Exception:
         pass
 
@@ -7801,7 +7838,11 @@ def _force_close_old_copy():
         runs_it = any(os.path.basename(arg).lower() == script.lower()
                       and os.path.splitext(arg)[1].lower() in (".py", ".pyw")
                       for arg in args[1:])
-        if not (is_python and runs_it):
+        # The installed program runs as leetsay.exe itself. Only a process with
+        # exactly that name counts, so a damaged note can never name another.
+        own_exe = APP_TITLE.lower() + ".exe"
+        is_installed = script.lower() == own_exe and program.lower() == own_exe
+        if not ((is_python and runs_it) or is_installed):
             print("Process %d is no longer this program (%s); left alone." % (pid, program))
             continue
         try:
@@ -8019,7 +8060,7 @@ def watch_for_quit_request(app):
 
 def main():
     start_fresh_log()                                  # this copy is the running one now
-    print("%s %s starting from %s" % (APP_TITLE, VERSION, os.path.abspath(__file__)))
+    print("%s %s starting from %s" % (APP_TITLE, VERSION, _SELF))
     finish_folder_move()
     carry_over_startup()
     signal.signal(signal.SIGINT, signal.SIG_DFL)      # let Ctrl+C in the console quit
@@ -8115,9 +8156,11 @@ def main():
             open_network("first download, agreed just now")
     dictation = Dictation()                            # noqa: F841 (kept alive)
     show_watch = watch_for_show_request(app, dictation)  # noqa: F841 (kept alive)
-    saved = startup_command_saved()
-    if saved is not None and saved != _startup_command():
-        set_startup(True)                              # file or Python moved
+    # The "Start with Windows" entry is written only when the user ticks it (or
+    # chooses it in the installer), never on its own at start-up: a program
+    # that quietly adds itself to start-up is what malware does, and Windows'
+    # protection rightly stops it. (If this copy moved, the box in Settings
+    # shows unticked, and ticking it again points the entry here.)
     tray = make_tray(app, dictation) if SHOW_TRAY_ICON else None
     dictation.overlay.settings_wanted.connect(lambda: open_settings(dictation))
     if tray is not None:

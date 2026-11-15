@@ -1,0 +1,84 @@
+# Builds leetsay.exe and the Windows installer.
+# - "Run workflow" on the Actions tab: builds, and keeps the installer as a
+#   downloadable file on that run's page (for testing).
+# - Pushing a tag such as v0.58.1: also publishes a GitHub Release with the
+#   installer and its SHA-256 fingerprint attached.
+name: Build installer
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write          # needed to publish a release for a tag
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install the packages (the versions leetsay is tested with)
+        run: python -m pip install --disable-pip-version-check -r requirements.txt pyinstaller==6.22.3
+
+      - name: Read the version from leetsay.pyw
+        id: version
+        shell: pwsh
+        run: |
+          $v = (Select-String -Path leetsay.pyw -Pattern '^VERSION = "([^"]+)"').Matches[0].Groups[1].Value
+          if (-not $v) { throw "VERSION not found in leetsay.pyw" }
+          "value=$v" >> $env:GITHUB_OUTPUT
+          if ($env:GITHUB_REF -like 'refs/tags/v*' -and $env:GITHUB_REF_NAME -ne "v$v") {
+            throw "The tag $env:GITHUB_REF_NAME does not match VERSION $v in leetsay.pyw"
+          }
+
+      - name: Build leetsay.exe
+        run: pyinstaller --noconfirm leetsay.spec
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Build the installer
+        shell: pwsh
+        run: |
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=${{ steps.version.outputs.value }}" installer\leetsay.iss
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed" }
+
+      - name: Fingerprint (SHA-256)
+        shell: pwsh
+        run: |
+          Get-ChildItem Output\*.exe | ForEach-Object {
+            "{0}  {1}" -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower(), $_.Name
+          } | Set-Content Output\SHA256SUMS.txt -Encoding ascii
+          Get-Content Output\SHA256SUMS.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: leetsay-setup-${{ steps.version.outputs.value }}
+          path: Output/*
+
+      - name: Publish the release (tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $sum = Get-Content Output\SHA256SUMS.txt -Raw
+          $notes = @"
+          leetsay ${{ steps.version.outputs.value }}: free, offline dictation for Windows.
+
+          Download **leetsay-setup-${{ steps.version.outputs.value }}.exe** below and run it.
+          The installer is not yet signed, so Windows may show "Windows protected your PC":
+          choose **More info**, then **Run anyway**. See the README for details.
+
+          SHA-256 fingerprint (to check the download):
+          ``````
+          $sum
+          ``````
+          "@
+          gh release create $env:GITHUB_REF_NAME (Get-ChildItem Output\*).FullName --title "leetsay ${{ steps.version.outputs.value }}" --notes $notes
