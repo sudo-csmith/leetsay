@@ -34,8 +34,8 @@ SolidCompression=yes
 ; Dark, like the app. Needs Inno Setup 6.6 or newer.
 WizardStyle=modern dark
 WizardImageAlphaFormat=defined
-WizardSmallImageFile=wizard-small-55.bmp,wizard-small-110.bmp
-WizardImageFile=wizard-large-164.bmp,wizard-large-328.bmp
+WizardSmallImageFile=wizard-small-58.bmp,wizard-small-77.bmp,wizard-small-97.bmp,wizard-small-116.bmp,wizard-small-124.bmp,wizard-small-143.bmp,wizard-small-159.bmp
+WizardImageFile=wizard-large-202.bmp,wizard-large-269.bmp,wizard-large-336.bmp,wizard-large-403.bmp,wizard-large-430.bmp,wizard-large-498.bmp,wizard-large-534.bmp
 ; A running copy is asked to close before files are replaced or removed.
 AppMutex=dictate_py_single_instance
 CloseApplications=yes

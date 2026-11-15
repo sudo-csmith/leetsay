@@ -6353,6 +6353,9 @@ QPushButton#chosen { border: 1px solid %(accent)s; }
     headline = QtWidgets.QLabel("Welcome to %s" % APP_TITLE)
     headline.setObjectName("headline")
     headline.setAlignment(Qt.AlignHCenter)       # under the centred picture
+    # Only as tall as its text: given spare height, it sat in the middle of it,
+    # leaving a gap above the text below.
+    headline.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed)
     layout.addWidget(headline)
     body = QtWidgets.QLabel("First, make it yours. Above is the pop-up you will see at the "
                             "bottom of your screen while you dictate. Pick a colour and a "
@@ -6361,6 +6364,8 @@ QPushButton#chosen { border: 1px solid %(accent)s; }
     body.setWordWrap(True)
     body.setAlignment(Qt.AlignHCenter)
     layout.addWidget(body)
+    body.ensurePolished()                        # in the window: its 14 px font
+    body.setFixedHeight(body.heightForWidth(box.width() - 68))   # the margins: 34 + 34
     layout.addSpacing(4)
 
     def line(title, widgets):
