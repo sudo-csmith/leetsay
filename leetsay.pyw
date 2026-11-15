@@ -7931,6 +7931,12 @@ class Sketch(QtWidgets.QWidget):
         self.kind = kind
         # The little screen needs room; the keys need less (owner: wasted space).
         self.setFixedHeight({"look": 116, "hotkey": 60, "tips": 60}.get(kind, 96))
+        if kind == "style":
+            # It moves (see _style): redrawn while it is on screen only.
+            self._ticker = QtCore.QTimer(self)
+            self._ticker.setInterval(60)
+            self._ticker.timeout.connect(lambda: self.update() if self.isVisible() else None)
+            self._ticker.start()
 
     def paintEvent(self, _event):
         p = QtGui.QPainter(self)
@@ -8092,30 +8098,52 @@ class Sketch(QtWidgets.QWidget):
         p.drawLine(QtCore.QPointF(w / 2 - 91, h / 2 + 26), QtCore.QPointF(w / 2 - 71, h / 2 + 26))
         self._wave(p, w / 2 - 44, w / 2 + 104, h / 2 - 4, 15.0, ACCENT, 2.4)
 
+    STYLE_WORDS = ("See", "you", "at", "noon.")
+    STYLE_CYCLE = 5.0                            # seconds for one "spoken" sentence
+
     def _style(self, p, w, h):
-        # Two little text boxes: on the left the words arrive all at once,
-        # on the right they arrive as you speak (a line half typed, a cursor).
-        box_w = min(170.0, (w - 40.0) / 2.0)
-        light = is_light(POPUP_BG)
-        for i, (label, typed) in enumerate((("When you let go", 1.0),
-                                            ("As you speak", 0.55))):
-            left = w / 2.0 - box_w - 10.0 if i == 0 else w / 2.0 + 10.0
-            box = QtCore.QRectF(left, 14, box_w, 48)
-            p.setPen(QtGui.QPen(QtGui.QColor(self._edge()), 1.2))
-            p.setBrush(QtGui.QColor(POPUP_BG))
-            p.drawRoundedRect(box, 8, 8)
-            ink = QtGui.QColor("#1D1D1F" if light else "#E8E9EE")
-            p.setPen(Qt.NoPen)
-            p.setBrush(ink)
-            full = box.width() - 28.0
-            p.drawRoundedRect(QtCore.QRectF(box.left() + 14, box.top() + 14, full, 5), 2.5, 2.5)
-            second = full * (0.7 if typed >= 1.0 else typed)
-            p.drawRoundedRect(QtCore.QRectF(box.left() + 14, box.top() + 28, second, 5),
-                              2.5, 2.5)
-            if typed < 1.0:                      # the cursor, still typing
+        # A sentence "spoken" over and over, both ways side by side. Left: the
+        # words show on the pop-up while you speak and land in the text box
+        # when you let go. Right: they are typed into the text box as spoken.
+        t = (time.monotonic() % self.STYLE_CYCLE) / self.STYLE_CYCLE
+        words = self.STYLE_WORDS
+        speaking = t < 0.62
+        heard = min(len(words), int(t / 0.62 * (len(words) + 0.4))) if speaking else len(words)
+        if t > 0.94:
+            heard = 0                            # a short pause, then again
+        light = light_menus()
+        pop_light = is_light(POPUP_BG)
+        box_w = min(190.0, (w - 30.0) / 2.0)
+        font = self._font(11)
+        for i, label in enumerate(("All at once", "As I speak")):
+            left = w / 2.0 - box_w - 8.0 if i == 0 else w / 2.0 + 8.0
+            box = QtCore.QRectF(left, 40, box_w, 32)
+            # The text box in your app.
+            p.setPen(QtGui.QPen(QtGui.QColor(self._edge()), 1.0))
+            p.setBrush(QtGui.QColor("#FFFFFF" if light else "#24262C"))
+            p.drawRoundedRect(box, 6, 6)
+            if i == 0:
+                typed = " ".join(words) if (not speaking and heard) else ""
+            else:
+                typed = " ".join(words[:heard])
+            p.setFont(font)
+            p.setPen(QtGui.QColor("#1B1D22" if light else "#E8E9EE"))
+            room = box.adjusted(10, 0, -10, 0)
+            p.drawText(room, Qt.AlignLeft | Qt.AlignVCenter, typed)
+            if heard and (i == 1 and speaking or i == 0 and not speaking):
+                metrics = QtGui.QFontMetricsF(font)
+                x = room.left() + metrics.horizontalAdvance(typed) + 2
+                p.setPen(Qt.NoPen)
                 p.setBrush(QtGui.QColor(ACCENT))
-                p.drawRect(QtCore.QRectF(box.left() + 17 + second, box.top() + 25, 2, 11))
-            p.setFont(self._font(11))
+                p.drawRect(QtCore.QRectF(x, box.center().y() - 6, 1.6, 12))
+            # Left only: the pop-up above it, showing the words as you speak.
+            if i == 0 and speaking and heard:
+                pill = QtCore.QRectF(box.left() + 18, 8, box_w - 36, 24)
+                p.setPen(QtGui.QPen(QtGui.QColor(ACCENT), 1.0))
+                p.setBrush(QtGui.QColor(POPUP_BG))
+                p.drawRoundedRect(pill, 12, 12)
+                p.setPen(QtGui.QColor("#3C3C43" if pop_light else "#D6D8E0"))
+                p.drawText(pill, Qt.AlignCenter, " ".join(words[:heard]))
             p.setPen(QtGui.QColor(self._quiet()))
             p.drawText(QtCore.QRectF(box.left(), box.bottom() + 6, box.width(), 18),
                        Qt.AlignCenter, label)
@@ -8741,7 +8769,7 @@ class IntroWindow(QtWidgets.QDialog):
             how.addWidget(heading_label)
             buttons = []
             note = small("")
-            note.setMinimumHeight(18)            # one short line
+            note.setMinimumHeight(34)            # up to two short lines
 
             def pick(key):
                 for button_, value in buttons:
@@ -8761,8 +8789,9 @@ class IntroWindow(QtWidgets.QDialog):
         choices("How should your words appear?",
                 [("All at once when I let go", "once"), ("As I speak", "live")],
                 "live" if LIVE_TYPE else "once", self._words_style,
-                {"once": "Most accurate. Recommended.",
-                 "live": "Words appear as you speak. Less accurate."})
+                {"once": "Most accurate. You see your words on the pop-up, then "
+                         "they're typed when you let go.",
+                 "live": "Typed straight into your app as you speak. Less accurate."})
         how.addSpacing(8)
         lively = SCREEN_GLOW or SCREEN_GLOW_FLOW
         choices("How lively should it look?",
