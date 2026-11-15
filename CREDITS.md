@@ -7,12 +7,16 @@ leetsay uses **Parakeet TDT 0.6B v2** (English) and, if you choose it,
 made by NVIDIA and released under the
 [Creative Commons Attribution 4.0 International licence (CC-BY-4.0)](https://creativecommons.org/licenses/by/4.0/).
 
-- Original models: `nvidia/parakeet-tdt-0.6b-v2` and
-  `nvidia/parakeet-tdt-0.6b-v3` on Hugging Face.
-- leetsay downloads the ONNX conversions published as
-  `istupakov/parakeet-tdt-0.6b-v2-onnx` and `istupakov/parakeet-tdt-0.6b-v3-onnx`
-  (int8 versions). These were converted from NVIDIA's originals by their
-  publisher. leetsay uses them as published and makes no changes of its own.
+- Original work by NVIDIA Corporation:
+  [nvidia/parakeet-tdt-0.6b-v2](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2) and
+  [nvidia/parakeet-tdt-0.6b-v3](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3).
+  Their model cards describe what the models can and cannot do.
+- leetsay downloads ONNX conversions published as
+  `istupakov/parakeet-tdt-0.6b-v2-onnx` and `istupakov/parakeet-tdt-0.6b-v3-onnx`.
+  Changes made to NVIDIA's originals (by that publisher): exported to the ONNX
+  format, and weights reduced to 8 bits (int8). leetsay uses them as published
+  and makes no changes of its own.
+- NVIDIA has not reviewed or endorsed leetsay or these conversions.
 - The models are not covered by leetsay's MIT licence. Their licence,
   CC-BY-4.0, applies to them, and they are provided by their authors without
   warranty.
@@ -22,8 +26,11 @@ control.
 
 ## Pause detection
 
-For long dictations leetsay uses the **Silero VAD** voice activity model
-(MIT licence), in the ONNX version published as `istupakov/silero-vad-onnx`.
+For long dictations leetsay uses the **Silero VAD** voice activity model,
+Copyright (c) 2020-present Silero Team, under the MIT licence
+([snakers4/silero-vad](https://github.com/snakers4/silero-vad)). The file
+leetsay downloads (published as `istupakov/silero-vad-onnx`) is identical to
+the one in Silero VAD's official releases v6.2 to v6.2.3.
 
 ## Libraries
 

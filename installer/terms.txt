@@ -10,21 +10,36 @@ leetsay is free software, provided "as is", without warranty of any kind.
   mishear, leave out or add words, including words that were never said. The
   author of leetsay does not control, and is not responsible for, the text the
   model produces.
-- Speech recognition makes mistakes. Read the text before you send or submit
-  it. Do not rely on leetsay where a wrong, missing or misplaced word could
-  cause harm or loss, such as medical, legal, financial, safety or emergency
-  use.
+- Speech recognition makes mistakes. How well it works depends on your voice,
+  accent, language, microphone and background noise. Read the text before you
+  send or submit it. Do not rely on leetsay where a wrong, missing or
+  misplaced word could cause harm or loss, such as medical, legal, financial,
+  safety or emergency use.
+- leetsay is not a medical or certified assistive device. If you depend on
+  dictation to use your computer, keep another way to type available.
 - If you set leetsay to press a key for you after dictating (such as Enter),
   that key can send a message or submit a form straight away.
 - You are responsible for how you use leetsay and for what it types on your
   behalf, including following any laws about recording or processing speech
-  that apply where you are.
+  that apply where you are, getting consent where other people's voices may
+  be picked up, and following the rules of your employer or school.
 - The speech models and libraries leetsay uses belong to others and come with
   their own licences (see CREDITS.md). leetsay is not affiliated with,
   endorsed or sponsored by NVIDIA, Hugging Face, Microsoft or the Python
   Software Foundation.
+- Only releases published at github.com/sudo-csmith/leetsay are official.
+  Copies from anywhere else may have been changed.
+- There is no promise of support, fixes, updates, or that leetsay or its
+  speech model downloads stay available. Any version may be withdrawn, for
+  example if a problem is found.
+- Without limiting the licence below: the author is not liable for any loss
+  or damage arising from leetsay, including lost or wrong text, text typed
+  into the wrong place, messages or forms sent by a key leetsay pressed, or
+  lost data. Nothing in these terms limits any liability that cannot be
+  limited by law. If any part of these terms cannot be enforced, the rest
+  still applies. The terms that come with each version apply to that version.
 
-By installing leetsay you accept the licence below.
+By installing leetsay you accept these terms and the licence below.
 
 --------------------------------------------------------------------------
 

@@ -6300,6 +6300,8 @@ def responsibility_notice():
          "program, chat or document is active; that is for you to control." % app,
          "\u2022  Check where your cursor is before you speak.\n"
          "\u2022  Speech recognition makes mistakes: read the text before you send it.\n"
+         "\u2022  Do not rely on it where a wrong word could cause harm, such as "
+         "medical, legal, financial or emergency use.\n"
          "\u2022  Do not dictate passwords, or anything you would not want typed "
          "into the wrong place.",
          "You are responsible for what %(app)s types for you and where it goes. "

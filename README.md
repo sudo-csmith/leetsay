@@ -155,8 +155,11 @@ The Python packages can be removed with
   leave out or add words, including words that were never said. The author of
   leetsay does not control, and is not responsible for, the text the model
   produces. Check it before you use it.
-- **Speech recognition makes mistakes.** Always check text before you send or
-  submit it, especially if you set leetsay to press Enter after a dictation.
+- **Speech recognition makes mistakes.** How well it works depends on your
+  voice, accent, language, microphone and background noise (see NVIDIA's
+  [model card](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2) for its
+  known limits). Always check text before you send or submit it, especially
+  if you set leetsay to press Enter after a dictation.
   Do not rely on leetsay where a wrong, missing or misplaced word could cause
   harm or loss, such as medical, legal, financial, safety or emergency use.
 - **Where the text goes is up to you.** leetsay types into whichever window
@@ -167,9 +170,14 @@ The Python packages can be removed with
   Enter, and do not dictate passwords or other sensitive information. People near
   you can hear what you say, and anyone who can see your screen can read the
   words in the pop-up as you speak.
+- **Not an assistive or medical device.** leetsay is not certified for
+  accessibility or medical use. If you depend on dictation to use your
+  computer, keep another way to type available.
 - **Your responsibility.** You are responsible for how you use leetsay and for
   what it types on your behalf, including following any laws or rules about
-  recording or processing speech that apply where you are.
+  recording or processing speech that apply where you are, getting consent
+  where other people's voices may be picked up, and following the rules of
+  your employer or school.
 - **Third parties.** The speech models, libraries and websites leetsay uses
   belong to others and come with their own licences and terms (see
   [CREDITS.md](CREDITS.md)). Websites mentioned here are third-party websites
@@ -179,8 +187,17 @@ The Python packages can be removed with
   Software Foundation. NVIDIA, Parakeet, Hugging Face, Windows and Python are
   trademarks of their respective owners, used here only to describe what
   leetsay works with.
+- **Official downloads only.** Only releases published on this repository's
+  [Releases](https://github.com/sudo-csmith/leetsay/releases) page are
+  official. Copies offered anywhere else may have been changed.
 - **No support obligation.** Help, fixes and updates are offered when possible,
-  with no promise of any.
+  with no promise of any, and no promise that leetsay or its speech model
+  downloads stay available. Any version may be withdrawn, for example if a
+  problem is found.
+- **Limits of these terms.** Nothing here limits any liability that cannot be
+  limited by law. If any part cannot be enforced, the rest still applies. The
+  terms that come with each version apply to that version; the installer shows
+  them in full.
 
 ## Licence and credits
 

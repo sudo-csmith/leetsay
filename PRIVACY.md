@@ -92,6 +92,20 @@ start-up list. These files stay on your PC; keeping your PC secure is up to you.
 - The speech model and libraries leetsay uses are made by others; see
   [CREDITS.md](CREDITS.md).
 
+## Children
+
+leetsay collects nothing from anyone, children included: there are no
+accounts, and nothing is sent to us.
+
+## Reporting a problem
+
+The "Report a problem" and "Suggest an idea" buttons open GitHub's issue forms
+in your browser. Anything you write there, and any log you choose to attach,
+is **public** on GitHub, under GitHub's own terms and privacy policy. Read a log
+before you attach it. (leetsay's log never contains your dictated text, and
+your Windows user name is replaced with `%USERPROFILE%`.) Security problems
+should be reported privately instead; see [SECURITY.md](SECURITY.md).
+
 ## Removing everything
 
 See "Uninstalling" in the [README](README.md).
