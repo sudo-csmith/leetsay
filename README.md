@@ -1,9 +1,9 @@
 <p align="center">
-  <img src="assets/banner.png" alt="leetsay: dictation for Windows. Hold a key, speak, and it types." width="100%">
+  <img src="assets/banner.png" alt="leetsay: local dictation for Windows. Hold a key, speak, and it types." width="100%">
 </p>
 
-Free dictation for Windows. Hold a hotkey, speak, let go: your words are typed
-into whatever program you are using. (A Mac version is planned.)
+Free, local dictation for Windows. Hold a hotkey, speak, let go: your words are
+typed into whatever program you are using. (A Mac version is planned.)
 
 leetsay has no accounts, statistics or tracking. See [How it works](#how-it-works)
 and [PRIVACY.md](PRIVACY.md).
