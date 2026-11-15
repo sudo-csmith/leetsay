@@ -319,6 +319,7 @@ SCREEN_GLOW_STRENGTH = 60            # how bright that glow is, 5-100
 SCREEN_GLOW_SIZE = 56                # how far it reaches in from the edge, 20-200 pixels
 SCREEN_GLOW_FLOW = True              # a light moves along it, and it ripples with your voice
 SCREEN_GLOW_EDGES = "bottom"         # where: "bottom" (along the bottom edge) or "all"
+SCREEN_GLOW_SCREENS = "popup"        # on which screens: "popup" (the pop-up's), "all", "main"
 TRAY_LIVE = False                    # the tray icon's bars move with your voice
 SHOW_HOTKEY_HINT = True              # show the hotkey on that pill and at startup
 PILL_MARK = "logo"                   # the pill's mark: "logo" (leetsay's), "dot" or "none"
@@ -650,6 +651,8 @@ if _config.get("pill_mark") in PILL_MARKS:
     PILL_MARK = _config["pill_mark"]
 elif isinstance(_config.get("pill_logo"), bool):   # saved by an earlier 0.2.0 build
     PILL_MARK = "logo" if _config["pill_logo"] else "dot"
+if _config.get("screen_glow_screens") in ("popup", "all", "main"):
+    SCREEN_GLOW_SCREENS = _config["screen_glow_screens"]
 if _config.get("screen_glow_edges") in ("bottom", "all"):
     SCREEN_GLOW_EDGES = _config["screen_glow_edges"]
 if _config.get("card_style") in [key for key, _label in CARD_STYLES]:
@@ -4035,7 +4038,7 @@ class EdgeStrip(QtWidgets.QWidget):
             # On its own along the bottom it carries more light: a fuller haze
             # rising from the edge, strongest in the middle and fading out
             # towards both ends (no hard ends).
-            rise = 0.55 * np.exp(-(np.maximum(dist, 0.0) / (0.5 * depth)) ** 1.3)
+            rise = 0.45 * np.exp(-(np.maximum(dist, 0.0) / (0.45 * depth)) ** 1.3)
             alpha = np.minimum(1.0, alpha * 1.6 + rise) * np.sin(np.pi * gx / pw) ** 0.7
         alpha = alpha + (np.random.default_rng(7).random(alpha.shape, dtype=np.float32)
                          - 0.5) / 255.0
@@ -4127,20 +4130,44 @@ class ScreenGlow:
     voice and fades out at the end."""
 
     def __init__(self):
-        self.strips = None                       # made the first time it is used
+        self.sets = {}                           # a screen's rectangle -> its four strips
+        self.strips = []                         # every strip in use now
         self.fade = 0.0
         self.showing = False
 
-    def start(self, colour, area):
-        """Show round `area` (the screen's rectangle) in `colour`."""
-        if self.strips is None:
-            self.strips = [EdgeStrip(side) for side in ("top", "bottom", "left", "right")]
+    def start(self, colour, areas):
+        """Show round `areas` (one screen's rectangle, or a list of them: the
+        glow can be on several screens at once) in `colour`."""
+        if isinstance(areas, QtCore.QRect):
+            areas = [areas]
+        keys = []
+        for area in areas:
+            key = (area.x(), area.y(), area.width(), area.height())
+            if key in keys:
+                continue
+            keys.append(key)
+            if key not in self.sets:             # made the first time a screen is used
+                self.sets[key] = [EdgeStrip(side) for side in ("top", "bottom", "left", "right")]
+            self._place(self.sets[key], colour, area)
+        for key, strips in self.sets.items():    # screens not chosen this time
+            if key not in keys:
+                for strip in strips:
+                    strip.hide()
+        self.strips = [strip for key in keys for strip in self.sets[key]]
+        if not self.showing:                     # already up (Settings demo): no restart
+            self.fade = 0.0
+        self.showing = True
+
+    def _place(self, strips, colour, area):
+        """Put one screen's four strips in place for the chosen style."""
         x, y, w, h = area.x(), area.y(), area.width(), area.height()
         d = int(SCREEN_GLOW_SIZE)
         if SCREEN_GLOW_EDGES == "bottom":
             # Just along the bottom: a little deeper, rising from the bottom
             # of the screen, strongest in the middle.
-            depth = int(SCREEN_GLOW_SIZE * 2.2)
+            # Kept low (a reply or the last lines of code often sit right
+            # above the taskbar); "Edge size" in Settings makes it taller.
+            depth = int(SCREEN_GLOW_SIZE * 1.3)
             # It rises from the top of the taskbar (where the pop-up sits),
             # not from under it, where most of it would be hidden.
             floor = y + h
@@ -4149,22 +4176,19 @@ class ScreenGlow:
                 room = screen.availableGeometry()
                 if room.left() <= x + w // 2 <= room.right() and room.bottom() + 1 < floor:
                     floor = room.bottom() + 1
-            bottom = self.strips[1]
-            for strip in self.strips:
+            bottom = strips[1]
+            for strip in strips:
                 strip.alone = strip is bottom
                 if strip is not bottom:
                     strip.hide()
             bottom.span = (0.0, 1.0)
             bottom.colour = QtGui.QColor(colour)
             bottom.setGeometry(x, floor - depth, w, depth)
-            if not self.showing:
-                bottom.setWindowOpacity(0.0)
-                self.fade = 0.0
+            bottom.setWindowOpacity(self.fade if self.showing else 0.0)
             bottom.show()
             bottom.update()
-            self.showing = True
             return
-        for strip in self.strips:
+        for strip in strips:
             strip.alone = False
             strip.setWindowOpacity(self.fade if self.showing else 0.0)
         places = ((x, y, w, d), (x, y + h - d, w, d),
@@ -4175,7 +4199,7 @@ class ScreenGlow:
         spans = ((0.0, w / round_trip), ((2.0 * w + h) / round_trip, (w + h) / round_trip),
                  (1.0 - d / round_trip, (2.0 * w + h + d) / round_trip),
                  ((w + d) / round_trip, (w + h - d) / round_trip))
-        for strip, place, span in zip(self.strips, places, spans):
+        for strip, place, span in zip(strips, places, spans):
             strip.span = span
             strip.colour = QtGui.QColor(colour)
             strip.setGeometry(*place)
@@ -4183,9 +4207,6 @@ class ScreenGlow:
                 strip.setWindowOpacity(0.0)
             strip.show()
             strip.update()
-        if not self.showing:                     # already up (Settings demo): no restart
-            self.fade = 0.0
-        self.showing = True
 
     def step(self, level, active, still=False):
         """Advance one frame. Returns False once it has faded away. still:
@@ -4227,8 +4248,9 @@ class ScreenGlow:
     def stop(self):
         self.showing = False
         self.fade = 0.0
-        for strip in self.strips or ():
-            strip.hide()
+        for strips in self.sets.values():
+            for strip in strips:
+                strip.hide()
 
 
 _GLOW_CACHE = {}
@@ -5366,7 +5388,14 @@ class Dictation(QtCore.QObject):
                 spot = self.overlay.frameGeometry().center()
                 screen = (QtGui.QGuiApplication.screenAt(spot)
                           or QtGui.QGuiApplication.primaryScreen())
-                self.screen_glow.start(colour, screen.geometry())
+                # The pop-up's screen, every screen, or the main one (Settings).
+                if SCREEN_GLOW_SCREENS == "all":
+                    areas = [s.geometry() for s in QtGui.QGuiApplication.screens()]
+                elif SCREEN_GLOW_SCREENS == "main":
+                    areas = [QtGui.QGuiApplication.primaryScreen().geometry()]
+                else:
+                    areas = [screen.geometry()]
+                self.screen_glow.start(colour, areas)
             if SCREEN_GLOW or (TRAY_LIVE and self.tray is not None):
                 self.fx_timer.start()
         except Exception as exc:
@@ -6450,6 +6479,7 @@ for _key in ("add_space", "always_show", "accent_outline", "outline_light", "glo
     _PORTABLE_CHECKS[_key] = lambda v: isinstance(v, bool)
 _PORTABLE_CHECKS["card_style"] = lambda v: v in [key for key, _label in CARD_STYLES]
 _PORTABLE_CHECKS["screen_glow_edges"] = lambda v: v in ("bottom", "all")
+_PORTABLE_CHECKS["screen_glow_screens"] = lambda v: v in ("popup", "all", "main")
 _PORTABLE_CHECKS["pill_mark"] = lambda v: v in PILL_MARKS
 _PORTABLE_CHECKS["replacements"] = valid_replacements
 
@@ -8996,6 +9026,18 @@ class SettingsWindow(QtWidgets.QDialog):
                                       self.glow_where.itemData(index)),
                            dictation.demo_screen_glow()))
         row(field("Edge glow"), self.glow_where, None)
+        self.glow_screens = QtWidgets.QComboBox()
+        self.glow_screens.addItem("The pop-up's screen", "popup")
+        self.glow_screens.addItem("All screens", "all")
+        self.glow_screens.addItem("Main screen", "main")
+        self.glow_screens.setCurrentIndex(
+            max(0, self.glow_screens.findData(SCREEN_GLOW_SCREENS)))
+        self.glow_screens.setToolTip("Which screens the glow shows on while you dictate.")
+        self.glow_screens.currentIndexChanged.connect(
+            lambda index: (set_option("SCREEN_GLOW_SCREENS", "screen_glow_screens",
+                                      self.glow_screens.itemData(index)),
+                           dictation.demo_screen_glow()))
+        row(field("Glow on"), self.glow_screens, None)
 
         def flow_changed(value):
             set_option("SCREEN_GLOW_FLOW", "screen_glow_flow", bool(value))
