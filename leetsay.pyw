@@ -7931,7 +7931,7 @@ class Sketch(QtWidgets.QWidget):
         super().__init__()
         self.kind = kind
         # The little screen needs room; the keys need less (owner: wasted space).
-        self.setFixedHeight({"look": 116, "hotkey": 60, "tips": 60}.get(kind, 96))
+        self.setFixedHeight({"look": 116, "hotkey": 60, "tips": 74}.get(kind, 96))
 
     def paintEvent(self, _event):
         p = QtGui.QPainter(self)
@@ -8098,21 +8098,25 @@ class Sketch(QtWidgets.QWidget):
         text = pretty(HOTKEY) if SHOW_HOTKEY_HINT else "Ready"
         p.setFont(self._font(12))
         pill_w = QtGui.QFontMetricsF(p.font()).horizontalAdvance(text) + 52.0
-        pill = QtCore.QRectF(w / 2 - pill_w / 2, h / 2 - 18, pill_w, 36)
+        mid = 26.0                               # the pill's middle; a caption below
+        pill = QtCore.QRectF(w / 2 - pill_w / 2, mid - 18, pill_w, 36)
         p.setPen(QtGui.QPen(QtGui.QColor(self._edge()), 1.2))
         p.setBrush(QtGui.QColor(POPUP_BG))
         p.drawRoundedRect(pill, 18, 18)
         p.setPen(Qt.NoPen)
         p.setBrush(QtGui.QColor(ACCENT))
-        p.drawEllipse(QtCore.QPointF(pill.left() + 18, h / 2), 4, 4)
+        p.drawEllipse(QtCore.QPointF(pill.left() + 18, mid), 4, 4)
         p.setPen(QtGui.QColor("#1D1D1F" if is_light(POPUP_BG) else "#F0F0F4"))
         p.drawText(pill.adjusted(30, 0, -8, 0), Qt.AlignLeft | Qt.AlignVCenter, text)
         p.setFont(self._font(11))
         p.setPen(QtGui.QColor(self._quiet()))
-        p.drawText(QtCore.QRectF(0, h / 2 - 18, pill.left() - 12, 36),
-                   Qt.AlignRight | Qt.AlignVCenter, "Click: dictate")
-        p.drawText(QtCore.QRectF(pill.right() + 12, h / 2 - 18, w - pill.right() - 12, 36),
-                   Qt.AlignLeft | Qt.AlignVCenter, "Right-click: Settings")
+        p.drawText(QtCore.QRectF(0, mid - 18, pill.left() - 12, 36),
+                   Qt.AlignRight | Qt.AlignVCenter, "Click it: dictate")
+        p.drawText(QtCore.QRectF(pill.right() + 12, mid - 18, w - pill.right() - 12, 36),
+                   Qt.AlignLeft | Qt.AlignVCenter, "Right-click it: Settings")
+        # Said plainly: this is the pill on the screen, not a button here (owner).
+        p.drawText(QtCore.QRectF(0, pill.bottom() + 4, w, 18), Qt.AlignHCenter | Qt.AlignTop,
+                   "The pill on your screen")
 
 
 class ChoiceButton(QtWidgets.QPushButton):
