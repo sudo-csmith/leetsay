@@ -52,11 +52,19 @@ to see who uses it or what they do with it.
     and a small helper for long dictations (about 2 MB);
   - if you choose another speech model, or a model update, in Settings;
   - if you turn on **Check for model updates at startup** (off by default).
+- **Checking for app updates** (off by default): if you turn on **Check for
+  app updates at startup**, or click **Check for app updates now**, a small
+  separate helper asks `github.com`, a third-party website that we do not run
+  or control, for the version number of the latest published release.
+  leetsay itself stays blocked from the network. Nothing is downloaded or
+  installed: if there is a newer version, you are told and can open its
+  download page yourself. Each switch-on, and each manual check, asks first.
 - When it connects, standard technical information that any download involves
   (such as your IP address and the files requested) reaches huggingface.co and
-  the networks in between. That is handled under Hugging Face's own privacy
-  policy, not this one. leetsay sends no account details or identifiers of its
-  own, and switches off the download library's usage reporting.
+  the networks in between. That is handled under Hugging Face's (or, for the
+  app update check, GitHub's) own privacy policy, not this one. leetsay sends
+  no account details or identifiers of its own, and switches off the download
+  library's usage reporting.
 - When the download or check is finished, the network block is restored.
 - Your agreement is not remembered: each of these asks again.
 

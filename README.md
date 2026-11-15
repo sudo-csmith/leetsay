@@ -25,6 +25,10 @@ the [Disclaimer](#disclaimer) before using it.
   for a download or update check you have just agreed to, only to
   huggingface.co, and closes it again straight afterwards. It checks the block
   every time it starts (see [Checking the network block](#checking-the-network-block)).
+- **App updates** are only checked if you ask: tick **Check for app updates
+  at startup**, or click **Check for app updates now** (both off until you
+  agree to go online, to github.com). leetsay only reads the latest version
+  number and tells you; it never downloads or installs anything by itself.
 - **This covers leetsay itself, not the programs you type into.** A chat, a web
   page or an online document may send your text over the internet; leetsay
   cannot see or control that. See the [Disclaimer](#disclaimer).

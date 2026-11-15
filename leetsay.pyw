@@ -36,6 +36,36 @@ if not FROZEN:   # (the installed program carries its own libraries, nothing els
     sys.path[:] = [entry for entry in sys.path
                    if entry and os.path.normcase(os.path.abspath(entry)) != _SCRIPT_DIR]
 
+APP_REPO = "sudo-csmith/leetsay"                 # where new versions are published
+
+if sys.argv[1:2] == ["--check-app-update"] and len(sys.argv) >= 3:
+    # Not the application: a short-lived helper, started only after the user
+    # agreed to "This application will go online" (or switched on the update
+    # check at startup, which asked the same). It reads the version number of
+    # the latest published release on github.com, writes it to the file it was
+    # given, and exits. Nothing is downloaded or installed.
+    import json
+    import urllib.error
+    import urllib.request
+    try:
+        _request = urllib.request.Request(
+            "https://api.github.com/repos/%s/releases/latest" % APP_REPO,
+            headers={"User-Agent": "app-update-check", "Accept": "application/vnd.github+json"})
+        try:
+            with urllib.request.urlopen(_request, timeout=20) as _reply:
+                _data = json.load(_reply)
+            _result = {"ok": True, "tag": _data.get("tag_name") or "",
+                       "url": _data.get("html_url") or ""}
+        except urllib.error.HTTPError as _exc:
+            if _exc.code != 404:
+                raise
+            _result = {"ok": True, "tag": "", "url": ""}      # nothing published yet
+    except Exception as _exc:
+        _result = {"ok": False, "error": str(_exc)}
+    with open(sys.argv[2], "w", encoding="utf-8") as _fh:
+        json.dump(_result, _fh)
+    os._exit(0)
+
 if sys.argv[1:2] == ["--fetch-fingerprints"] and len(sys.argv) >= 4:
     # Not the application: a short-lived helper, started only by "Check now"
     # after its "This application will go online" window was agreed to. It
@@ -73,7 +103,7 @@ from ctypes import wintypes
 
 
 
-VERSION = "0.58.4"              # shown in Settings and About
+VERSION = "0.59.0"              # shown in Settings and About
 APP_TITLE = "leetsay"                # the name shown to the user (one place)
 _HERE = os.path.dirname(_SELF)        # the program's own folder
 
@@ -599,6 +629,57 @@ def set_check_updates(on):
     global CHECK_UPDATES
     CHECK_UPDATES = bool(on)
     save_setting("check_updates", CHECK_UPDATES)
+
+
+# Off by default: when on, each start asks github.com (in a separate helper, so
+# this program's own network block stays closed) whether a newer version of
+# the application has been published. Nothing is downloaded by it.
+CHECK_APP_UPDATES = _config.get("check_app_updates") is True
+APP_RELEASES_PAGE = "https://github.com/%s/releases/latest" % APP_REPO
+
+
+def set_check_app_updates(on):
+    global CHECK_APP_UPDATES
+    CHECK_APP_UPDATES = bool(on)
+    save_setting("check_app_updates", CHECK_APP_UPDATES)
+
+
+def version_tuple(text):
+    """"v0.58.4" -> (0, 58, 4); anything unreadable -> ()."""
+    parts = str(text or "").strip().lstrip("vV").split(".")
+    try:
+        return tuple(int(p) for p in parts) if parts and parts[0] else ()
+    except ValueError:
+        return ()
+
+
+def fetch_latest_release():
+    """Ask github.com for the latest published version, in a separate helper
+    process (see --check-app-update at the top). Returns (tag, page, None),
+    ("", "", None) if nothing is published, or (None, None, why it failed)."""
+    import subprocess
+    import tempfile
+    handle, out_path = tempfile.mkstemp(suffix=".json")
+    os.close(handle)
+    try:
+        helper = ([sys.executable, "--check-app-update", out_path] if FROZEN
+                  else [sys.executable, "-I", _SELF, "--check-app-update", out_path])
+        subprocess.run(helper, timeout=40, creationflags=0x08000000 if os.name == "nt" else 0)
+        with open(out_path, encoding="utf-8") as fh:
+            result = json.load(fh)
+    except Exception as exc:
+        return None, None, str(exc)
+    finally:
+        try:
+            os.remove(out_path)
+        except Exception:
+            pass
+    if not result.get("ok"):
+        return None, None, result.get("error") or "github.com could not be reached"
+    page = str(result.get("url") or "")
+    if not page.startswith("https://github.com/%s/" % APP_REPO):
+        page = APP_RELEASES_PAGE                 # only ever this repository's page
+    return str(result.get("tag") or ""), page, None
 
 
 ACCENT_CHOICES = [("Mint", "#3DDC97"), ("Sky", "#4DA3FF"), ("Violet", "#9B8CFF"),
@@ -3619,7 +3700,7 @@ class Dictation(QtCore.QObject):
             # Up straight away while the model loads behind it: just a small
             # pill with a word on it. No waveform, no timer, nothing recorded.
             self.overlay.show_message(
-                "Startingâ€¦" if (_setup_done() or local_model_dir())
+                "Starting…" if (_setup_done() or local_model_dir())
                 else self.DOWNLOADING, ms=None)
             if not (_setup_done() or local_model_dir()):
                 self.overlay.progress = 0.0     # the download card, from the start
@@ -3867,7 +3948,7 @@ class Dictation(QtCore.QObject):
     DOWNLOADING = "Downloading the speech model"
     NO_MODEL = "No speech model  \u00b7  download it in Settings"
     STUCK = "The download is not moving  \u00b7  click for help"
-    BLOCKED = "The download seems blocked  Â·  click for help"
+    BLOCKED = "The download seems blocked  ·  click for help"
     GIVE_UP_AFTER = 3                          # failed attempts before stopping
     STUCK_AFTER = 20.0                         # seconds with nothing new arriving
     RETRY_AFTER = 15.0                         # seconds between download attempts
@@ -4038,7 +4119,7 @@ class Dictation(QtCore.QObject):
             self.overlay.show_message(self.NO_MODEL, ms=3000)
         elif self.state == "loading":
             if not self.overlay.isVisible():
-                self.overlay.show_message("Still loading the speech modelâ€¦", ms=None)
+                self.overlay.show_message("Still loading the speech model…", ms=None)
             # otherwise the welcome or "Starting" card already says so
         elif self.state == "idle":
             self._start()
@@ -4810,6 +4891,9 @@ QComboBox, QPushButton { background: #24262C; color: #E6E7EC; font-size: 13px;
 QPushButton:hover, QComboBox:hover { background: #2D3037; border-color: #454852; }
 QPushButton:pressed { background: #1E2025; }
 QPushButton:disabled { color: #8E909A; }
+QPushButton#danger { background: #B8352F; color: #FFFFFF; border-color: #C9443D; }
+QPushButton#danger:hover { background: #CC423B; border-color: #E0574F; }
+QPushButton#danger:pressed { background: #9E2D28; }
 QComboBox::drop-down { border: none; width: 20px; }
 QComboBox QAbstractItemView { background: #24262C; color: #E6E7EC; border: 1px solid #34363E;
     selection-background-color: #3A3D46; outline: none; }
@@ -4880,7 +4964,8 @@ _PORTABLE_CHECKS = {
 for _key in ("add_space", "always_show", "accent_outline", "outline_light", "glow_from_app",
              "hotkey_hint", "return_focus", "screen_glow", "show_app_icon", "show_app_name",
              "show_popup", "show_timer", "show_waveform", "sounds", "tray_live", "wide_card",
-             "hold_to_talk", "live_preview", "type_text", "keep_last", "check_updates"):
+             "hold_to_talk", "live_preview", "type_text", "keep_last", "check_updates",
+             "check_app_updates"):
     _PORTABLE_CHECKS[_key] = lambda v: isinstance(v, bool)
 
 # Turning these on touches the clipboard, keeps text, or goes online. For
@@ -4889,6 +4974,9 @@ _PORTABLE_CAREFUL = {
     "type_text": (False, "Paste using the clipboard instead of typing"),
     "keep_last": (True, "Missed text safety (keeps your last dictation in memory "
                         "for %d minutes)" % (KEEP_LAST_SECONDS // 60)),
+    "check_app_updates": (True, "Check for app updates at startup (this application will "
+                                "go online, to github.com, a third-party website that we "
+                                "do not run or control)"),
     "check_updates": (True, "Check for model updates at startup (this application will "
                             "go online, to huggingface.co, a third-party website that we "
                             "do not run or control)"),
@@ -4935,7 +5023,8 @@ def read_settings_line(line):
         risky = _PORTABLE_CAREFUL.get(key)
         if risky and value == risky[0] and _config.get(key, globals().get(
                 {"type_text": "TYPE_TEXT", "keep_last": "KEEP_LAST",
-                 "check_updates": "CHECK_UPDATES"}[key])) != value:
+                 "check_updates": "CHECK_UPDATES",
+                 "check_app_updates": "CHECK_APP_UPDATES"}[key])) != value:
             careful[key] = value                 # would switch it on here: ask first
         else:
             good[key] = value
@@ -5024,7 +5113,7 @@ QPushButton#primary { background: %(accent)s; color: #101114; border: 1px solid 
         layout.addWidget(label)
     field = QtWidgets.QPlainTextEdit()
     field.setFixedSize(420, 110)
-    field.setPlaceholderText(_PORTABLE_PREFIX + "â€¦")
+    field.setPlaceholderText(_PORTABLE_PREFIX + "…")
     layout.addWidget(field)
     problem = QtWidgets.QLabel("")
     problem.setObjectName("problem")
@@ -5050,8 +5139,8 @@ QPushButton#primary { background: %(accent)s; color: #101114; border: 1px solid 
             box.adjustSize()
             return
         if careful:
-            online = "check_updates" in careful
-            names = "\n".join("â€¢  " + _PORTABLE_CAREFUL[key][1] for key in careful)
+            online = "check_updates" in careful or "check_app_updates" in careful
+            names = "\n".join("•  " + _PORTABLE_CAREFUL[key][1] for key in careful)
             agreed = dialog(box, "Switch these on too?",
                             "This application will go online" if online
                             else "These options are off on this PC",
@@ -5195,7 +5284,7 @@ QPushButton#primary { background: %(accent)s; color: #101114; border: 1px solid 
         made.setTextInteractionFlags(Qt.TextSelectableByMouse)
         return made
 
-    headline = label("Checkingâ€¦", "headline")
+    headline = label("Checking…", "headline")
     layout.addWidget(headline)
     summary = label("")
     layout.addWidget(summary)
@@ -5306,7 +5395,7 @@ QPushButton#primary { background: %(accent)s; color: #101114; border: 1px solid 
             return
         work["busy"], work["result"] = True, None
         online.setEnabled(False)
-        headline.setText("Checking against the published filesâ€¦")
+        headline.setText("Checking against the published files…")
         summary.setText("Reading the published fingerprints and comparing each file. "
                         "This takes a few seconds.")
         threading.Thread(target=online_work, daemon=True).start()
@@ -5507,6 +5596,94 @@ QPushButton#primary:hover { background: %(accent)s; border-color: #FFFFFF; }
             os.startfile(folder)
         except Exception as exc:
             print("Could not open the folder:", exc, file=sys.stderr)
+
+
+APP_UPDATE_WARNING = (
+    "%(app)s will connect to github.com to read the version number of its latest "
+    "published release. That is a third-party website that we do not run or "
+    "control.\n\nThis is done by a small separate helper; %(app)s itself stays "
+    "blocked from the network. Nothing about you or your use of %(app)s is sent, "
+    "apart from what any visit to a website involves (such as your IP address). "
+    "Nothing is downloaded or installed: if there is a newer version, you are told "
+    "and can open its download page yourself.")
+
+
+def ask_app_update_check(parent, at_startup=False):
+    """The warning before the application update check goes online."""
+    if at_startup:
+        return dialog(parent, "Check for app updates at startup?",
+                      "This application will go online",
+                      "With this switched on, every time it starts, " + APP_UPDATE_WARNING
+                      % {"app": APP_TITLE}, accept="Turn on", reject="Keep off") is True
+    return dialog(parent, "Check for app updates?", "This application will go online",
+                  "Once, now, " + APP_UPDATE_WARNING % {"app": APP_TITLE},
+                  accept="Check now", reject="Cancel") is True
+
+
+_app_update_work = {"busy": False}
+
+
+def run_app_update_check(parent=None, manual=True, done=None):
+    """Check for a newer version in the background, then say what was found.
+    manual=False (the check at startup) says nothing unless there is a newer
+    version, and mentions each new version only once."""
+    if _app_update_work["busy"]:
+        return
+    _app_update_work.update(busy=True, result=None)
+
+    def work():
+        _app_update_work["result"] = fetch_latest_release()
+
+    threading.Thread(target=work, daemon=True).start()
+    poll = QtCore.QTimer(QtWidgets.QApplication.instance())
+    poll.setInterval(250)
+
+    def check():
+        if _app_update_work.get("result") is None:
+            return
+        poll.stop()
+        poll.deleteLater()
+        _app_update_work["busy"] = False
+        tag, page, why = _app_update_work["result"]
+        if done is not None:
+            done()
+        show_app_update_result(parent, tag, page, why, manual)
+
+    poll.timeout.connect(check)
+    poll.start()
+
+
+def show_app_update_result(parent, tag, page, why, manual):
+    if why is not None:
+        print("App update check: github.com could not be reached (%s)." % why)
+        if manual:
+            dialog(parent, "Check for app updates", "Could not check for updates",
+                   "github.com could not be reached, so nothing was checked.\n\n(%s)" % why)
+        return
+    if not tag or not version_tuple(tag):
+        print("App update check: no published version found.")
+        if manual:
+            dialog(parent, "Check for app updates", "No published version found",
+                   "No version of %s has been published on github.com yet." % APP_TITLE)
+        return
+    latest = tag.lstrip("vV")
+    if version_tuple(latest) <= version_tuple(VERSION):
+        print("App update check: up to date (%s)." % VERSION)
+        if manual:
+            dialog(parent, "Check for app updates", "You have the latest version",
+                   "%s %s is the newest published version." % (APP_TITLE, VERSION))
+        return
+    print("App update check: version %s is available (this is %s)." % (latest, VERSION))
+    if not manual and _config.get("app_update_seen") == latest:
+        return                                   # already mentioned once: no nagging
+    save_setting("app_update_seen", latest)
+    if dialog(parent, "%s update" % APP_TITLE, "%s %s is available" % (APP_TITLE, latest),
+              "You have version %s.\n\nThe download page is on github.com, a third-party "
+              "website that we do not run or control. There you can download the new "
+              "installer and run it; your settings and speech model are kept.\n\n"
+              "Nothing has been downloaded." % VERSION,
+              accept="Open the download page", reject="Not now") is True:
+        QtGui.QDesktopServices.openUrl(QtCore.QUrl(page))
 
 
 def open_data_folder():
@@ -6080,6 +6257,14 @@ class IntroWindow(QtWidgets.QDialog):
         self.startup.setChecked(starts_with_windows())
         self.startup.toggled.connect(lambda on: set_startup(bool(on)))
         fourth.addWidget(self.startup)
+        fourth.addSpacing(6)
+        # Off unless chosen here or in Settings; ticking it asks first.
+        self.app_updates = QtWidgets.QCheckBox("Check for app updates at startup")
+        self.app_updates.setChecked(bool(CHECK_APP_UPDATES))
+        self.app_updates.setToolTip("Goes online to github.com each time it starts, "
+                                    "after asking you here. Nothing is downloaded.")
+        self.app_updates.toggled.connect(self._app_updates_toggled)
+        fourth.addWidget(self.app_updates)
         fourth.addSpacing(12)                    # the button is a separate thing
         more = QtWidgets.QPushButton("Open all settings")
         more.setToolTip("Finish here and open Settings, where everything else lives: "
@@ -6305,6 +6490,14 @@ QPlainTextEdit { font-size: 13px; }
     def _pill_toggled(self, on):
         set_option("ALWAYS_SHOW", "always_show", bool(on))
         self.dictation.refresh_popup()
+
+    def _app_updates_toggled(self, on):
+        if on and not ask_app_update_check(self, at_startup=True):
+            self.app_updates.blockSignals(True)  # untick it again, quietly
+            self.app_updates.setChecked(False)
+            self.app_updates.blockSignals(False)
+            on = False
+        set_check_app_updates(on)
 
     def closeEvent(self, event):
         # Finishing and closing the window are the same thing: nothing here
@@ -6972,6 +7165,16 @@ class SettingsWindow(QtWidgets.QDialog):
         self._update_poll = QtCore.QTimer(self)
         self._update_poll.setInterval(200)
         self._update_poll.timeout.connect(self._update_checked)
+        self.app_updates = check(
+            "Check for app updates at startup (goes online)", CHECK_APP_UPDATES,
+            self._app_updates_changed,
+            tip="Off by default. With this ticked, every start asks github.com "
+                "whether a newer version of the application has been published, and "
+                "tells you once if there is. Nothing is downloaded or installed.")
+        self.app_update_button = button("Check for app updates now", self._check_app_now)
+        self.app_update_button.setToolTip("Goes online once, now, after asking. Only "
+                                          "reads the latest version number.")
+        row(indent(), self.app_update_button, None)
         quant = " (%s)" % QUANTIZATION if QUANTIZATION else ""
         note("Model: %s%s\nNetwork: %s" % (MODEL, quant, network_words()))
         row(button("Export settings", lambda: export_settings_window(self)),
@@ -6992,7 +7195,9 @@ class SettingsWindow(QtWidgets.QDialog):
             leave_now(QtWidgets.QApplication.instance())
 
         bottom.addStretch(1)                     # Reset on the left; the two ways out on the right
-        bottom.addWidget(button("Quit %s" % APP_TITLE, quit_app))
+        quit_button = button("Quit %s" % APP_TITLE, quit_app)
+        quit_button.setObjectName("danger")      # red: it closes the application
+        bottom.addWidget(quit_button)
         bottom.addWidget(button("Close", self.close, width=84))
         outer.addLayout(bottom)
 
@@ -7254,6 +7459,29 @@ class SettingsWindow(QtWidgets.QDialog):
                       accept="Update and restart", reject="Not now"):
                 save_setting("update_once", True)
                 restart_app()
+
+    def _app_updates_changed(self, on):
+        if on and not ask_app_update_check(self, at_startup=True):
+            self.app_updates.blockSignals(True)  # untick it again, quietly
+            self.app_updates.setChecked(False)
+            self.app_updates.blockSignals(False)
+            on = False
+        set_check_app_updates(on)
+
+    def _check_app_now(self):
+        if not ask_app_update_check(self):
+            return
+        self.app_update_button.setEnabled(False)
+        self.app_update_button.setText("Checking…")
+
+        def done():
+            try:
+                self.app_update_button.setEnabled(True)
+                self.app_update_button.setText("Check for app updates now")
+            except RuntimeError:
+                pass                             # the window was closed meanwhile
+
+        run_app_update_check(self, manual=True, done=done)
 
     def _updates_changed(self, on):
         if not on:
@@ -7689,7 +7917,7 @@ def show_about(dictation):
     if dictation.load_seconds is not None:
         lines.append("Loaded in:  %.1f seconds" % dictation.load_seconds)
     elif dictation.state == "loading":
-        lines.append("Still loadingâ€¦")
+        lines.append("Still loading…")
     lines += [
         "Network:  %s" % network_words(),
         "Model update check:  %s" % ("on (takes effect at the next start)"
@@ -8172,6 +8400,11 @@ def main():
     if tray is not None and not dictation.intro_open:
         # Not seen yet (an earlier version, or "Got it" was never clicked).
         QtCore.QTimer.singleShot(3000, dictation.maybe_show_tray_tip)
+    if CHECK_APP_UPDATES:
+        # Switched on (after its "This application will go online" window): ask
+        # github.com, in a separate helper, a little after start-up so that it
+        # never slows the start. Says something only if there is a new version.
+        QtCore.QTimer.singleShot(10000, lambda: run_app_update_check(None, manual=False))
     intro = None
     if dictation.intro_open:                           # first launch (or a replay of it)
         intro = IntroWindow(dictation, look_chosen=look_chosen)   # noqa: F841 (kept alive)
