@@ -4215,11 +4215,11 @@ class ScreenGlow:
             if screen is not None and area.contains(screen.availableGeometry()):
                 room = screen.availableGeometry()
             rx, ry, rw, rh = room.x(), room.y(), room.width(), room.height()
-            # The bottom glow lives in the taskbar: from the very bottom of the
-            # screen up to just past the taskbar's top edge, so whatever sits
-            # above the taskbar (a reply, the last lines of code) stays clear.
+            # The bottom glow lives low in the taskbar: it lights the bottom of
+            # the screen and fades out below the taskbar's icons (they sit in
+            # its middle), so the icons and whatever is above stay clear.
             taskbar = (y + h) - (ry + rh)
-            low = max(24, taskbar + 6) if taskbar > 0 else max(24, int(SCREEN_GLOW_SIZE * 0.6))
+            low = max(14, int(taskbar * 0.38)) if taskbar > 0 else max(14, int(SCREEN_GLOW_SIZE * 0.35))
             place = {"top": QtCore.QRect(rx, ry, rw, depth),
                      "bottom": QtCore.QRect(rx, y + h - low, rw, low),
                      "left": QtCore.QRect(rx, ry, depth, rh),
