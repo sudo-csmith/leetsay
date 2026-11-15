@@ -8778,6 +8778,11 @@ class IntroWindow(QtWidgets.QDialog):
         self.next.clicked.connect(self._next)
         footer.addWidget(self.next)
         outer.addLayout(footer)
+        # Skip and Back as tall as Next, so the row lines up (owner).
+        self.next.ensurePolished()
+        for small_button in (self.skip, self.back):
+            small_button.setFixedHeight(self.next.sizeHint().height())
+            small_button.setMinimumWidth(72)
 
         # (Not "self.done": a window already has a done() of its own, which is
         # what closes it. A value stored under that name stops it closing.)
