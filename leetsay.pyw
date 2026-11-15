@@ -4086,6 +4086,10 @@ class EdgeStrip(QtWidgets.QWidget):
             reach = depth * (0.38 + 0.62 * gather ** 1.4)
             rise = 0.85 * np.exp(-(np.maximum(dist, 0.0) / (0.45 * reach)) ** 1.3)
             alpha = np.minimum(1.0, self.light(dist, reach) * 2.0 + rise)
+            if self.behind:
+                # Behind the taskbar its frosted layer dims the light: give it
+                # more, filling more of the taskbar's height.
+                alpha = np.minimum(1.0, alpha * 1.7 + 0.3 * np.exp(-dist / (0.8 * reach)))
             alpha = alpha * (0.15 + 0.85 * gather ** 1.3)
         else:
             alpha = self.light(dist, depth)
@@ -4144,7 +4148,16 @@ class EdgeStrip(QtWidgets.QWidget):
         tint = QtGui.QLinearGradient(*along)
         first, last = self.span
         for i in range(41):
-            tint.setColorAt(i / 40.0, self._tint(first + (last - first) * i / 40.0, i / 40.0))
+            colour = self._tint(first + (last - first) * i / 40.0, i / 40.0)
+            if self.behind:
+                # Behind the taskbar's frosted layer: a lighter, brighter shade
+                # of the same colour gets through it far better than a deep one.
+                lift = 0.45
+                colour = QtGui.QColor(int(colour.red() + (255 - colour.red()) * lift),
+                                      int(colour.green() + (255 - colour.green()) * lift),
+                                      int(colour.blue() + (255 - colour.blue()) * lift),
+                                      colour.alpha())
+            tint.setColorAt(i / 40.0, colour)
         q.fillRect(QtCore.QRectF(0, 0, w, h), QtGui.QBrush(tint))
         # The hot core is lighter, nearly white, right at the edge: that is
         # what makes it read as light rather than paint.
@@ -4199,7 +4212,8 @@ class ScreenGlow:
                 continue
             keys.append(key)
             if key not in self.sets:             # made the first time a screen is used
-                self.sets[key] = [EdgeStrip(side) for side in ("top", "bottom", "left", "right")]
+                self.sets[key] = [EdgeStrip(side) for side in
+                                  ("top", "bottom", "left", "right", "bottom")]
             self._place(self.sets[key], colour, area)
         for key, strips in self.sets.items():    # screens not chosen this time
             if key not in keys:
@@ -4262,7 +4276,7 @@ class ScreenGlow:
                      "left": QtCore.QRect(rx, ry, depth, rh),
                      "right": QtCore.QRect(rx + rw - depth, ry, depth, rh)}[SCREEN_GLOW_EDGES]
             one = strips[("top", "bottom", "left", "right").index(SCREEN_GLOW_EDGES)]
-            for strip in strips:
+            for strip in strips[:4]:
                 strip.alone = strip is one
                 strip.behind = strip is one and SCREEN_GLOW_EDGES == "bottom" and behind
                 if strip is not one:
@@ -4272,12 +4286,26 @@ class ScreenGlow:
             self._move(one, place)
             one.setWindowOpacity(self._shown(one) if self.showing else 0.0)
             one.show()
+            line = strips[4]                     # the fine line in front, with the tint
             if one.behind:
                 tuck_behind_taskbar(one)
+                # Behind the frosted taskbar the glow is a gentle tint; a fine
+                # line of light along the very bottom, in front and below the
+                # icons' marks (5 px), makes it clearly visible and lively.
+                line.alone, line.behind = True, False
+                line.span = (0.0, 1.0)
+                line.colour = QtGui.QColor(colour)
+                self._move(line, QtCore.QRect(rx, y + h - 5, rw, 5))
+                line.setWindowOpacity(self._shown(line) if self.showing else 0.0)
+                line.show()
+                line.update()
+            else:
+                line.hide()
             one.update()
             return
         d = max(12, int(SCREEN_GLOW_SIZE * 0.32))   # the full border: slim as well
-        for strip in strips:
+        strips[4].hide()                         # the taskbar's line: not for the border
+        for strip in strips[:4]:
             strip.alone = False
             strip.behind = False
             strip.setWindowOpacity(self.fade if self.showing else 0.0)
