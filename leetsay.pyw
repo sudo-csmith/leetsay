@@ -108,7 +108,7 @@ from ctypes import wintypes
 
 
 
-VERSION = "0.60.3"              # shown in Settings and About
+VERSION = "0.60.4"              # shown in Settings and About
 APP_TITLE = "leetsay"                # the name shown to the user (one place)
 _HERE = os.path.dirname(_SELF)        # the program's own folder
 
@@ -7084,7 +7084,7 @@ class SettingsWindow(QtWidgets.QDialog):
         check("Moving light on the outline", OUTLINE_LIGHT,
               option("OUTLINE_LIGHT", "outline_light", refresh=True, preview=True))
         heading("Tray icon")
-        check("Tray icon moves with your voice while dictating", TRAY_LIVE,
+        check("Tray icon updates with your dictation status", TRAY_LIVE,
               option("TRAY_LIVE", "tray_live"))
         end_tab()
 
