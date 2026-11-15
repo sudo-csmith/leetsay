@@ -22,7 +22,8 @@ problem publicly. There is no bug bounty.
 
 ## How leetsay is designed to protect you
 
-- **Offline by design.** While it runs, leetsay blocks its own network access.
+- **Network blocked by design.** While it runs, leetsay blocks its own network
+  access.
   The block is lifted only after you agree to a download, only towards
   `huggingface.co`, and is restored when the download is done. It is checked
   each time the program starts.

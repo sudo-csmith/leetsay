@@ -1,17 +1,33 @@
 <p align="center">
-  <img src="assets/banner.png" alt="leetsay: offline dictation for Windows. Hold a key, speak, and it types." width="100%">
+  <img src="assets/banner.png" alt="leetsay: dictation for Windows. Hold a key, speak, and it types." width="100%">
 </p>
 
-Free, offline dictation for Windows. Hold a hotkey, speak, let go: your words
-are typed into whatever program you are using.
+Free dictation for Windows. Hold a hotkey, speak, let go: your words are typed
+into whatever program you are using. (A Mac version is planned.)
 
-Your speech is turned into text on your own PC by NVIDIA's Parakeet speech
-model. leetsay is designed so that what you say stays on your PC and is not
-saved, and it has no accounts, statistics or tracking. See
-[PRIVACY.md](PRIVACY.md).
+leetsay has no accounts, statistics or tracking. See [How it works](#how-it-works)
+and [PRIVACY.md](PRIVACY.md).
 
 leetsay is free software, provided as is, without any warranty. Please read
 the [Disclaimer](#disclaimer) before using it.
+
+## How it works
+
+- **Your microphone** is used only while you hold the hotkey (in toggle mode:
+  between one press and the next).
+- **Your speech is turned into text on your own PC**, by a speech recognition
+  model (NVIDIA's Parakeet) that runs locally. Your audio is not sent to a
+  server for this, and it is not saved.
+- **The model is downloaded once**, about 660 MB from huggingface.co, after you
+  agree in a window that says "This application will go online". After that,
+  leetsay needs no internet connection to work.
+- **leetsay blocks its own network access while it runs.** It opens it only
+  for a download or update check you have just agreed to, only to
+  huggingface.co, and closes it again straight afterwards. It checks the block
+  every time it starts (see [Checking the network block](#checking-the-network-block)).
+- **This covers leetsay itself, not the programs you type into.** A chat, a web
+  page or an online document may send your text over the internet; leetsay
+  cannot see or control that. See the [Disclaimer](#disclaimer).
 
 ## What you need
 
@@ -87,7 +103,7 @@ Good to know:
 - To move your settings to another PC, use **Export settings** and **Import
   settings** on the Privacy tab.
 
-## Checking that it is offline
+## Checking the network block
 
 - In Settings, on the **Privacy** tab, the **Network** line says *blocked for
   this program (offline, checked at start)*.

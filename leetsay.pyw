@@ -72,7 +72,7 @@ from ctypes import wintypes
 
 
 
-VERSION = "0.58.1"              # shown in Settings and About
+VERSION = "0.58.2"              # shown in Settings and About
 APP_TITLE = "leetsay"                # the name shown to the user (one place)
 _HERE = os.path.dirname(_SELF)        # the program's own folder
 
@@ -7676,8 +7676,8 @@ def show_about(dictation):
     lines = [
         "%s %s" % (APP_TITLE, VERSION),
         "",
-        "Offline dictation. Speech is recognised on this PC by NVIDIA's",
-        "Parakeet model. Audio is never saved and never leaves this PC.",
+        "Dictation for Windows. Speech is recognised on this PC by NVIDIA's",
+        "Parakeet model; the audio is not saved or sent anywhere.",
         "",
         "Model:  %s%s" % (MODEL, quant),
         "Stored in:  %s" % (folder or "not downloaded yet"),
