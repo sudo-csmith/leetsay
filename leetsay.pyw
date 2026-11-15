@@ -8629,11 +8629,7 @@ class IntroWindow(QtWidgets.QDialog):
             swatch.clicked.connect(lambda _checked=False, v=value: self._colour(v))
             self.swatches.append((swatch, value))
             colours.append(swatch)
-        # Spread across the row (owner: lots of free space on the right).
-        spread = []
-        for i, swatch in enumerate(colours):
-            spread += ([None] if i else []) + [swatch]
-        line(look, field("Colour"), *spread)
+        line(look, field("Colour"), *(colours + [None]))
         # One choice here for the pop-up and Settings together (two rows of
         # the same Dark / Light looked like a mistake). Settings > Look keeps
         # them apart, with Custom, for anyone who wants to mix them.
@@ -8643,9 +8639,7 @@ class IntroWindow(QtWidgets.QDialog):
             button_.setMinimumWidth(68)
             button_.clicked.connect(lambda _checked=False, v=value: self._theme(v))
             self.menu_themes.append((button_, value))
-        for button_, _value in self.menu_themes:     # two equal halves of the row
-            button_.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
-        line(look, field("Theme"), *[b for b, _v in self.menu_themes])
+        line(look, field("Theme"), *([b for b, _v in self.menu_themes] + [None]))
         # How lively it looks: a tick box, not another pair of buttons (two
         # rows of the same buttons looked repetitive, owner).
         self.effects = QtWidgets.QCheckBox("Glow and moving light while you dictate")
