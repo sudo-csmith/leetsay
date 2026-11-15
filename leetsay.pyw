@@ -722,6 +722,8 @@ else:
     # Not chosen yet (a first start): follow Windows. Not saved, so it keeps
     # following Windows until a choice is made in the setup or in Settings.
     MENU_THEME = windows_app_mode()
+if not isinstance(_config.get("popup_bg"), str) and windows_app_mode() == "light":
+    POPUP_BG = "#F8F8FA"                 # the pop-up too (BACKGROUND_CHOICES' Light)
 for _name, _key in (("PASTE_HOTKEY", "paste_hotkey"), ("ACTION_HOTKEY", "action_hotkey")):
     if valid_hotkey(_config.get(_key), empty_ok=True) and _config[_key] != HOTKEY:
         globals()[_name] = _config[_key]
@@ -6786,6 +6788,8 @@ QCheckBox::indicator:hover { border-color: #8A8D98; }
 QCheckBox::indicator:checked { background: %(accent)s; border-color: %(accent)s; %(tick)s }
 QTabBar::tab:selected { color: #FFFFFF; border-bottom: 2px solid %(accent)s; }
 QProgressBar::chunk { background: %(accent)s; border-radius: 3px; }
+QPushButton#primary[hold="true"]:hover, QPushButton#primary[hold="true"]:pressed,
+QPushButton#primary[hold="true"]:focus { border-color: %(accent)s; }
 QSlider { min-height: 22px; }
 QSlider::groove:horizontal { height: 4px; background: #34363E; border-radius: 2px; }
 QSlider::sub-page:horizontal { height: 4px; background: %(accent)s; border-radius: 2px; }
@@ -8194,6 +8198,7 @@ class HoldButton(QtWidgets.QPushButton):
         self._timer.setInterval(self.FRAME_MS)
         self._timer.timeout.connect(self._tick)
         self.setObjectName("primary")
+        self.setProperty("hold", True)           # its own hover look (settings_style)
         # A fixed width, so the countdown text never makes the button resize.
         metrics = self.fontMetrics()
         widest = max(metrics.horizontalAdvance(text),
@@ -8596,19 +8601,16 @@ class IntroWindow(QtWidgets.QDialog):
             self.swatches.append((swatch, value))
             colours.append(swatch)
         line(look, field("Colour"), *(colours + [None]))
-        for name, value in BACKGROUND_CHOICES:
-            button_ = ChoiceButton(name)
-            button_.setMinimumWidth(68)
-            button_.clicked.connect(lambda _checked=False, v=value: self._theme(v))
-            self.themes.append((button_, value))
-        line(look, field("Pop-up"), *([b for b, _v in self.themes] + [None]))
+        # One choice here for the pop-up and Settings together (two rows of
+        # the same Dark / Light looked like a mistake). Settings > Look keeps
+        # them apart, with Custom, for anyone who wants to mix them.
         self.menu_themes = []
         for name, value in (("Dark", "dark"), ("Light", "light")):
             button_ = ChoiceButton(name)
             button_.setMinimumWidth(68)
-            button_.clicked.connect(lambda _checked=False, v=value: set_menu_theme(v))
+            button_.clicked.connect(lambda _checked=False, v=value: self._theme(v))
             self.menu_themes.append((button_, value))
-        line(look, field("Settings"), *([b for b, _v in self.menu_themes] + [None]))
+        line(look, field("Theme"), *([b for b, _v in self.menu_themes] + [None]))
         self.pill = QtWidgets.QCheckBox("Always show a small status pill on screen")
         self.pill.setChecked(bool(ALWAYS_SHOW))
         self.pill.toggled.connect(self._pill_toggled)
@@ -9100,8 +9102,11 @@ QPlainTextEdit { font-size: 13px; background: #17181C; color: #F0F0F4;
         self._redraw()
         self._live(index == self.look_page)      # the real glow, in the new colour
 
-    def _theme(self, value):
-        set_option("POPUP_BG", "popup_bg", value)
+    def _theme(self, key):
+        """Dark or light: the pop-up and Settings together."""
+        background = dict((name.lower(), value) for name, value in BACKGROUND_CHOICES)[key]
+        set_option("POPUP_BG", "popup_bg", background)
+        set_menu_theme(key)                      # restyles this window too
         self._paint_swatches()
         self._redraw()
 
