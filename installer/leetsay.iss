@@ -36,14 +36,8 @@ WizardStyle=modern
 AppMutex=dictate_py_single_instance
 CloseApplications=yes
 
-[Tasks]
-Name: "desktopicon"; Description: "Create a desktop shortcut"; Flags: unchecked
-Name: "startup"; Description: "Start {#AppName} when Windows starts"; Flags: unchecked
-
-[Registry]
-; Only when chosen above. (The app itself never adds itself to start-up; the
-; same switch is in its Settings.) Removed again by the uninstaller.
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "{#AppName}"; ValueData: """{app}\{#AppName}.exe"""; Tasks: startup; Flags: uninsdeletevalue
+; No choices here: "Start with Windows" is chosen in the app's introduction
+; (and in Settings). The uninstaller removes that entry again.
 
 [Files]
 Source: "..\dist\leetsay\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
@@ -52,7 +46,6 @@ Source: "..\PRIVACY.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppName}.exe"
-Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppName}.exe"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\{#AppName}.exe"; Description: "Start {#AppName} now"; Flags: nowait postinstall skipifsilent

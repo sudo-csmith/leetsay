@@ -47,8 +47,8 @@ the [Disclaimer](#disclaimer) before using it.
 1. Open the [Releases](https://github.com/sudo-csmith/leetsay/releases) page
    and download the newest `leetsay-setup-<version>.exe`.
 2. Run it. leetsay installs for your Windows user only, so no administrator
-   password is needed. You can choose a desktop shortcut and whether leetsay
-   starts with Windows.
+   password is needed. It adds leetsay to the Start menu; whether it starts
+   with Windows is chosen in its introduction (and can be changed in Settings).
 
 **"Windows protected your PC".** The installer is not signed with a paid
 code-signing certificate yet, so Windows SmartScreen may show this warning for

@@ -3969,12 +3969,21 @@ class Dictation(QtCore.QObject):
             self.overlay.show_message(pretty(HOTKEY) if SHOW_HOTKEY_HINT else "Ready",
                                       ms=1800, pulse=True)
         elif self.state == "loading":
-            self.overlay.show_message("Starting\u2026", ms=None)
+            # A download still going (or blocked) shows as such, never as a
+            # plain "Starting", which would look as if it were nearly ready.
+            words = self.download_words() if self.downloading else ""
+            self.overlay.show_message(words or "Starting\u2026", ms=None)
+            if self.downloading:
+                self.overlay.progress = self.overlay.progress or 0.0
 
     def maybe_show_tray_tip(self):
         """Once: point out where Settings live, by the clock (see TrayTip)."""
         if (_config.get("tray_tip_seen") or self.tray is None or self.intro_open
                 or getattr(self, "tray_tip", None) is not None):
+            return
+        if self.state != "idle":
+            # Not usable yet (still downloading or loading): the card waits, and
+            # comes once the model is ready (see on_model_ready).
             return
         self.tray_tip = TrayTip(self.tray, lambda: setattr(self, "tray_tip", None))
         self.tray_tip.show()
@@ -3993,6 +4002,8 @@ class Dictation(QtCore.QObject):
     def on_model_ready(self):
         was_waiting = self.overlay.isVisible()     # a "still loading" notice is up
         self.state = "idle"
+        if not self.intro_open:                    # now usable: where Settings live
+            QtCore.QTimer.singleShot(2500, self.maybe_show_tray_tip)
         if self.intro_open and not was_waiting:
             return                                 # the introduction says it is ready
         if self.overlay.mode == "welcome" and was_waiting:
@@ -6057,6 +6068,43 @@ class Sketch(QtWidgets.QWidget):
                    Qt.AlignLeft | Qt.AlignVCenter, "Right-click: Settings")
 
 
+class ChoiceButton(QtWidgets.QPushButton):
+    """A choice button (such as Dark / Light) drawn by hand, so its rounded
+    border is smooth: style-sheet borders are not anti-aliased and their
+    corners look jagged, most of all in the bright colour of a chosen one."""
+
+    def __init__(self, text, radius=6.0, height=28):
+        super().__init__(text)
+        self._chosen = False
+        self._radius = float(radius)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setAttribute(Qt.WA_Hover)
+        self.setFixedHeight(height)
+        self.setMinimumWidth(self.fontMetrics().horizontalAdvance(text) + 32)
+
+    def setChosen(self, chosen):
+        self._chosen = bool(chosen)
+        self.update()
+
+    def paintEvent(self, _event):
+        p = QtGui.QPainter(self)
+        p.setRenderHint(QtGui.QPainter.Antialiasing)
+        hover = self.underMouse()
+        fill = QtGui.QColor("#2D3037" if hover else "#24262C")
+        if self.isDown():
+            fill = QtGui.QColor("#1E2025")
+        edge = QtGui.QColor(ACCENT) if self._chosen else QtGui.QColor(
+            "#454852" if hover else "#34363E")
+        p.setPen(QtGui.QPen(edge, 1.0))
+        p.setBrush(fill)
+        p.drawRoundedRect(QtCore.QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5),
+                          self._radius, self._radius)
+        p.setPen(QtGui.QColor("#E6E7EC"))
+        p.setFont(self.font())
+        p.drawText(self.rect(), Qt.AlignCenter, self.text())
+        p.end()
+
+
 class HoldButton(QtWidgets.QPushButton):
     """A button that has to be held down for a few seconds: it fills up while
     held and counts down; letting go early drains it back and starts over.
@@ -6306,9 +6354,9 @@ QPushButton#chosen { border: 1px solid %(accent)s; }
     headline.setObjectName("headline")
     headline.setAlignment(Qt.AlignHCenter)       # under the centred picture
     layout.addWidget(headline)
-    body = QtWidgets.QLabel("First, make it yours. This is the small pop-up you will see "
-                            "while you dictate. Pick a colour and a look; you can change "
-                            "all of it later in Settings.")
+    body = QtWidgets.QLabel("First, make it yours. Above is the pop-up you will see at the "
+                            "bottom of your screen while you dictate. Pick a colour and a "
+                            "look; you can change all of it later in Settings.")
     body.setObjectName("body")
     body.setWordWrap(True)
     body.setAlignment(Qt.AlignHCenter)
@@ -6337,7 +6385,7 @@ QPushButton#chosen { border: 1px solid %(accent)s; }
                                                       3.0)))
             button.setIconSize(QtCore.QSize(24, 24))
         for button, value in themes:
-            button.setObjectName("chosen" if value.lower() == POPUP_BG.lower() else "")
+            button.setChosen(value.lower() == POPUP_BG.lower())
         restyle()
         box.setWindowIcon(app_icon())
         picture.update()
@@ -6360,7 +6408,8 @@ QPushButton#chosen { border: 1px solid %(accent)s; }
         swatches.append((button, value))
     line("Colour", [button for button, _value in swatches])
     for name, value in BACKGROUND_CHOICES:
-        button = QtWidgets.QPushButton(name)
+        button = ChoiceButton(name, radius=8.0, height=34)
+        button.setMinimumWidth(68)
         button.clicked.connect(lambda _checked=False, v=value: pick_theme(v))
         themes.append((button, value))
     line("Pop-up", [button for button, _value in themes])
@@ -6631,7 +6680,9 @@ class IntroWindow(QtWidgets.QDialog):
         fourth.addWidget(self.pill)
         fourth.addSpacing(6)                     # room between the two choices
         self.startup = QtWidgets.QCheckBox("Start with Windows")
-        self.startup.setChecked(starts_with_windows())
+        # Ticked for a new user: applied when the introduction is finished (a
+        # choice they can see and untick, never one made on its own).
+        self.startup.setChecked(starts_with_windows() or not _config.get("welcomed"))
         self.startup.toggled.connect(lambda on: set_startup(bool(on)))
         fourth.addWidget(self.startup)
         fourth.addSpacing(6)
@@ -6789,18 +6840,20 @@ QPlainTextEdit { font-size: 13px; }
         self._refresh_try()
         loading = self.dictation.state == "loading"
         progress = getattr(self.dictation, "download_words", lambda: "")()
+        # Two lines at most (a longer note is cut off in this box). The
+        # download card at the bottom of the screen has the details and help.
         if self.dictation.state == "nomodel":
-            self.status.setText("There is no speech model on this PC yet, so dictation "
-                                "is off. Put the files in place and start again, or "
-                                "download it from Settings, on the General tab.")
+            self.status.setText("No speech model yet, so dictation is off. It can be "
+                                "downloaded later from Settings, on the Model tab.")
+        elif loading and getattr(self.dictation, "download_blocked", False):
+            self.status.setText("The download seems blocked. Click the card at the "
+                                "bottom of the screen for help.")
         elif loading and getattr(self.dictation, "download_stuck", False):
-            self.status.setText("The download is not moving. A firewall, ad blocker or "
-                                "DNS filter may be blocking huggingface.co or addresses "
-                                "ending in hf.co. Allow them, or start again and choose "
-                                "Manual download.")
+            self.status.setText("The download is not moving. Click the card at the "
+                                "bottom of the screen for help.")
         elif loading and progress:
-            self.status.setText("%s. You can finish here; dictation works as soon as it "
-                                "is done." % progress)
+            self.status.setText("The speech model is downloading. You can finish here; "
+                                "dictation works once it is done.")
         else:
             self.status.setText("The speech model is still getting ready. You can finish "
                                 "here; dictation works as soon as it is."
@@ -6883,6 +6936,8 @@ QPlainTextEdit { font-size: 13px; }
             self.hear.stop()
             if not self.finished_up:
                 self.finished_up = True
+                if self.startup.isChecked() and not starts_with_windows():
+                    set_startup(True)            # the ticked choice, now finished
                 self.watch.stop()
                 self.dictation.cancel_capture()
                 self.dictation.on_intro_done()
@@ -7253,7 +7308,7 @@ class SettingsWindow(QtWidgets.QDialog):
         self.backgrounds = []
         background_row = [field("Background")]
         for label, value in BACKGROUND_CHOICES:
-            choice = QtWidgets.QPushButton(label)
+            choice = ChoiceButton(label)
             choice.clicked.connect(lambda _checked=False, v=value: self._background_chosen(v))
             self.backgrounds.append((choice, value))
             background_row.append(choice)
@@ -7702,8 +7757,7 @@ class SettingsWindow(QtWidgets.QDialog):
 
     def _paint_backgrounds(self):
         for button, value in self.backgrounds:
-            chosen = value.lower() == POPUP_BG.lower()
-            button.setStyleSheet("border: 1px solid %s;" % (ACCENT if chosen else "#34363E"))
+            button.setChosen(value.lower() == POPUP_BG.lower())
 
     def _background_chosen(self, colour):
         set_option("POPUP_BG", "popup_bg", colour)
@@ -8883,19 +8937,12 @@ def main():
         size = dict((entry[0], entry[3]) for entry in MODELS).get(MODEL, "several hundred MB")
         agreed = dialog(
             None, "%s: one-time download" % APP_TITLE, "This application will go online once",
-            "%(app)s turns your speech into text on this PC. To do that it needs a "
-            "speech model, %(model)s (%(size)s), which is not on this PC yet. With "
-            "it comes a small helper that splits long dictations at pauses "
-            "(Silero, about 2 MB).\n\n"
-            "If you continue, %(app)s connects to huggingface.co once to download "
-            "them. That is a third-party website that we do not run or control. "
-            "After that %(app)s works without an internet connection, and does not "
-            "connect again unless you agree to something that says it will.\n\n"
-            "The downloaded files are checked against their known fingerprints "
-            "before they are used, and again on this PC every time %(app)s starts, "
-            "so a changed or damaged file is caught.\n\n"
-            "Your voice is turned into text by the model on this PC. %(app)s does "
-            "not send your voice or your words anywhere."
+            "%(app)s turns your speech into text on this PC. It needs a speech "
+            "model, %(model)s, %(size)s, plus a small helper for long dictations "
+            "(about 2 MB). Neither is on this PC yet.\n\n"
+            "They are downloaded once from huggingface.co, a third-party website "
+            "that we do not run or control. After that, %(app)s works without an "
+            "internet connection."
             % dict(app=APP_TITLE, model=model_label(MODEL), size=size),
             accept="Download", reject="Quit", other="Manual download")
         if agreed == "other":
