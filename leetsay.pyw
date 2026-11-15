@@ -6830,7 +6830,7 @@ _is_hotkey = valid_hotkey                         # one rule everywhere (see the
 
 # key: check for its value. The ones in _PORTABLE_CAREFUL need a yes to turn on.
 # 1337 mode: a hidden look (click the title in About seven times). Green on
-# black, a typewriter font, "1337" on the pill. Looks only: the typed text is
+# black, a typewriter font, the logo on the pill. Looks only: the typed text is
 # never changed. Your own colours are kept: the mode only covers them while on.
 LEET_MODE = bool(_config.get("leet_mode") is True)
 _LEET_LOOK = {"ACCENT": "#39FF6A", "POPUP_BG": "#050A06", "GLOW_COLOUR": "",
