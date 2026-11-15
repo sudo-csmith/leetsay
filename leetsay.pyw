@@ -8640,19 +8640,14 @@ class IntroWindow(QtWidgets.QDialog):
             button_.clicked.connect(lambda _checked=False, v=value: self._theme(v))
             self.menu_themes.append((button_, value))
         line(look, field("Theme"), *([b for b, _v in self.menu_themes] + [None]))
-        # How lively it looks: the glow and moving light while you dictate.
-        self.effects = []
-        for name, value, tip in (("Full", "full", "Glow and a moving light while you dictate."),
-                                 ("Calm", "calm", "No moving effects. Lighter on older PCs.")):
-            button_ = ChoiceButton(name)
-            button_.setMinimumWidth(68)
-            button_.setToolTip(tip)
-            button_.clicked.connect(lambda _checked=False, v=value: self._effects_chosen(v))
-            self.effects.append((button_, value))
-        line(look, field("Effects"), *([b for b, _v in self.effects] + [None]))
-        lively = "full" if (SCREEN_GLOW or SCREEN_GLOW_FLOW) else "calm"
-        for button_, value in self.effects:
-            button_.setChosen(value == lively)
+        # How lively it looks: a tick box, not another pair of buttons (two
+        # rows of the same buttons looked repetitive, owner).
+        self.effects = QtWidgets.QCheckBox("Glow and moving light while you dictate")
+        self.effects.setChecked(bool(SCREEN_GLOW or SCREEN_GLOW_FLOW))
+        self.effects.setToolTip("Off: no moving effects; quieter, and lighter on older PCs.")
+        self.effects.toggled.connect(
+            lambda on: self._effects_chosen("full" if on else "calm"))
+        look.addWidget(self.effects)
         self.pill = QtWidgets.QCheckBox("Always show a small status pill on screen")
         self.pill.setChecked(bool(ALWAYS_SHOW))
         self.pill.toggled.connect(self._pill_toggled)
@@ -9101,8 +9096,6 @@ QPlainTextEdit { font-size: 13px; background: #17181C; color: #F0F0F4;
 
     def _effects_chosen(self, key):
         self._effects_style(key)
-        for button_, value in self.effects:
-            button_.setChosen(value == key)
         self._live(self.stack.currentIndex() == self.look_page)   # shown at once
 
     def _effects_style(self, key):
