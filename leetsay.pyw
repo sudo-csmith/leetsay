@@ -6728,7 +6728,38 @@ QSlider::handle:horizontal { width: 14px; height: 14px; margin: -5px 0;
     border-radius: 7px; background: #F2F2F5; }
 QSlider::handle:horizontal:disabled { background: #6B6D77; }
 QSlider::sub-page:horizontal:disabled { background: #454852; }
-""" % {"accent": ACCENT, "tick": ('image: url("%s");' % tick) if tick else ""}
+""" % {"accent": ACCENT, "tick": ('image: url("%s");' % tick) if tick else ""} + (
+        LEET_STYLE if LEET_MODE else "")
+
+
+# 1337 mode's Settings: green on black in a typewriter font (the red Quit button
+# stays red). Laid over the usual look, so everything else stays the same.
+LEET_STYLE = """
+QDialog, QWidget#tabpage { font-family: Consolas; }
+QDialog { background: #050A06; }
+QLabel, QCheckBox { color: #8CFFAE; font-family: Consolas; font-size: 12px; }
+QLabel#field { color: #3FBF6A; font-size: 11px; }
+QLabel#heading { color: #B6FFC9; }
+QLabel#info { color: #2F9E57; }
+QFrame#rule { background: #123A1E; }
+QComboBox, QPushButton { background: #0B160E; color: #8CFFAE; border-color: #1E5A30;
+    font-family: Consolas; font-size: 12px; }
+QPushButton:hover, QComboBox:hover { background: #102516; border-color: #2FB85C; }
+QPushButton:pressed { background: #071009; }
+QComboBox QAbstractItemView { background: #0B160E; color: #8CFFAE; border-color: #1E5A30;
+    selection-background-color: #174D27; }
+QCheckBox::indicator { border-color: #1E5A30; background: #071009; }
+QTabWidget::pane { border-color: #123A1E; background: #071009; }
+QTabBar::tab { color: #3FBF6A; font-family: Consolas; font-size: 12px; }
+QTabBar::tab:hover { color: #8CFFAE; }
+QTabBar::tab:selected { color: #B6FFC9; }
+QSlider::groove:horizontal, QSlider::add-page:horizontal { background: #123A1E; }
+QSlider::handle:horizontal { background: #8CFFAE; }
+QScrollBar::handle:vertical { background: #174D27; }
+QProgressBar { background: #0B160E; }
+QToolTip { background: #0B160E; color: #8CFFAE; border-color: #1E5A30; }
+QPushButton#danger { background: #B8352F; color: #FFFFFF; border-color: #C9443D; }
+"""
 
 
 SETTINGS_STYLE = """
@@ -10569,6 +10600,15 @@ def show_about(dictation):
         apply_leet(not LEET_MODE)
         save_setting("leet_mode", LEET_MODE)
         dictation.overlay.apply_size()
+        # The icon is drawn in the accent colour: green while the mode is on.
+        if dictation.tray is not None:
+            dictation.tray.setIcon(app_icon())
+        # The open Settings window takes the new look at once (other windows,
+        # with looks of their own, take it when they next open).
+        for widget in QtWidgets.QApplication.topLevelWidgets():
+            if type(widget).__name__ == "SettingsWindow":
+                widget.setStyleSheet(settings_style())
+            widget.setWindowIcon(app_icon())
         dictation.overlay.show_message("1337 mode on" if LEET_MODE else "1337 mode off",
                                        ms=2200, pulse=True)
     dialog(None, "About %s" % APP_TITLE, "%s %s" % (APP_TITLE, VERSION),
