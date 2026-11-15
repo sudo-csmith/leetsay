@@ -363,6 +363,16 @@ REMOVE_FILLERS = True                # leave out "um", "uh" and the like
 REPLACEMENTS = [["leet say", "leetsay"], ["leaked say", "leetsay"],
                 ["lit say", "leetsay"], ["leet-say", "leetsay"]]
 REPLACE_MAX, REPLACE_LEN = 50, 60            # at most 50 rules of 60 characters
+# Offered by "Add tech terms" in the Word replacements window (not on by
+# default: someone writing prose may want "gigabytes" spelled out). Only clear
+# cases: nothing that is also an ordinary word or name ("Jason" for JSON).
+TECH_TERMS = [["kilobytes", "KB"], ["kilobyte", "KB"], ["megabytes", "MB"],
+              ["megabyte", "MB"], ["gigabytes", "GB"], ["gigabyte", "GB"],
+              ["terabytes", "TB"], ["terabyte", "TB"], ["kilohertz", "kHz"],
+              ["megahertz", "MHz"], ["gigahertz", "GHz"],
+              ["java script", "JavaScript"], ["type script", "TypeScript"],
+              ["git hub", "GitHub"], ["c plus plus", "C++"], ["c sharp", "C#"],
+              ["node js", "Node.js"], ["vs code", "VS Code"]]
 TEXTBOX_ONLY = True                  # typing as you speak: only into a text box (asks
                                      # Windows what kind of control has the focus)
 AFTER_KEY = ""                       # key pressed for you once the text is in:
@@ -7437,6 +7447,32 @@ def replacements_window(parent):
         table.setItem(row_index, 1, QtWidgets.QTableWidgetItem(write))
     layout.addWidget(table)
     buttons = QtWidgets.QHBoxLayout()
+
+    def add_tech_terms():
+        """Fill in common tech terms (MB, GHz, JavaScript...) that aren't in
+        the list yet, in the first empty rows; remove any you don't want."""
+        have = {(" ".join((table.item(r, 0).text() if table.item(r, 0) else "").lower().split()))
+                for r in range(table.rowCount())}
+        missing = [pair for pair in TECH_TERMS if pair[0] not in have]
+        empty = [r for r in range(table.rowCount())
+                 if not (table.item(r, 0) and table.item(r, 0).text().strip())]
+        rows_now = sum(1 for r in range(table.rowCount())
+                       if table.item(r, 0) and table.item(r, 0).text().strip())
+        missing = missing[:max(0, REPLACE_MAX - rows_now)]
+        if len(empty) < len(missing):
+            table.setRowCount(table.rowCount() + len(missing) - len(empty))
+            empty = [r for r in range(table.rowCount())
+                     if not (table.item(r, 0) and table.item(r, 0).text().strip())]
+        for (heard, write), r in zip(missing, empty):
+            table.setItem(r, 0, QtWidgets.QTableWidgetItem(heard))
+            table.setItem(r, 1, QtWidgets.QTableWidgetItem(write))
+
+    tech = QtWidgets.QPushButton("Add tech terms")
+    tech.setToolTip("Adds common tech terms written the short way: megabytes as MB, "
+                    "gigahertz as GHz, java script as JavaScript and more. Remove any "
+                    "you don't want.")
+    tech.clicked.connect(lambda _checked=False: add_tech_terms())
+    buttons.addWidget(tech)
     buttons.addStretch(1)
     done = QtWidgets.QPushButton("Save")
     done.clicked.connect(lambda _checked=False: box.accept())
