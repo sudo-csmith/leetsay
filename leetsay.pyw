@@ -108,7 +108,7 @@ from ctypes import wintypes
 
 
 
-VERSION = "0.59.5"              # shown in Settings and About
+VERSION = "0.60.0"              # shown in Settings and About
 APP_TITLE = "leetsay"                # the name shown to the user (one place)
 _HERE = os.path.dirname(_SELF)        # the program's own folder
 
@@ -4486,7 +4486,7 @@ class Dictation(QtCore.QObject):
     def resize_popup(self):
         """From Settings: hold the pop-up on screen so its edges can be dragged."""
         if self.state in ("idle", "loading", "nomodel") and self.overlay.mode != "welcome":
-            self.overlay.preview(ms=12000, words="Drag my left or right edge")
+            self.overlay.preview(ms=12000, words="Drag either edge")
 
     def preview_popup(self):
         if self.state in ("idle", "loading", "nomodel") and self.overlay.mode != "welcome":
@@ -4931,6 +4931,7 @@ QComboBox, QPushButton { background: #24262C; color: #E6E7EC; font-size: 13px;
 QPushButton:hover, QComboBox:hover { background: #2D3037; border-color: #454852; }
 QPushButton:pressed { background: #1E2025; }
 QPushButton:disabled { color: #8E909A; }
+QComboBox:disabled { color: #6E707A; background: #1F2025; border-color: #2C2E35; }
 QPushButton#danger { background: #B8352F; color: #FFFFFF; border-color: #C9443D; }
 QPushButton#danger:hover { background: #CC423B; border-color: #E0574F; }
 QPushButton#danger:pressed { background: #9E2D28; }
@@ -6758,7 +6759,7 @@ class SettingsWindow(QtWidgets.QDialog):
                 label = QtWidgets.QLabel(hint)
                 label.setObjectName("info")
                 label.setWordWrap(True)
-                label.setContentsMargins(26, 0, 0, 2)
+                label.setContentsMargins(0, 0, 0, 2)
                 page["layout"].addWidget(label)
             return box
 
@@ -6811,16 +6812,22 @@ class SettingsWindow(QtWidgets.QDialog):
         self.after_delay.currentIndexChanged.connect(
             lambda index: set_option("AFTER_DELAY", "after_delay",
                                      int(self.after_delay.itemData(index))))
-        self.after.setMinimumWidth(170)
-        row(field("Afterwards"), self.after, None)
-        self.after_delay.setMinimumWidth(170)
-        row(field("When"), self.after_delay, None)
-        note("Press a key after the dictation ends. Enter sends a chat message. With a "
-             "wait, a notice counts it in, and clicking that notice cancels it.")
+        self.after.setMinimumWidth(120)
+        self.after_delay.setMinimumWidth(120)
+
+        def after_changed(_index=None):          # a wait only matters if a key is pressed
+            self.after_delay.setEnabled(bool(self.after.currentData()))
+
+        self.after.currentIndexChanged.connect(after_changed)
+        after_changed()
+        row(field("After dictating"), self.after, self.after_delay, None)
+        note("A key pressed for you once the text is typed: Enter sends a chat message, "
+             "Tab moves to the next box. With a wait, a notice counts it down; click "
+             "the notice to cancel.")
 
         # A second hotkey: dictate as usual, then press a key. For when you only
         # sometimes want that (say, to send a chat message straight away).
-        action_title = field("Action hotkey")
+        action_title = field("Second hotkey")
         self.action_label = QtWidgets.QLabel("")
         self.action_label.setObjectName("info")
         self.action_record = button(self.RECORD_LABEL, lambda: record_action(), width=84)
@@ -6876,91 +6883,13 @@ class SettingsWindow(QtWidgets.QDialog):
         heading("Startup")
         check("Start with Windows", starts_with_windows(), set_startup)
 
-        heading("Speech model")
-        self.model = QtWidgets.QComboBox()
-        for name, label, _quant, _size in MODELS:
-            self.model.addItem(label, name)
-        if self.model.findData(MODEL) < 0:
-            self.model.addItem(MODEL, MODEL)     # one set by hand in the file
-        self.model.setCurrentIndex(max(0, self.model.findData(MODEL)))
-        self.model.currentIndexChanged.connect(self._model_changed)
-        row(self.model, None)
-        note("Runs entirely on this PC. Choosing a model you haven't used before "
-             "restarts the application and downloads it straight away.")
-
-        def open_model_folder():
-            folder = model_location()[0]
-            if not folder:
-                dialog(self, "Speech model", "The model is not on this PC",
-                       "There is no model folder to open yet.")
-                return
-            try:
-                os.startfile(folder)
-            except Exception as exc:
-                print("Could not open the model's folder:", exc, file=sys.stderr)
-
-        def model_present():
-            return bool(model_files()) or bool(model_location()[0])
-
-        def show_model_button():
-            self.model_button.setText("Remove the model from this PC" if model_present()
-                                      else "Download the model")
-
-        def remove_or_download():
-            if not model_present():
-                # Starting afresh is how a download begins: the application asks
-                # first, exactly as it did the very first time.
-                if dialog(self, "Download the speech model?", "The application will restart",
-                          "It then asks before going online to download the model, as it "
-                          "did the first time.", accept="Restart", reject="Cancel"):
-                    restart_app()
-                return
-            folder, megabytes = model_location()
-            if dialog(self, "Remove the speech model?",
-                      "Delete the speech model from this PC",
-                      "This deletes the model's files%s. The application stays open so "
-                      "you can still change settings, but dictation will not work until "
-                      "the model is downloaded again.\n\nYour settings are kept.\n\n"
-                      "Folder:\n%s"
-                      % ((" (about %d MB)" % megabytes) if megabytes else "", folder),
-                      accept="Remove", reject="Cancel"):
-                if not dictation.unload_model():
-                    dialog(self, "Still loading", "The speech model is still loading",
-                           "Please wait until it has loaded, then try again.")
-                    return
-                report = forget_model() or {}
-                show_model_button()
-                lines = ["Deleted from this PC: about %d MB." % report.get("freed", 0)]
-                if report.get("cache_freed"):
-                    lines.append("Also cleared the download library's own cache, which "
-                                 "held a second copy: about %d MB." % report["cache_freed"])
-                if report.get("left"):
-                    lines.append("Windows is still holding some of the files open. They "
-                                 "will be deleted the next time the application starts:"
-                                 "\n%s" % "\n".join(report["left"]))
-                elif not report.get("removed"):
-                    lines.append("No model folder was found.")
-                lines.append("Dictation is off until the model is downloaded again. To do "
-                             "that, click \"Download the model\" here, or just start the "
-                             "application again later: it asks before downloading.")
-                dialog(self, "Speech model removed", "The speech model has been removed",
-                       "\n\n".join(lines))
-
-        row(button("Check the model's files", lambda: model_check_window(self)),
-            button("Open its folder", open_model_folder), None)
-        self.model_button = button("Remove the model from this PC", remove_or_download)
-        row(self.model_button, None)
-        show_model_button()
-        note("To remove it by hand instead, quit the application and delete that "
-             "folder. Nothing else on this PC depends on it.")
         end_tab()
 
         # ================= Pop-up =================
         tab("Pop-up")
         def screen_glow_changed(on):
             set_option("SCREEN_GLOW", "screen_glow", bool(on))
-            if on:
-                dictation.demo_screen_glow()     # show what it looks like
+            self._flash_glow()                   # show what it looks like (or that it is off)
 
         def popup_changed(on):
             set_option("SHOW_POPUP", "show_popup", bool(on))
@@ -7014,6 +6943,7 @@ class SettingsWindow(QtWidgets.QDialog):
             dictation.overlay.reset_position()
             set_option("CARD_WIDTH", "card_width", 0)    # and its usual width
             dictation.refresh_popup()
+            dictation.preview_popup()            # show where and how big it is now
 
         row(field("Pop-up"), button("Move", dictation.move_popup),
             button("Resize", dictation.resize_popup), button("Reset", reset_popup), None)
@@ -7087,7 +7017,7 @@ class SettingsWindow(QtWidgets.QDialog):
             set_option("GLOW_FROM_APP", "glow_from_app", choice == "app")
             if choice == "accent":
                 set_option("GLOW_COLOUR", "glow_colour", "")
-            dictation.preview_popup()
+            self._flash_glow()
 
         show_glow_source()
         self.glow_colour.currentIndexChanged.connect(glow_colour_changed)
@@ -7109,8 +7039,7 @@ class SettingsWindow(QtWidgets.QDialog):
                 globals()[name] = int(slider.value())
                 if not slider.isSliderDown():    # arrow keys, a click on the track
                     save_setting(key, int(slider.value()))
-                if SCREEN_GLOW:
-                    dictation.demo_screen_glow()
+                self._flash_glow()
 
             slider.valueChanged.connect(moved)
             slider.sliderReleased.connect(
@@ -7129,10 +7058,8 @@ class SettingsWindow(QtWidgets.QDialog):
         check("Moving light on the outline", OUTLINE_LIGHT,
               option("OUTLINE_LIGHT", "outline_light", refresh=True, preview=True))
         heading("Tray icon")
-        check("Tray icon interacts with your dictation", TRAY_LIVE,
-              option("TRAY_LIVE", "tray_live"),
-              hint="To keep the icon always visible, drag it out of the hidden "
-                   "icons onto the taskbar.")
+        check("Tray icon moves with your voice while dictating", TRAY_LIVE,
+              option("TRAY_LIVE", "tray_live"))
         end_tab()
 
         # ================= Audio =================
@@ -7203,7 +7130,7 @@ class SettingsWindow(QtWidgets.QDialog):
              "stop automatically after this time.")
 
         heading("Sounds")
-        check("Play a sound on start and finish", SOUNDS, set_sounds)
+        check("Play a sound when dictation starts and finishes", SOUNDS, set_sounds)
         self.speaker = QtWidgets.QComboBox()
         self.speaker.setFixedWidth(250)
         self.speaker.addItem("Windows default", "")
@@ -7228,7 +7155,7 @@ class SettingsWindow(QtWidgets.QDialog):
         row(field("Sound set"), self.sound_set, button("Play", self._play_both), None)
 
         self.own_rows = []
-        for which, label in (("start", "Start file"), ("finish", "Finish file")):
+        for which, label in (("start", "Start sound"), ("finish", "Finish sound")):
             name = QtWidgets.QLabel("")
             name.setObjectName("info")
             browse = QtWidgets.QPushButton("Browse")
@@ -7249,6 +7176,113 @@ class SettingsWindow(QtWidgets.QDialog):
         self.volume_label = field("Volume")
         row(self.volume_label, self.volume, None)
         self._refresh_own_rows()
+        end_tab()
+
+        # ================= Model =================
+        tab("Model")
+        heading("Speech model", first=True)
+        self.model = QtWidgets.QComboBox()
+        for name, label, _quant, _size in MODELS:
+            self.model.addItem(label, name)
+        if self.model.findData(MODEL) < 0:
+            self.model.addItem(MODEL, MODEL)     # one set by hand in the file
+        self.model.setCurrentIndex(max(0, self.model.findData(MODEL)))
+        self.model.currentIndexChanged.connect(self._model_changed)
+        row(field("Model"), self.model, None)
+        note("Runs on this PC. Choosing a model that is not on this PC yet asks first, "
+             "then restarts the application to download it.")
+
+        def open_model_folder():
+            folder = model_location()[0]
+            if not folder:
+                dialog(self, "Speech model", "The model is not on this PC",
+                       "There is no model folder to open yet.")
+                return
+            try:
+                os.startfile(folder)
+            except Exception as exc:
+                print("Could not open the model's folder:", exc, file=sys.stderr)
+
+        def model_present():
+            return bool(model_files()) or bool(model_location()[0])
+
+        def show_model_button():
+            self.model_button.setText("Remove model" if model_present()
+                                      else "Download model")
+
+        def remove_or_download():
+            if not model_present():
+                # Starting afresh is how a download begins: the application asks
+                # first, exactly as it did the very first time.
+                if dialog(self, "Download the speech model?", "The application will restart",
+                          "It then asks before going online to download the model, as it "
+                          "did the first time.", accept="Restart", reject="Cancel"):
+                    restart_app()
+                return
+            folder, megabytes = model_location()
+            if dialog(self, "Remove the speech model?",
+                      "Delete the speech model from this PC",
+                      "This deletes the model's files%s. The application stays open so "
+                      "you can still change settings, but dictation will not work until "
+                      "the model is downloaded again.\n\nYour settings are kept.\n\n"
+                      "Folder:\n%s"
+                      % ((" (about %d MB)" % megabytes) if megabytes else "", folder),
+                      accept="Remove", reject="Cancel"):
+                if not dictation.unload_model():
+                    dialog(self, "Still loading", "The speech model is still loading",
+                           "Please wait until it has loaded, then try again.")
+                    return
+                report = forget_model() or {}
+                show_model_button()
+                lines = ["Deleted from this PC: about %d MB." % report.get("freed", 0)]
+                if report.get("cache_freed"):
+                    lines.append("Also cleared the download library's own cache, which "
+                                 "held a second copy: about %d MB." % report["cache_freed"])
+                if report.get("left"):
+                    lines.append("Windows is still holding some of the files open. They "
+                                 "will be deleted the next time the application starts:"
+                                 "\n%s" % "\n".join(report["left"]))
+                elif not report.get("removed"):
+                    lines.append("No model folder was found.")
+                lines.append("Dictation is off until the model is downloaded again. To do "
+                             "that, click \"Download model\" here, or just start the "
+                             "application again later: it asks before downloading.")
+                dialog(self, "Speech model removed", "The speech model has been removed",
+                       "\n\n".join(lines))
+
+        heading("Files")
+        self.model_button = button("Remove model", remove_or_download)
+        row(button("Check files", lambda: model_check_window(self)),
+            button("Open folder", open_model_folder), self.model_button, None)
+        show_model_button()
+        note("Check files compares the model's files with their known fingerprints. "
+             "Removing frees about 630 MB; it can be downloaded again later.")
+
+        heading("Updates")
+        self.updates = check("Check for model updates at startup",
+                             CHECK_UPDATES, self._updates_changed,
+                             tip="Off by default. With this ticked, the application goes "
+                                 "online each time it starts and checks whether a newer "
+                                 "version of the speech model is available. A newer "
+                                 "version is downloaded automatically.\n\nLeft "
+                                 "unticked, the application does not go online for "
+                                 "updates and keeps using the model already on this PC.")
+        # Each "Check now" sits on the same line as its option, on the right.
+        self.update_button = button("Check now", self._check_update_now, width=96)
+        self.update_button.setToolTip("Checks once, now, for a newer speech model "
+                                      "(goes online after asking).")
+        page["layout"].removeWidget(self.updates)
+        row(self.updates, None, self.update_button)
+        self.update_note = QtWidgets.QLabel("")
+        self.update_note.setObjectName("info")
+        self.update_note.setWordWrap(True)
+        self.update_note.setVisible(False)       # shown only when it has something to say
+        page["layout"].addWidget(self.update_note)
+        self._update_work = {"result": None}
+        self._update_poll = QtCore.QTimer(self)
+        self._update_poll.setInterval(200)
+        self._update_poll.timeout.connect(self._update_checked)
+
         end_tab()
 
         # ================= Privacy =================
@@ -7285,42 +7319,19 @@ class SettingsWindow(QtWidgets.QDialog):
         self.paste_clear = button("Clear", self._clear_paste_hotkey, width=84)
         row(field(""), self.paste_record, self.paste_clear, None)
         self._refresh_paste_row()
-        heading("Updates")
-        self.updates = check("Check for model updates at startup",
-                             CHECK_UPDATES, self._updates_changed,
-                             tip="Off by default. With this ticked, the application goes "
-                                 "online each time it starts and checks whether a newer "
-                                 "version of the speech model is available. A newer "
-                                 "version is downloaded automatically.\n\nLeft "
-                                 "unticked, the application does not go online for "
-                                 "updates and keeps using the model already on this PC.")
+        heading("App updates")
         self.app_updates = check(
             "Check for app updates at startup", CHECK_APP_UPDATES,
             self._app_updates_changed,
             tip="Off by default. With this ticked, every start asks github.com "
                 "whether a newer version of the application has been published, and "
                 "tells you once if there is. Nothing is downloaded or installed.")
-        # Each "Check now" sits on the same line as its option, on the right.
-        self.update_button = button("Check now", self._check_update_now, width=96)
-        self.update_button.setToolTip("Checks once, now, for a newer speech model "
-                                      "(goes online after asking).")
         self.app_update_button = button("Check now", self._check_app_now, width=96)
         self.app_update_button.setToolTip("Checks once, now, for a newer version of the "
                                           "application (goes online after asking; only "
                                           "reads the latest version number).")
-        for box, check_now in ((self.updates, self.update_button),
-                               (self.app_updates, self.app_update_button)):
-            page["layout"].removeWidget(box)
-            row(box, None, check_now)
-        self.update_note = QtWidgets.QLabel("")
-        self.update_note.setObjectName("info")
-        self.update_note.setWordWrap(True)
-        self.update_note.setVisible(False)       # shown only when it has something to say
-        page["layout"].addWidget(self.update_note)
-        self._update_work = {"result": None}
-        self._update_poll = QtCore.QTimer(self)
-        self._update_poll.setInterval(200)
-        self._update_poll.timeout.connect(self._update_checked)
+        page["layout"].removeWidget(self.app_updates)
+        row(self.app_updates, None, self.app_update_button)
 
         heading("Move settings to another PC")
         note("Your choices as one line of text, to copy and paste on another PC. "
@@ -7560,7 +7571,13 @@ class SettingsWindow(QtWidgets.QDialog):
     def _glow_changed(self, index):
         set_option("GLOW", "glow", self.glow.itemData(index))
         self.dictation.refresh_popup()
+        self._flash_glow()
+
+    def _flash_glow(self):
+        """Show a glow change for a moment: the pop-up, and the screen glow too."""
         self.dictation.preview_popup()
+        if SCREEN_GLOW:
+            self.dictation.demo_screen_glow()
 
     def _text_size_changed(self, index):
         set_option("TEXT_SIZE", "text_size", int(self.text_size.itemData(index)))
@@ -7892,6 +7909,18 @@ class SettingsWindow(QtWidgets.QDialog):
                 self._fit_height()
         except RuntimeError:
             pass                                 # the window is already gone
+        ticket = self._test_ticket
+
+        def clear_words():                       # 5 s later, unless a new test began
+            try:
+                if ticket == self._test_ticket and self._test_stream is None:
+                    self.mic_heard.setText("")
+                    self.mic_heard.setVisible(False)
+                    self._fit_height()
+            except RuntimeError:
+                pass                             # the window was closed meanwhile
+
+        QtCore.QTimer.singleShot(5000, clear_words)
 
     def _sound_set_changed(self, index):
         set_option("SOUND_SET", "sound_set", self.sound_set.itemData(index))
