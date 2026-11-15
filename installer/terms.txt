@@ -6,6 +6,10 @@ leetsay is free software, provided "as is", without warranty of any kind.
   active. It does not check which program, chat, form or document that is, or
   what that program does with the text. Check where your cursor is before you
   speak.
+- The text comes from a speech recognition model made by others. It can
+  mishear, leave out or add words, including words that were never said. The
+  author of leetsay does not control, and is not responsible for, the text the
+  model produces.
 - Speech recognition makes mistakes. Read the text before you send or submit
   it. Do not rely on leetsay where a wrong, missing or misplaced word could
   cause harm or loss, such as medical, legal, financial, safety or emergency

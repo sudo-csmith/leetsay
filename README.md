@@ -151,6 +151,10 @@ The Python packages can be removed with
   author be liable for any claim, damages or other liability arising from it
   or its use. The full terms are in the [LICENSE](LICENSE). You use leetsay
   entirely at your own risk.
+- **The text comes from a speech model made by others.** It can mishear,
+  leave out or add words, including words that were never said. The author of
+  leetsay does not control, and is not responsible for, the text the model
+  produces. Check it before you use it.
 - **Speech recognition makes mistakes.** Always check text before you send or
   submit it, especially if you set leetsay to press Enter after a dictation.
   Do not rely on leetsay where a wrong, missing or misplaced word could cause

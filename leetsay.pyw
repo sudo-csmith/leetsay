@@ -2420,8 +2420,7 @@ class Overlay(QtWidgets.QWidget):
             if any(screen.availableGeometry().contains(card)
                    for screen in QtGui.QGuiApplication.screens()):
                 return self._pos
-        screen = QtGui.QGuiApplication.screenAt(QtGui.QCursor.pos()) \
-            or QtGui.QGuiApplication.primaryScreen()
+        screen = QtGui.QGuiApplication.primaryScreen()    # the main monitor
         area = screen.availableGeometry()     # excludes the taskbar
         return QtCore.QPoint(area.x() + area.width() // 2,
                              area.y() + area.height() - BOTTOM_MARGIN)
@@ -3753,7 +3752,10 @@ class Dictation(QtCore.QObject):
             if not self.intro_open:
                 self.overlay.show_message(self.NO_MODEL, ms=4000)
             return
-        if not self.intro_open and (STARTUP_FLASH or STARTUP_MESSAGE):
+        needs_download = not (_setup_done() or local_model_dir())
+        # The download card shows even while the introduction is open: the
+        # progress is something to see while reading it.
+        if (not self.intro_open or needs_download) and (STARTUP_FLASH or STARTUP_MESSAGE):
             # Up straight away while the model loads behind it: just a small
             # pill with a word on it. No waveform, no timer, nothing recorded.
             self.overlay.show_message(
@@ -4052,8 +4054,7 @@ class Dictation(QtCore.QObject):
         total = model_total_bytes()
         ours = (self.overlay.message.startswith(self.DOWNLOADING)
                 or self.overlay.message in (self.STUCK, self.BLOCKED))
-        if (self.overlay.mode == "idle" or not self.overlay.isVisible()) \
-                and not self.intro_open:
+        if self.overlay.mode == "idle" or not self.overlay.isVisible():
             # The notice went away while the download is still going (it must
             # never look as if the app were ready): put it back.
             self.overlay.show_message(self.download_words(), ms=None)
@@ -5263,6 +5264,22 @@ def restart_app():
     _config_frozen[0] = True
 
 
+def on_main_screen(window):
+    """Open a window centred on the main monitor (not on whichever monitor the
+    mouse happens to be on). Placed before it shows: moving it afterwards
+    between monitors with different scaling makes it change size."""
+    try:
+        screen = QtGui.QGuiApplication.primaryScreen()
+        window.setScreen(screen)
+        window.adjustSize()
+        area = screen.availableGeometry()
+        size = window.sizeHint().expandedTo(window.size())
+        window.move(area.x() + (area.width() - size.width()) // 2,
+                    area.y() + (area.height() - size.height()) // 2)
+    except Exception as exc:
+        print("Could not place a window:", exc, file=sys.stderr)
+
+
 def dialog(parent, title, headline, body, accept=None, reject="Close", other=None):
     """The app's own dialog: a headline, a paragraph at a comfortable width, and
     buttons on the right. Returns True if the accept button was chosen. With
@@ -5318,6 +5335,8 @@ QPushButton#primary:hover { background: %(accent)s; border-color: #FFFFFF; }
         buttons.addWidget(yes)
         no.setDefault(True)                      # Enter picks the safe choice
     layout.addLayout(buttons)
+    if parent is None:
+        on_main_screen(box)
     accepted = box.exec() == QtWidgets.QDialog.Accepted
     return "other" if picked["other"] else accepted
 
@@ -6211,6 +6230,8 @@ QPushButton#primary:hover { background: %(accent)s; border-color: #FFFFFF; }
     hint.setAlignment(Qt.AlignRight)
     layout.addWidget(hint)
     hold.setFocus()
+    if parent is None:
+        on_main_screen(box)
     return box.exec() == QtWidgets.QDialog.Accepted
 
 
@@ -6411,6 +6432,7 @@ QPushButton#chosen { border: 1px solid %(accent)s; }
     go.clicked.connect(lambda _checked=False: box.accept())
     buttons.addWidget(go)
     layout.addLayout(buttons)
+    on_main_screen(box)                          # the main monitor, not the mouse's
     repaint()
     show_live()
     box.exec()                                   # closing it also carries on
@@ -8925,6 +8947,7 @@ def main():
     intro = None
     if dictation.intro_open:                           # first launch (or a replay of it)
         intro = IntroWindow(dictation, look_chosen=look_chosen)   # noqa: F841 (kept alive)
+        on_main_screen(intro)
         intro.show()
     code = app.exec()                                  # runs until Quit
     leave_now(app, code)                               # and then really ends
