@@ -7929,7 +7929,8 @@ class Sketch(QtWidgets.QWidget):
     def __init__(self, kind):
         super().__init__()
         self.kind = kind
-        self.setFixedHeight(116 if kind == "look" else 96)   # the little screen needs room
+        # The little screen needs room; the keys need less (owner: wasted space).
+        self.setFixedHeight({"look": 116, "hotkey": 60}.get(kind, 96))
 
     def paintEvent(self, _event):
         p = QtGui.QPainter(self)
@@ -7998,8 +7999,12 @@ class Sketch(QtWidgets.QWidget):
         p.setBrush(QtGui.QColor(POPUP_BG))
         p.drawRoundedRect(QtCore.QRectF(x, y, w, 58), 14, 14)
         p.setPen(Qt.NoPen)
-        p.setBrush(QtGui.QColor("#5B8DEF"))
-        p.drawRoundedRect(QtCore.QRectF(x + 12, y + 10, 16, 16), 4, 4)
+        p.setBrush(QtGui.QColor(ACCENT))         # the app's own mark: bars 1, 3, 3, 7
+        bar, gap = 2.6, 1.6
+        for i, units in enumerate(ICON_BARS):
+            tall = max(2.6, 2.0 * units)
+            p.drawRoundedRect(QtCore.QRectF(x + 13 + i * (bar + gap), y + 18 - tall / 2.0,
+                                            bar, tall), bar / 2.0, bar / 2.0)
         self._wave(p, x + 38, x + w - 44, y + 18, 6.0, ACCENT, 1.8)
         light = is_light(POPUP_BG)
         p.setFont(self._font(11))
@@ -8007,7 +8012,7 @@ class Sketch(QtWidgets.QWidget):
         p.drawText(QtCore.QRectF(x + w - 42, y + 8, 30, 20), Qt.AlignRight | Qt.AlignVCenter,
                    "0:03")
         p.setPen(QtGui.QColor("#3C3C43" if light else "#D6D8E0"))
-        p.drawText(QtCore.QRectF(x + 12, y + 32, w - 24, 18), Qt.AlignLeft | Qt.AlignVCenter,
+        p.drawText(QtCore.QRectF(x + 12, y + 32, w - 24, 18), Qt.AlignHCenter | Qt.AlignVCenter,
                    "Your words appear here")
 
     def _welcome(self, p, w, h):
@@ -8759,18 +8764,6 @@ class IntroWindow(QtWidgets.QDialog):
                 "live" if LIVE_TYPE else "once", self._words_style,
                 {"once": "Most accurate. Recommended.",
                  "live": "Words appear as you speak. Less accurate."})
-        # Live typing's note by the mouse pointer: easy to switch off here.
-        self.pointer_box = QtWidgets.QCheckBox("Show \"No text box\" by the mouse pointer")
-        self.pointer_box.setChecked(bool(POINTER_HINT))
-        # Only shown with "As I speak" (it means nothing otherwise); hidden,
-        # it takes no room (a kept gap looked like wasted space, owner).
-        self.pointer_box.setVisible(bool(LIVE_TYPE))
-        self.pointer_box.setToolTip("While typing as you speak waits for a text box, a "
-                                    "small note follows the mouse pointer. Off: only the "
-                                    "pop-up says so.")
-        self.pointer_box.toggled.connect(
-            lambda on: set_option("POINTER_HINT", "pointer_hint", bool(on)))
-        how.addWidget(self.pointer_box)
         how.addSpacing(8)
         lively = SCREEN_GLOW or SCREEN_GLOW_FLOW
         choices("How lively should it look?",
@@ -9164,9 +9157,6 @@ QPlainTextEdit { font-size: 13px; background: #17181C; color: #F0F0F4;
         set_option("LIVE_TYPE", "live_type", key == "live")
         if key == "live":
             set_option("TEXTBOX_ONLY", "textbox_only", True)
-        if getattr(self, "pointer_box", None) is not None:   # only means something live
-            self.pointer_box.setVisible(key == "live")
-            QtCore.QTimer.singleShot(0, self._fit_page)   # the window follows
 
     def _effects_style(self, key):
         """How lively it should look. Full: glow round the pop-up, the screen
