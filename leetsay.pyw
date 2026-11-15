@@ -318,7 +318,8 @@ SCREEN_GLOW = True                   # also glow round the edge of the whole scr
 SCREEN_GLOW_STRENGTH = 60            # how bright that glow is, 5-100
 SCREEN_GLOW_SIZE = 56                # how far it reaches in from the edge, 20-200 pixels
 SCREEN_GLOW_FLOW = True              # a light moves along it, and it ripples with your voice
-SCREEN_GLOW_EDGES = "bottom"         # where: "bottom" (along the bottom edge) or "all"
+SCREEN_GLOW_EDGES = "bottom"         # where: one side ("bottom", "top", "left", "right")
+                                     # or "all" (a border round the whole screen)
 SCREEN_GLOW_SCREENS = "popup"        # on which screens: "popup" (the pop-up's), "all", "main"
 TRAY_LIVE = False                    # the tray icon's bars move with your voice
 SHOW_HOTKEY_HINT = True              # show the hotkey on that pill and at startup
@@ -653,7 +654,7 @@ elif isinstance(_config.get("pill_logo"), bool):   # saved by an earlier 0.2.0 b
     PILL_MARK = "logo" if _config["pill_logo"] else "dot"
 if _config.get("screen_glow_screens") in ("popup", "all", "main"):
     SCREEN_GLOW_SCREENS = _config["screen_glow_screens"]
-if _config.get("screen_glow_edges") in ("bottom", "all"):
+if _config.get("screen_glow_edges") in ("bottom", "top", "left", "right", "all"):
     SCREEN_GLOW_EDGES = _config["screen_glow_edges"]
 if _config.get("card_style") in [key for key, _label in CARD_STYLES]:
     CARD_STYLE = _config["card_style"]
@@ -4002,8 +4003,8 @@ class EdgeStrip(QtWidgets.QWidget):
         hot core, a tight glow and a wide haze, each fading smoothly."""
         x = np.maximum(distance, 0.0)
         core = np.exp(-x / 1.6)
-        glow = 0.55 * np.exp(-(x / max(2.0, 0.14 * depth)) ** 2)
-        haze = 0.34 * np.exp(-(x / max(4.0, 0.42 * depth)) ** 1.6)
+        glow = 0.55 * np.exp(-(x / np.maximum(2.0, 0.14 * depth)) ** 2)
+        haze = 0.34 * np.exp(-(x / np.maximum(4.0, 0.42 * depth)) ** 1.6)
         fade = np.clip(1.0 - x / depth, 0.0, 1.0) ** 0.6     # gone by the far side
         return np.minimum(1.0, (core + glow + haze) * fade)
 
@@ -4019,10 +4020,13 @@ class EdgeStrip(QtWidgets.QWidget):
         xs = np.arange(pw, dtype=np.float32) + 0.5
         ys = np.arange(ph, dtype=np.float32) + 0.5
         gx, gy = np.meshgrid(xs, ys)
-        if self.side in ("left", "right"):
+        if self.alone:
+            # One side on its own (no corners to share): distance from its edge,
+            # and how far along it a point is (0 at one end, 1 at the other).
+            dist = {"left": gx, "right": pw - gx, "top": gy, "bottom": ph - gy}[self.side]
+            along = gy / ph if self.side in ("left", "right") else gx / pw
+        elif self.side in ("left", "right"):
             dist = gx if self.side == "left" else pw - gx
-        elif self.alone:
-            dist = ph - gy                       # the bottom edge on its own, no corners
         else:
             dist = gy if self.side == "top" else ph - gy
             # The corners (the top and bottom strips own them): the distance
@@ -4033,14 +4037,17 @@ class EdgeStrip(QtWidgets.QWidget):
             dist = -soft * np.log(np.exp(-dist / soft) + np.exp(-gx / soft)
                                   + np.exp(-(pw - gx) / soft))
             dist = np.maximum(dist, 0.0)
-        alpha = self.light(dist, depth)
         if self.alone:
-            # On its own along the bottom it carries more light: a fuller haze
-            # rising from the edge. Strongest in the two bottom corners and
-            # quiet in the middle, where people read (and the pop-up sits).
-            rise = 0.85 * np.exp(-(np.maximum(dist, 0.0) / (0.45 * depth)) ** 1.3)
-            side = np.abs(2.0 * gx / pw - 1.0)           # 0 in the middle, 1 at the ends
-            alpha = np.minimum(1.0, alpha * 2.0 + rise) * (0.12 + 0.88 * side ** 1.6)
+            # On its own it carries more light, gathered in its two corners:
+            # there it reaches the full depth, in the middle (where people
+            # read, and the pop-up sits) only a slim band, faint.
+            side = np.abs(2.0 * along - 1.0)             # 0 in the middle, 1 at the ends
+            reach = depth * (0.38 + 0.62 * side ** 1.4)
+            rise = 0.85 * np.exp(-(np.maximum(dist, 0.0) / (0.45 * reach)) ** 1.3)
+            alpha = np.minimum(1.0, self.light(dist, reach) * 2.0 + rise)
+            alpha = alpha * (0.15 + 0.85 * side ** 1.3)
+        else:
+            alpha = self.light(dist, depth)
         alpha = alpha + (np.random.default_rng(7).random(alpha.shape, dtype=np.float32)
                          - 0.5) / 255.0
         a = np.clip(alpha * 255.0, 0, 255).astype(np.uint8)
@@ -4073,7 +4080,7 @@ class EdgeStrip(QtWidgets.QWidget):
                               int(base.green() + (shifted.green() - base.green()) * light),
                               int(base.blue() + (shifted.blue() - base.blue()) * light))
         strength = (0.8 + 0.2 * light) if self.alone else (0.55 + 0.45 * light)
-        if self.side == "bottom" and self.voice:
+        if self.alone and self.voice:
             # Your voice, rippling in from both corners: the newest sound at
             # the ends, older sounds further in.
             spot = min(len(self.voice) - 1,
@@ -4184,31 +4191,32 @@ class ScreenGlow:
         """Put one screen's four strips in place for the chosen style."""
         x, y, w, h = area.x(), area.y(), area.width(), area.height()
         d = int(SCREEN_GLOW_SIZE)
-        if SCREEN_GLOW_EDGES == "bottom":
-            # Just along the bottom: a little deeper, rising from the bottom
-            # of the screen, strongest in the middle.
-            # Kept low (a reply or the last lines of code often sit right
-            # above the taskbar); "Edge size" in Settings makes it taller.
-            depth = int(SCREEN_GLOW_SIZE * 1.3)
-            # It rises from the top of the taskbar (where the pop-up sits),
-            # not from under it, where most of it would be hidden.
-            floor = y + h
+        if SCREEN_GLOW_EDGES in ("bottom", "top", "left", "right"):
+            # One side on its own, fullest in its two corners (it reaches
+            # about 1.8 x the edge size there, a slim band in the middle);
+            # "Edge size" in Settings makes it bigger. It starts from the edge
+            # of the usable screen, so a taskbar on that side doesn't hide it.
+            depth = int(SCREEN_GLOW_SIZE * 1.8)
+            room = QtCore.QRect(area)
             screen = QtGui.QGuiApplication.screenAt(area.center())
-            if screen is not None:
+            if screen is not None and area.contains(screen.availableGeometry()):
                 room = screen.availableGeometry()
-                if room.left() <= x + w // 2 <= room.right() and room.bottom() + 1 < floor:
-                    floor = room.bottom() + 1
-            bottom = strips[1]
+            rx, ry, rw, rh = room.x(), room.y(), room.width(), room.height()
+            place = {"top": QtCore.QRect(rx, ry, rw, depth),
+                     "bottom": QtCore.QRect(rx, ry + rh - depth, rw, depth),
+                     "left": QtCore.QRect(rx, ry, depth, rh),
+                     "right": QtCore.QRect(rx + rw - depth, ry, depth, rh)}[SCREEN_GLOW_EDGES]
+            one = strips[("top", "bottom", "left", "right").index(SCREEN_GLOW_EDGES)]
             for strip in strips:
-                strip.alone = strip is bottom
-                if strip is not bottom:
+                strip.alone = strip is one
+                if strip is not one:
                     strip.hide()
-            bottom.span = (0.0, 1.0)
-            bottom.colour = QtGui.QColor(colour)
-            self._move(bottom, QtCore.QRect(x, floor - depth, w, depth))
-            bottom.setWindowOpacity(self._shown(bottom) if self.showing else 0.0)
-            bottom.show()
-            bottom.update()
+            one.span = (0.0, 1.0)
+            one.colour = QtGui.QColor(colour)
+            self._move(one, place)
+            one.setWindowOpacity(self._shown(one) if self.showing else 0.0)
+            one.show()
+            one.update()
             return
         for strip in strips:
             strip.alone = False
@@ -4258,7 +4266,7 @@ class ScreenGlow:
             strip.setWindowOpacity(self._shown(strip))
             if moving:
                 strip.phase = self.phase
-                strip.voice = self.voice if strip.side == "bottom" else []
+                strip.voice = self.voice if strip.alone else []
                 strip.update()
             elif still and strip.voice:
                 strip.voice = []                 # held still: no ripple left frozen
@@ -6500,7 +6508,7 @@ for _key in ("add_space", "always_show", "accent_outline", "outline_light", "glo
              "textbox_only", "screen_glow_flow"):
     _PORTABLE_CHECKS[_key] = lambda v: isinstance(v, bool)
 _PORTABLE_CHECKS["card_style"] = lambda v: v in [key for key, _label in CARD_STYLES]
-_PORTABLE_CHECKS["screen_glow_edges"] = lambda v: v in ("bottom", "all")
+_PORTABLE_CHECKS["screen_glow_edges"] = lambda v: v in ("bottom", "top", "left", "right", "all")
 _PORTABLE_CHECKS["screen_glow_screens"] = lambda v: v in ("popup", "all", "main")
 _PORTABLE_CHECKS["pill_mark"] = lambda v: v in PILL_MARKS
 _PORTABLE_CHECKS["replacements"] = valid_replacements
@@ -9040,7 +9048,10 @@ class SettingsWindow(QtWidgets.QDialog):
                                        20, 200, SCREEN_GLOW_SIZE)
 
         self.glow_where = QtWidgets.QComboBox()
-        self.glow_where.addItem("Bottom glow", "bottom")
+        self.glow_where.addItem("Bottom", "bottom")
+        self.glow_where.addItem("Top", "top")
+        self.glow_where.addItem("Left side", "left")
+        self.glow_where.addItem("Right side", "right")
         self.glow_where.addItem("Full-screen border", "all")
         self.glow_where.setCurrentIndex(max(0, self.glow_where.findData(SCREEN_GLOW_EDGES)))
         self.glow_where.currentIndexChanged.connect(
