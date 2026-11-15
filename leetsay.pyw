@@ -1495,6 +1495,41 @@ def _guid(text):
     return (ctypes.c_byte * 16).from_buffer_copy(uuid.UUID(text).bytes_le)
 
 
+# Windows' kinds of control (UI Automation's ControlType numbers) that can
+# never be typed into. Not here: edit boxes and documents (typable), combo
+# boxes and spinners (sometimes), panes, groups and custom controls (could be
+# anything), and spreadsheet cells (data items: typed into).
+_NOT_TYPABLE = frozenset((
+    50000,   # button
+    50001,   # calendar
+    50002,   # check box
+    50005,   # link
+    50006,   # image (e.g. a picture preview in VS Code)
+    50007,   # list item
+    50008,   # list
+    50009,   # menu
+    50010,   # menu bar
+    50011,   # menu item
+    50012,   # progress bar
+    50013,   # radio button
+    50014,   # scroll bar
+    50015,   # slider
+    50017,   # status bar
+    50018,   # tab
+    50019,   # tab item
+    50020,   # text label
+    50021,   # toolbar
+    50022,   # tooltip
+    50023,   # tree
+    50024,   # tree item
+    50027,   # thumb (a slider's handle)
+    50031,   # split button
+    50034,   # header
+    50035,   # header item
+    50037,   # title bar
+    50038,   # separator
+))
+
 _focus_seen = {"last": None}       # for tests only: the kinds last seen, never text
 
 
@@ -1544,11 +1579,9 @@ def focused_text_box():
         read_only = prop(30046)                  # ValueIsReadOnly
         has_text = prop(30040)                   # IsTextPatternAvailable
         _focus_seen["last"] = (kind, has_value, read_only, has_text)   # kinds only
-        if kind in (50000, 50005, 50011, 50020, 50018, 50008, 50024, 50002, 50013,
-                    50015, 50031, 50023):
-            # button, link, menu item, text label, tab item, list item, tree
-            # item, check box, radio button, slider, split button, toolbar:
-            # never somewhere to type, whatever else they say
+        if kind in _NOT_TYPABLE:
+            # A button, an image, a menu, a list... (see _NOT_TYPABLE): never
+            # somewhere to type, whatever else it says
             return False
         if kind == 50004:                        # an edit box
             return read_only is not True
