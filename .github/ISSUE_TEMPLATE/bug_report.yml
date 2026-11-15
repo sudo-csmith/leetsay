@@ -1,0 +1,83 @@
+name: Bug report
+description: Something in leetsay is not working as it should
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this.
+
+        **Please do not post anything private.** Check any log lines or screenshots before you attach them, and leave out anything you dictated that you would not want public.
+
+        **Security problems do not go here.** See SECURITY.md for how to report those privately.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you do, and what did leetsay do?
+      placeholder: I held Ctrl+Space, spoke a sentence, let go, and nothing was typed.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to make it happen again
+      placeholder: |
+        1. Open Notepad
+        2. Hold the hotkey and speak
+        3. ...
+    validations:
+      required: false
+  - type: input
+    id: version
+    attributes:
+      label: leetsay version
+      description: Shown in the title of the Settings window.
+      placeholder: "0.59.5"
+    validations:
+      required: true
+  - type: dropdown
+    id: windows
+    attributes:
+      label: Windows version
+      options:
+        - Windows 11
+        - Windows 10
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How did you install it?
+      options:
+        - Installer
+        - Python script
+    validations:
+      required: true
+  - type: dropdown
+    id: frequency
+    attributes:
+      label: How often does it happen?
+      options:
+        - Every time
+        - Sometimes
+        - Once
+    validations:
+      required: false
+  - type: textarea
+    id: log
+    attributes:
+      label: Log (optional)
+      description: |
+        The log is at `%LOCALAPPDATA%\leetsay\dictate.log` (paste that into the File Explorer address bar). Copy the last 30 lines or so. The log is designed not to contain what you dictated, the names of programs you use, or your Windows user name (your own folder is written as %USERPROFILE%). It can show other folder names, such as where you keep leetsay. Read it and remove anything you want to keep private before pasting.
+      render: text
+    validations:
+      required: false

@@ -108,7 +108,7 @@ from ctypes import wintypes
 
 
 
-VERSION = "0.59.3"              # shown in Settings and About
+VERSION = "0.59.5"              # shown in Settings and About
 APP_TITLE = "leetsay"                # the name shown to the user (one place)
 _HERE = os.path.dirname(_SELF)        # the program's own folder
 
@@ -194,7 +194,36 @@ if _NO_CONSOLE:
                     encoding="utf-8", errors="replace")
     except Exception:
         _log = open(os.devnull, "w")
-    sys.stdout = sys.stderr = _log
+
+
+class _PrivateLog:
+    """Writes to the log with the user's own folder (C:\\Users\\<name>) shown as
+    %USERPROFILE%, so a log pasted into a bug report never shows the Windows
+    user name."""
+
+    def __init__(self, stream):
+        import re
+        self._stream = stream
+        home = os.path.expanduser("~")
+        forms = {home, home.replace("\\", "\\\\"), home.replace("\\", "/")}
+        self._home = re.compile("|".join(re.escape(f) for f in sorted(forms, key=len,
+                                                                       reverse=True)),
+                                re.IGNORECASE) if len(home) > 3 else None
+
+    def write(self, text):
+        if self._home is not None and isinstance(text, str):
+            text = self._home.sub("%USERPROFILE%", text)
+        return self._stream.write(text)
+
+    def flush(self):
+        self._stream.flush()
+
+    def __getattr__(self, name):
+        return getattr(self._stream, name)
+
+
+if _NO_CONSOLE:
+    sys.stdout = sys.stderr = _PrivateLog(_log)
 _LOG_START = _log.tell() if _NO_CONSOLE else 0
 
 
@@ -5691,9 +5720,56 @@ def show_app_update_result(parent, tag, page, why, manual, installer=""):
                    "%s %s is the newest published version." % (APP_TITLE, VERSION))
         return
     print("App update check: version %s is available (this is %s)." % (latest, VERSION))
-    if not manual and _config.get("app_update_seen") == latest:
-        return                                   # already mentioned once: no nagging
+    if manual:
+        offer_update(parent, latest, page, installer)    # asked for: answer straight away
+        return
+    # At startup: a notification by the clock (once per new version) and an
+    # "Update available" line in the tray menu (for as long as it is newer),
+    # instead of a window popping up in the middle of whatever you are doing.
+    announce_update(latest, page, installer,
+                    notify=_config.get("app_update_seen") != latest)
     save_setting("app_update_seen", latest)
+
+
+_update_offer = {"connected": False, "action": None, "args": None}
+
+
+def announce_update(latest, page, installer, notify=True):
+    """Tell about a newer version without interrupting: a Windows notification
+    (clicking it opens the update window) and a line in the tray menu. Without
+    a tray icon, the window itself is shown."""
+    app = QtWidgets.QApplication.instance()
+    tray = getattr(app, "_tray_icon", None)
+    _update_offer["args"] = (latest, page, installer)
+    if tray is None:
+        offer_update(None, latest, page, installer)
+        return
+
+    def open_offer(*_ignored):
+        if _update_offer["args"]:
+            offer_update(None, *_update_offer["args"])
+
+    if not _update_offer["connected"]:
+        tray.messageClicked.connect(open_offer)
+        _update_offer["connected"] = True
+    menu = tray.contextMenu()
+    if menu is not None:
+        if _update_offer["action"] is None:
+            action = QtGui.QAction(menu)
+            action.triggered.connect(open_offer)
+            first = menu.actions()[0] if menu.actions() else None
+            menu.insertAction(first, action)
+            menu.insertSeparator(first)
+            _update_offer["action"] = action
+        _update_offer["action"].setText("Update available (%s)…" % latest)
+    if notify:
+        tray.showMessage("%s update available" % APP_TITLE,
+                         "Version %s is ready to download. Click for details." % latest,
+                         app_icon(), 10000)
+
+
+def offer_update(parent, latest, page, installer):
+    """The update window: Download now / What's new / Not now."""
     if installer:
         how = ("Download now opens the new installer in your web browser, which "
                "downloads it from github.com. Then run it: your settings and speech "
@@ -5711,6 +5787,22 @@ def show_app_update_result(parent, tag, page, why, manual, installer=""):
         QtGui.QDesktopServices.openUrl(QtCore.QUrl(installer or page))
     elif choice == "other":
         QtGui.QDesktopServices.openUrl(QtCore.QUrl(page))
+
+
+def open_feedback_page(parent, kind):
+    """Open the GitHub form for a bug report or an idea, in the web browser,
+    after the third-party notice. The application itself does not go online."""
+    form = "bug_report.yml" if kind == "bug" else "feature_request.yml"
+    what = "report a problem" if kind == "bug" else "suggest an idea"
+    if dialog(parent, "Open github.com?", "This opens a page in your web browser",
+              "To %s, %s opens a form on github.com in your web browser. That is a "
+              "third-party website that we do not run or control; you need a free "
+              "GitHub account to send the form, and what you write there is public.\n\n"
+              "Please do not include anything private. %s itself does not go "
+              "online for this." % (what, APP_TITLE, APP_TITLE),
+              accept="Open the page", reject="Cancel") is True:
+        QtGui.QDesktopServices.openUrl(QtCore.QUrl(
+            "https://github.com/%s/issues/new?template=%s" % (APP_REPO, form)))
 
 
 def open_data_folder():
@@ -6551,6 +6643,18 @@ QPlainTextEdit { font-size: 13px; }
         super().keyPressEvent(event)
 
 
+class _TabScroll(QtWidgets.QScrollArea):
+    """A Settings tab that scrolls up and down if it must, but is always exactly
+    as wide as the window shows."""
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        page = self.widget()
+        if page is not None:
+            page.setFixedWidth(self.viewport().width())
+            page.setMinimumHeight(page.sizeHint().height())
+
+
 class SettingsWindow(QtWidgets.QDialog):
     """Every option in one place. Changes apply straight away and are saved."""
 
@@ -6585,7 +6689,10 @@ class SettingsWindow(QtWidgets.QDialog):
             layout = QtWidgets.QVBoxLayout(holder)
             layout.setContentsMargins(16, 14, 16, 14)
             layout.setSpacing(10)
-            area = QtWidgets.QScrollArea()
+            # Never wider than the window: the page is held to the visible width,
+            # so a row that is too wide is squeezed, never cut off at the edge.
+            layout.setSizeConstraint(QtWidgets.QLayout.SetNoConstraint)
+            area = _TabScroll()
             area.setObjectName("tabscroll")
             area.setWidgetResizable(True)
             area.setFrameShape(QtWidgets.QFrame.NoFrame)
@@ -6611,7 +6718,7 @@ class SettingsWindow(QtWidgets.QDialog):
         def field(text):
             label = QtWidgets.QLabel(text)
             label.setObjectName("field")
-            label.setFixedWidth(84)              # one column, so controls line up
+            label.setFixedWidth(104)             # one column on every tab, so controls line up
             return label
 
         def heading(text, first=False):
@@ -6704,24 +6811,16 @@ class SettingsWindow(QtWidgets.QDialog):
         self.after_delay.currentIndexChanged.connect(
             lambda index: set_option("AFTER_DELAY", "after_delay",
                                      int(self.after_delay.itemData(index))))
-        after_label = QtWidgets.QLabel("After each dictation:")
-        after_label.setObjectName("field")
-        after_label.setFixedWidth(138)
-        self.after.setMinimumWidth(160)
-        row(after_label, self.after, None)
-        wait_label = QtWidgets.QLabel("When:")
-        wait_label.setObjectName("field")
-        wait_label.setFixedWidth(138)            # lines up with the row above
-        self.after_delay.setMinimumWidth(160)
-        row(wait_label, self.after_delay, None)
+        self.after.setMinimumWidth(170)
+        row(field("Afterwards"), self.after, None)
+        self.after_delay.setMinimumWidth(170)
+        row(field("When"), self.after_delay, None)
         note("Press a key after the dictation ends. Enter sends a chat message. With a "
              "wait, a notice counts it in, and clicking that notice cancels it.")
 
         # A second hotkey: dictate as usual, then press a key. For when you only
         # sometimes want that (say, to send a chat message straight away).
-        action_title = QtWidgets.QLabel("Action hotkey:")
-        action_title.setObjectName("field")
-        action_title.setFixedWidth(138)
+        action_title = field("Action hotkey")
         self.action_label = QtWidgets.QLabel("")
         self.action_label.setObjectName("info")
         self.action_record = button(self.RECORD_LABEL, lambda: record_action(), width=84)
@@ -6729,12 +6828,12 @@ class SettingsWindow(QtWidgets.QDialog):
         self.action_key = QtWidgets.QComboBox()
         for key, label in AFTER_CHOICES:
             if key:
-                self.action_key.addItem("then " + label, key)
+                self.action_key.addItem(label, key)
         self.action_key.setCurrentIndex(max(0, self.action_key.findData(ACTION_KEY)))
         self.action_key.currentIndexChanged.connect(
             lambda index: set_option("ACTION_KEY", "action_key",
                                      self.action_key.itemData(index)))
-        self.action_key.setMinimumWidth(160)
+        self.action_key.setMinimumWidth(170)
 
         def show_action():
             self.action_label.setText(pretty(ACTION_HOTKEY) if ACTION_HOTKEY else "not set")
@@ -6749,12 +6848,12 @@ class SettingsWindow(QtWidgets.QDialog):
                 dictation.apply_hotkey()
             show_action()
             if hotkey and hotkey in (HOTKEY, PASTE_HOTKEY):
-                self.action_label.setText("%s is already in use" % pretty(hotkey))
+                self.action_label.setText("already in use")
 
         def record_action():
             self.action_record.setText("Press keys")
             self.action_record.setEnabled(False)
-            self.action_label.setText("Press the keys, then let go.  Esc cancels")
+            self.action_label.setText("Esc cancels")
             dictation.start_capture(action_recorded, main=False)
 
         def clear_action():
@@ -6762,15 +6861,8 @@ class SettingsWindow(QtWidgets.QDialog):
             dictation.apply_hotkey()
             show_action()
 
-        row(action_title, self.action_record, self.action_clear, None)
-
-        def gap():
-            blank = QtWidgets.QLabel("")
-            blank.setFixedWidth(138)
-            return blank
-
-        row(gap(), self.action_label, None)      # its own row: never cut off
-        row(gap(), self.action_key, None)
+        row(action_title, self.action_record, self.action_clear, self.action_label, None)
+        row(field("Then"), self.action_key, None)
         show_action()
         note("A second hotkey that dictates like the first and then presses a key. "
              "Your usual hotkey stays as it is. It can be keys like Ctrl+Shift on "
@@ -7047,22 +7139,38 @@ class SettingsWindow(QtWidgets.QDialog):
         tab("Audio")
         heading("Microphone", first=True)
         self.mic = QtWidgets.QComboBox()
-        self.mic.setFixedWidth(250)
+        # Takes the room the row has; a long device name is shortened with "…"
+        # rather than pushing the row past the window's edge.
+        self.mic.setSizeAdjustPolicy(QtWidgets.QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.mic.setMinimumContentsLength(12)
+        self.mic.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
         self._fill_microphones()
         self.mic.currentIndexChanged.connect(self._mic_changed)
-        row(field("Input"), self.mic, button("Refresh", self._fill_microphones), None)
+        line = QtWidgets.QHBoxLayout()
+        line.setSpacing(8)
+        line.addWidget(field("Input"))
+        line.addWidget(self.mic, 1)
+        line.addWidget(button("Refresh", self._fill_microphones))
+        page["layout"].addLayout(line)
         self.mic_test = button("Test", self._test_mic, width=84)
         self.mic_bar = QtWidgets.QProgressBar()
         self.mic_bar.setRange(0, 100)
         self.mic_bar.setTextVisible(False)
-        self.mic_bar.setFixedWidth(160)
+        self.mic_bar.setMinimumWidth(60)
         self.mic_note = QtWidgets.QLabel("")
         self.mic_note.setObjectName("info")
-        row(field("Level"), self.mic_test, self.mic_bar, self.mic_note, None)
+        line = QtWidgets.QHBoxLayout()
+        line.setSpacing(8)
+        line.addWidget(field("Level"))
+        line.addWidget(self.mic_test)
+        line.addWidget(self.mic_bar, 1)
+        line.addWidget(self.mic_note)
+        page["layout"].addLayout(line)
         self.mic_heard = QtWidgets.QLabel("")    # the words heard during a test
         self.mic_heard.setWordWrap(True)
         self.mic_heard.setMinimumHeight(34)
         self.mic_heard.setContentsMargins(2, 0, 0, 0)
+        self.mic_heard.setVisible(False)         # only during a test: no empty gap
         page["layout"].addWidget(self.mic_heard)
         note("Test shows the level and the words it hears, for about 12 seconds. "
              "Nothing is typed anywhere and nothing is kept.")
@@ -7169,18 +7277,13 @@ class SettingsWindow(QtWidgets.QDialog):
                 "on disk, never left on the clipboard." % minutes,
             hint="Keeps your last dictation for %d minutes so you can paste it again "
                  "if needed." % minutes)
-        def indent():                            # lines these rows up under the tick-box text
-            gap = QtWidgets.QLabel("")
-            gap.setFixedWidth(18)
-            return gap
-
-        self.paste_title = QtWidgets.QLabel("Paste again hotkey:")
-        self.paste_title.setObjectName("field")
+        self.paste_title = field("Paste hotkey")
         self.paste_label = QtWidgets.QLabel("")
-        row(indent(), self.paste_title, self.paste_label, None)
+        self.paste_label.setObjectName("info")
+        row(self.paste_title, self.paste_label, None)
         self.paste_record = button(self.RECORD_LABEL, self._record_paste_hotkey, width=84)
         self.paste_clear = button("Clear", self._clear_paste_hotkey, width=84)
-        row(indent(), self.paste_record, self.paste_clear, None)
+        row(field(""), self.paste_record, self.paste_clear, None)
         self._refresh_paste_row()
         heading("Updates")
         self.updates = check("Check for model updates at startup",
@@ -7219,11 +7322,17 @@ class SettingsWindow(QtWidgets.QDialog):
         self._update_poll.setInterval(200)
         self._update_poll.timeout.connect(self._update_checked)
 
-        heading("This program")
-        quant = " (%s)" % QUANTIZATION if QUANTIZATION else ""
-        note("Model: %s%s\nNetwork: %s" % (MODEL, quant, network_words()))
+        heading("Move settings to another PC")
+        note("Your choices as one line of text, to copy and paste on another PC. "
+             "Nothing private is included.")
         row(button("Export settings", lambda: export_settings_window(self)),
             button("Import settings", lambda: import_settings_window(self)), None)
+
+        heading("Help and information")
+        quant = " (%s)" % QUANTIZATION if QUANTIZATION else ""
+        note("Model: %s%s\nNetwork: %s" % (MODEL, quant, network_words()))
+        row(button("Report a problem", lambda: open_feedback_page(self, "bug")),
+            button("Suggest an idea", lambda: open_feedback_page(self, "idea")), None)
         row(button("Open data folder", open_data_folder),
             button("About", lambda: show_about(dictation)), None)
         end_tab()
@@ -7730,6 +7839,8 @@ class SettingsWindow(QtWidgets.QDialog):
         self.mic_heard.setText("" if self.dictation.model is not None
                                else "The speech model is still loading, so this "
                                     "test only shows the level.")
+        self.mic_heard.setVisible(True)          # room for the words, during the test
+        self._fit_height()
         self._test_timer.start()
 
     def _test_tick(self):
@@ -7775,6 +7886,12 @@ class SettingsWindow(QtWidgets.QDialog):
             self.mic_note.setText("")
         self.mic_bar.setValue(0)
         self.mic_test.setText("Test")
+        try:     # keep the words heard on show to read; with none, close the gap
+            if not self.mic_heard.text():
+                self.mic_heard.setVisible(False)
+                self._fit_height()
+        except RuntimeError:
+            pass                                 # the window is already gone
 
     def _sound_set_changed(self, index):
         set_option("SOUND_SET", "sound_set", self.sound_set.itemData(index))
@@ -8374,7 +8491,7 @@ def main():
     carry_over_startup()
     signal.signal(signal.SIGINT, signal.SIG_DFL)      # let Ctrl+C in the console quit
     try:      # so Windows shows this program's own icon, not Python's
-        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("%s.Offline" % APP_TITLE)
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_TITLE)
     except Exception:
         pass
     app = QtWidgets.QApplication(sys.argv)
