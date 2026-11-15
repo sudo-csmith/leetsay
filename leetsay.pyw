@@ -1818,6 +1818,37 @@ def microphone_present():
         return True                              # can't tell: don't cry wolf
 
 
+def taskbar_see_through():
+    """Is Windows' taskbar see-through ("Transparency effects" on, the
+    default)? Then a glow placed behind it shows through, behind its icons.
+    Reads that one Windows setting, on this PC."""
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                            r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize") as key:
+            return bool(winreg.QueryValueEx(key, "EnableTransparency")[0])
+    except Exception:
+        return False
+
+
+def tuck_behind_taskbar(widget):
+    """Put a window just below the taskbar (which stays on top of it, icons
+    and all), above everything else. Windows brings the taskbar forward now
+    and then, so this is done again on every frame."""
+    try:
+        user32 = ctypes.windll.user32
+        user32.FindWindowW.restype = wintypes.HWND
+        tray = user32.FindWindowW("Shell_TrayWnd", None)
+        if tray:
+            user32.SetWindowPos.argtypes = [wintypes.HWND, wintypes.HWND, ctypes.c_int,
+                                            ctypes.c_int, ctypes.c_int, ctypes.c_int,
+                                            wintypes.UINT]
+            user32.SetWindowPos(int(widget.winId()), tray, 0, 0, 0, 0,
+                                0x0001 | 0x0002 | 0x0010)    # keep size and place; don't activate
+    except Exception:
+        pass
+
+
 def focus_window(hwnd):
     """Bring a window back to the front. True if it now has the focus."""
     try:
@@ -3997,6 +4028,7 @@ class EdgeStrip(QtWidgets.QWidget):
         self.phase = 0.0                     # where the moving light is on its way round
         self.voice = []                      # recent voice levels (the bottom edge's ripples)
         self.alone = False                   # the only strip: the bottom edge on its own
+        self.behind = False                  # sits behind the taskbar, showing through it
         self.span = (0.0, 1.0)               # this strip's share of the way round
         self._mask = None                    # (key, picture of the brightness)
 
@@ -4016,7 +4048,7 @@ class EdgeStrip(QtWidgets.QWidget):
         """The strip's brightness as a picture (white, see-through), made at
         the screen's real pixels, with a whisper of noise so the soft fade
         shows no bands."""
-        key = (w, h, self.side, round(ratio, 2), self.alone, SCREEN_GLOW_FOCUS)
+        key = (w, h, self.side, round(ratio, 2), self.alone, SCREEN_GLOW_FOCUS, self.behind)
         if self._mask is not None and self._mask[0] == key:
             return self._mask[1]
         pw, ph = max(1, int(round(w * ratio))), max(1, int(round(h * ratio)))
@@ -4196,7 +4228,7 @@ class ScreenGlow:
     def _shown(self, strip):
         """How strongly a strip shows: the glow along the bottom on its own
         shows stronger, so the low glow still reads clearly."""
-        return min(1.0, self.fade * (1.8 if strip.alone else 1.0))
+        return min(1.0, self.fade * (2.6 if strip.behind else 1.8 if strip.alone else 1.0))
 
     def _place(self, strips, colour, area):
         """Put one screen's four strips in place for the chosen style."""
@@ -4215,13 +4247,16 @@ class ScreenGlow:
             if screen is not None and area.contains(screen.availableGeometry()):
                 room = screen.availableGeometry()
             rx, ry, rw, rh = room.x(), room.y(), room.width(), room.height()
-            # The bottom glow lives at the very bottom of the taskbar: a fine
-            # line of light below its icons and their marks, so the taskbar and
-            # whatever is above it stay clear.
+            # The bottom glow lives in the taskbar. With a see-through taskbar
+            # (Windows' default) it sits behind it, filling its height, and
+            # shines through behind the icons: nothing is covered. With a solid
+            # taskbar, a soft glow low in front of it instead (11 px).
             taskbar = (y + h) - (ry + rh)
-            # 5 px: the small marks under open apps sit 5-7 px above the bottom,
-            # so a fine line of light below them leaves the whole taskbar clear.
-            low = 5 if taskbar > 0 else max(10, int(SCREEN_GLOW_SIZE * 0.22))
+            behind = taskbar > 0 and taskbar_see_through()
+            if behind:
+                low = taskbar
+            else:
+                low = 11 if taskbar > 0 else max(10, int(SCREEN_GLOW_SIZE * 0.22))
             place = {"top": QtCore.QRect(rx, ry, rw, depth),
                      "bottom": QtCore.QRect(rx, y + h - low, rw, low),
                      "left": QtCore.QRect(rx, ry, depth, rh),
@@ -4229,6 +4264,7 @@ class ScreenGlow:
             one = strips[("top", "bottom", "left", "right").index(SCREEN_GLOW_EDGES)]
             for strip in strips:
                 strip.alone = strip is one
+                strip.behind = strip is one and SCREEN_GLOW_EDGES == "bottom" and behind
                 if strip is not one:
                     strip.hide()
             one.span = (0.0, 1.0)
@@ -4236,11 +4272,14 @@ class ScreenGlow:
             self._move(one, place)
             one.setWindowOpacity(self._shown(one) if self.showing else 0.0)
             one.show()
+            if one.behind:
+                tuck_behind_taskbar(one)
             one.update()
             return
         d = max(12, int(SCREEN_GLOW_SIZE * 0.32))   # the full border: slim as well
         for strip in strips:
             strip.alone = False
+            strip.behind = False
             strip.setWindowOpacity(self.fade if self.showing else 0.0)
         places = ((x, y, w, d), (x, y + h - d, w, d),
                   (x, y + d, d, h - 2 * d), (x + w - d, y + d, d, h - 2 * d))
@@ -4284,6 +4323,8 @@ class ScreenGlow:
         for strip in self.strips:
             if not strip.isVisible():
                 continue
+            if strip.behind:
+                tuck_behind_taskbar(strip)       # the taskbar stays in front of it
             strip.setWindowOpacity(self._shown(strip))
             if moving:
                 strip.phase = self.phase
