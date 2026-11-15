@@ -2691,8 +2691,6 @@ class Overlay(QtWidgets.QWidget):
         if self.mode == "idle":
             # Without the hotkey text the pill is just its dot: a small round
             # button, as quiet as it can be.
-            if LEET_MODE:
-                return "1337"
             return pretty(HOTKEY) if SHOW_HOTKEY_HINT else ""
         return None
 
@@ -9013,6 +9011,20 @@ class SettingsWindow(QtWidgets.QDialog):
         outer = QtWidgets.QVBoxLayout(self)
         outer.setContentsMargins(14, 10, 14, 14)
         outer.setSpacing(12)
+        # Only while 1337 mode is on: a bar at the top with the way back out.
+        self.leet_bar = QtWidgets.QWidget()
+        bar = QtWidgets.QHBoxLayout(self.leet_bar)
+        bar.setContentsMargins(0, 0, 0, 0)
+        bar_text = QtWidgets.QLabel("1337 mode is on")
+        bar_text.setObjectName("info")
+        bar.addWidget(bar_text)
+        bar.addStretch(1)
+        leave_leet = QtWidgets.QPushButton("Exit 1337 mode")
+        leave_leet.setCursor(Qt.PointingHandCursor)
+        leave_leet.clicked.connect(lambda: toggle_leet(self.dictation))
+        bar.addWidget(leave_leet)
+        self.leet_bar.setVisible(LEET_MODE)
+        outer.addWidget(self.leet_bar)
         tabs = QtWidgets.QTabWidget()
         tabs.setDocumentMode(False)
         outer.addWidget(tabs)
@@ -10596,23 +10608,30 @@ def show_about(dictation):
         "where the text it types goes. The licences of everything it uses are "
         "in its licenses folder and CREDITS.md; see also the README.",
     ]
-    def toggle_leet():
-        apply_leet(not LEET_MODE)
-        save_setting("leet_mode", LEET_MODE)
-        dictation.overlay.apply_size()
-        # The icon is drawn in the accent colour: green while the mode is on.
-        if dictation.tray is not None:
-            dictation.tray.setIcon(app_icon())
-        # The open Settings window takes the new look at once (other windows,
-        # with looks of their own, take it when they next open).
-        for widget in QtWidgets.QApplication.topLevelWidgets():
-            if type(widget).__name__ == "SettingsWindow":
-                widget.setStyleSheet(settings_style())
-            widget.setWindowIcon(app_icon())
-        dictation.overlay.show_message("1337 mode on" if LEET_MODE else "1337 mode off",
-                                       ms=2200, pulse=True)
     dialog(None, "About %s" % APP_TITLE, "%s %s" % (APP_TITLE, VERSION),
-           "\n".join(line for line in lines[2:]), on_headline_clicks=toggle_leet)
+           "\n".join(line for line in lines[2:]),
+           on_headline_clicks=lambda: toggle_leet(dictation))
+
+
+def toggle_leet(dictation):
+    """Turn 1337 mode on or off (About's title clicked seven times, or the
+    "Exit 1337 mode" button at the top of Settings, shown only while it's on)."""
+    apply_leet(not LEET_MODE)
+    save_setting("leet_mode", LEET_MODE)
+    dictation.overlay.apply_size()
+    # The icon is drawn in the accent colour: green while the mode is on.
+    if dictation.tray is not None:
+        dictation.tray.setIcon(app_icon())
+    # The open Settings window takes the new look at once (other windows,
+    # with looks of their own, take it when they next open).
+    for widget in QtWidgets.QApplication.topLevelWidgets():
+        if isinstance(widget, SettingsWindow):
+            widget.setStyleSheet(settings_style())
+            widget.leet_bar.setVisible(LEET_MODE)
+            QtCore.QTimer.singleShot(0, widget._fit_height)
+        widget.setWindowIcon(app_icon())
+    dictation.overlay.show_message("1337 mode on" if LEET_MODE else "1337 mode off",
+                                   ms=2200, pulse=True)
 
 
 def hide_console():
