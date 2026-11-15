@@ -103,7 +103,7 @@ from ctypes import wintypes
 
 
 
-VERSION = "0.59.1"              # shown in Settings and About
+VERSION = "0.59.2"              # shown in Settings and About
 APP_TITLE = "leetsay"                # the name shown to the user (one place)
 _HERE = os.path.dirname(_SELF)        # the program's own folder
 
@@ -2625,12 +2625,14 @@ class Overlay(QtWidgets.QWidget):
     def _download_lines(self, note):
         """The download card's two lines of text, and whether it is stalled."""
         title, _dot, detail = note.partition("  \u00b7  ")
-        stuck = "not moving" in note
+        stuck = "not moving" in note or "seems blocked" in note
         if title.startswith("Downloading"):
             title = "Downloading"                # the icon and the amount say the rest
         percent = "%d%%" % int(max(0.0, min(1.0, self.progress or 0.0)) * 100)
         if stuck:
-            words = "Click for help  \u00b7  right-click to retry"
+            # Short, so it is no wider than the title above it (same wording
+            # style as the pill's "Click: dictate" hints).
+            words = "Click: help  \u00b7  Right-click: retry"
         elif detail:
             words = "%s  \u00b7  %s" % (detail, percent)
         else:
