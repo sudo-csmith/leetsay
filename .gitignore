@@ -1,0 +1,20 @@
+# Python caches
+__pycache__/
+*.pyc
+
+# Files leetsay may create next to itself (older versions, or when the data
+# folder is not available). They hold personal settings: never commit them.
+dictate.json
+dictate.ready
+dictate.log
+dictate.pos
+dictate.pid
+parakeet-model/
+
+# Build output (installer, later)
+build/
+dist/
+*.spec.bak
+
+# Private working notes (kept on this PC only)
+CLAUDE.md
