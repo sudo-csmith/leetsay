@@ -26,6 +26,10 @@ to see who uses it or what they do with it.
   microphone test in Settings.
 - The text is typed into the window you are using. leetsay does not write it to
   disk or to its log.
+- Once the text is typed into another program (a chat, an email, a web page, a
+  document), that program has it, and its own privacy terms apply. leetsay
+  cannot see or control what another program does with your text. If that
+  program is online, the text may leave your PC through it.
 - **Missed text safety** (off by default): if you turn it on, your last
   dictation is kept in memory for 5 minutes so you can paste it again.
 - **Paste using the clipboard** (off by default): if you turn it on, the text

@@ -135,6 +135,14 @@ The Python packages can be removed with
   submit it, especially if you set leetsay to press Enter after a dictation.
   Do not rely on leetsay where a wrong, missing or misplaced word could cause
   harm or loss, such as medical, legal, financial, safety or emergency use.
+- **Where the text goes is up to you.** leetsay types into whichever window
+  has the focus when your dictation ends. It cannot know or control which
+  program, chat, form or document that is, or what that program then does with
+  the text: send it, save it, share it or upload it. Check where your cursor is
+  before you speak, especially if you set **After each dictation** to press
+  Enter, and do not dictate passwords or other sensitive information. People near
+  you can hear what you say, and anyone who can see your screen can read the
+  words in the pop-up as you speak.
 - **Your responsibility.** You are responsible for how you use leetsay and for
   what it types on your behalf, including following any laws or rules about
   recording or processing speech that apply where you are.
