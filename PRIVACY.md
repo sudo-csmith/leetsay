@@ -39,6 +39,20 @@ to see who uses it or what they do with it.
   clipboard during that second could see it.
 - To notice its hotkey, leetsay listens to the keyboard while it runs, as any
   program with a global hotkey must. It does not record or store key presses.
+- **Type as you speak** (off by default): if you turn it on, your words are
+  typed into the window you started in while you are still speaking. They are
+  kept in memory only until the dictation ends (longer only if **Missed text
+  safety** is on).
+- **Text box detection** (on by default, used only by Type as you speak): to
+  type only into a text box, leetsay asks Windows' accessibility service (the
+  one screen readers use) what kind of control has the keyboard focus: a text
+  box, a password box, a button or a page, and whether it can be typed into.
+  It does not read the text in it, the page, the window's title or the
+  program's name. The answer is used on the spot and is not stored, logged or
+  sent anywhere. Turn it off and Windows is not asked at all.
+- To show a red status light when no microphone is connected, leetsay asks
+  Windows every few seconds how many microphones there are, while its pop-up
+  is showing. This does not open or listen to any microphone.
 
 ## The network
 

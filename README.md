@@ -103,6 +103,26 @@ sight.
   while it is running also opens Settings.
 - **Cancel** a dictation: hover over the pop-up and click it.
 - **Quit:** right-click the icon by the clock and choose **Quit**.
+- **The dot on the pop-up is a status light:** your colour when leetsay is
+  ready, amber while the speech model is loading, red when something needs you
+  (no microphone, no sound from it, or no speech model). Click the pop-up to
+  see what is wrong.
+
+### Type as you speak
+
+Turn on **Type as you speak** (Settings, General) and your words appear in
+your program while you are still talking, about half a second behind you,
+instead of all at once when you let go. You can keep holding the hotkey.
+
+- It is a little less accurate than the normal mode: each word is typed once
+  the speech model is sure enough of it, and words already typed are not
+  changed afterwards.
+- It only types into the window you started in. With **Text box detection**
+  on (the default), it also waits until the cursor is in a text box, so that
+  on a web page or a video your words are not taken as keyboard shortcuts.
+  The pop-up says **No text box selected** while it waits.
+- **Remove filler words** (on by default) leaves out "um", "uh" and "erm", in
+  both modes.
 
 Good to know:
 
@@ -170,7 +190,9 @@ The Python packages can be removed with
   Do not rely on leetsay where a wrong, missing or misplaced word could cause
   harm or loss, such as medical, legal, financial, safety or emergency use.
 - **Where the text goes is up to you.** leetsay types into whichever window
-  has the focus when your dictation ends. It cannot know or control which
+  has the focus when your dictation ends (with **Type as you speak**, into the
+  window you started in, while you speak; **Text box detection** is a help, not
+  a guarantee: some programs do not say what has the focus). It cannot know or control which
   program, chat, form or document that is, or what that program then does with
   the text: send it, save it, share it or upload it. Check where your cursor is
   before you speak, especially if you set **After each dictation** to press
