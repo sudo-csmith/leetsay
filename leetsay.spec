@@ -41,6 +41,10 @@ def _wanted(entry):
     name = str(entry[0]).replace("\\", "/").lower()
     if "portaudio-binaries" in name:
         return name.endswith("libportaudio64bit.dll") or name.endswith("readme.md")
+    # Qt's on-screen virtual keyboard (GPL-only; for touch screens): pulled in
+    # with Qt's input plugins, never used by leetsay. Its library and plugin.
+    if "virtualkeyboard" in name:
+        return False
     return True
 
 

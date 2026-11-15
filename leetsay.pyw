@@ -4055,16 +4055,30 @@ class PointerBadge(QtWidgets.QWidget):
         self.timer.timeout.connect(self._follow)
 
     def appear(self):
+        self.target = 1.0
         if not self.isVisible():
             self._follow()
+            self.setWindowOpacity(0.0)
             self.show()
-            self.timer.start()
+        self.timer.start()
 
     def vanish(self):
-        self.timer.stop()
-        self.hide()
+        self.target = 0.0                        # fades out, then hides itself
+        if self.isVisible():
+            self.timer.start()
 
     def _follow(self):
+        # Fade towards showing or gone (about a tenth of a second), not a pop.
+        shown = self.windowOpacity()
+        target = getattr(self, "target", 1.0)
+        if abs(shown - target) > 0.01:
+            step = 0.3 if animations_on() else 1.0
+            shown = min(target, shown + step) if target > shown else max(target, shown - step)
+            self.setWindowOpacity(shown)
+        if target == 0.0 and shown <= 0.01:
+            self.timer.stop()
+            self.hide()
+            return
         spot = QtGui.QCursor.pos() + self.OFFSET
         screen = QtGui.QGuiApplication.screenAt(QtGui.QCursor.pos())
         if screen is not None:                   # never off the screen's edge
@@ -5718,7 +5732,12 @@ class Dictation(QtCore.QObject):
                 elif fresh:                      # count each new answer once
                     self.lt_missing = getattr(self, "lt_missing", 0) + 1
                     self.lt_missing_at = self.lt_box.get("at", 0.0)
+                was = self.overlay.box_missing
                 self.overlay.box_missing = getattr(self, "lt_missing", 0) >= 2
+                if was and not self.overlay.box_missing:
+                    # Back in a text box: the card's words line comes back
+                    # with the text as it is now, not as it was before.
+                    self._show_typed(self.session, [])
             else:
                 self.lt_missing = 0
                 self.overlay.box_missing = False
