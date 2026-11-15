@@ -5203,6 +5203,7 @@ class Dictation(QtCore.QObject):
         if self.state == "idle":
             self.overlay.show_message(pretty(HOTKEY) if SHOW_HOTKEY_HINT else "Ready",
                                       ms=1800, pulse=True)
+            self.maybe_pill_tip()
         elif self.state == "loading":
             # A download still going (or blocked) shows as such, never as a
             # plain "Starting", which would look as if it were nearly ready.
@@ -5210,6 +5211,23 @@ class Dictation(QtCore.QObject):
             self.overlay.show_message(words or "Starting\u2026", ms=None)
             if self.downloading:
                 self.overlay.progress = self.overlay.progress or 0.0
+
+    PILL_TIP = "Right-click me for Settings"
+
+    def maybe_pill_tip(self):
+        """Once ever: the pill itself says where Settings are, for a few
+        seconds, then shows the hotkey again. (No separate card by the clock:
+        Windows' tray panel covered it, owner.) Only with the pill always on
+        screen, where right-clicking it works."""
+        if _config.get("pill_tip_seen") or not ALWAYS_SHOW or self.intro_open:
+            return
+
+        def show():
+            if self.state != "idle" or self.intro_open or _config.get("pill_tip_seen"):
+                return                           # busy: another time
+            save_setting("pill_tip_seen", True)
+            self.overlay.show_message(self.PILL_TIP, ms=4500, pulse=True)
+        QtCore.QTimer.singleShot(2600, show)     # after the hotkey's own flash
 
     def on_welcome_done(self):
         save_setting("welcomed", True)
@@ -5227,6 +5245,7 @@ class Dictation(QtCore.QObject):
         self.state = "idle"
         if self.model_outdated:                    # an older trusted model is in use
             QtCore.QTimer.singleShot(6000, self.offer_newer_model)
+        self.maybe_pill_tip()                      # once ever, when usable
         if self.intro_open and not was_waiting:
             return                                 # the introduction says it is ready
         if self.overlay.mode == "welcome" and was_waiting:
