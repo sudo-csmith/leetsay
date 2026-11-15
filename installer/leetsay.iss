@@ -32,6 +32,8 @@ LicenseFile=terms.txt
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
+WizardSmallImageFile=wizard-small-55.bmp,wizard-small-110.bmp
+WizardImageFile=wizard-large-164.bmp,wizard-large-328.bmp
 ; A running copy is asked to close before files are replaced or removed.
 AppMutex=dictate_py_single_instance
 CloseApplications=yes
