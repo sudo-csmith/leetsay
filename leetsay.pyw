@@ -4036,10 +4036,11 @@ class EdgeStrip(QtWidgets.QWidget):
         alpha = self.light(dist, depth)
         if self.alone:
             # On its own along the bottom it carries more light: a fuller haze
-            # rising from the edge, strongest in the middle and fading out
-            # towards both ends (no hard ends).
+            # rising from the edge. Strongest in the two bottom corners and
+            # quiet in the middle, where people read (and the pop-up sits).
             rise = 0.85 * np.exp(-(np.maximum(dist, 0.0) / (0.45 * depth)) ** 1.3)
-            alpha = np.minimum(1.0, alpha * 2.0 + rise) * np.sin(np.pi * gx / pw) ** 0.6
+            side = np.abs(2.0 * gx / pw - 1.0)           # 0 in the middle, 1 at the ends
+            alpha = np.minimum(1.0, alpha * 2.0 + rise) * (0.12 + 0.88 * side ** 1.6)
         alpha = alpha + (np.random.default_rng(7).random(alpha.shape, dtype=np.float32)
                          - 0.5) / 255.0
         a = np.clip(alpha * 255.0, 0, 255).astype(np.uint8)
@@ -4073,9 +4074,10 @@ class EdgeStrip(QtWidgets.QWidget):
                               int(base.blue() + (shifted.blue() - base.blue()) * light))
         strength = (0.8 + 0.2 * light) if self.alone else (0.55 + 0.45 * light)
         if self.side == "bottom" and self.voice:
-            # Your voice, rippling outwards from the middle: the newest sound
-            # in the middle, older sounds further out.
-            spot = min(len(self.voice) - 1, int(abs(along - 0.5) * 2.0 * len(self.voice)))
+            # Your voice, rippling in from both corners: the newest sound at
+            # the ends, older sounds further in.
+            spot = min(len(self.voice) - 1,
+                       int((1.0 - abs(along - 0.5) * 2.0) * len(self.voice)))
             strength += 0.6 * self.voice[-1 - spot]
         colour.setAlphaF(min(1.0, strength))
         return colour
