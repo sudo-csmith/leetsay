@@ -88,7 +88,7 @@ from ctypes import wintypes
 
 
 
-VERSION = "0.1.0"              # shown in Settings and About
+VERSION = "0.2.0"              # shown in Settings and About
 APP_TITLE = "leetsay"                # the name shown to the user (one place)
 _HERE = os.path.dirname(_SELF)        # the program's own folder
 
@@ -303,6 +303,12 @@ STARTUP_MESSAGE = False              # show a "Loading..." pop-up while starting
 STARTUP_FLASH = True                 # briefly show the pop-up once it can be used
 ALWAYS_SHOW = False                  # keep a small pill on screen between dictations
 ACCENT_OUTLINE = False               # a ring in the accent colour round the pop-up
+CARD_STYLE = "glow"                  # the dictation card: "clean" (a soft neutral
+                                     # shadow and a crisp edge), "accent" (the same,
+                                     # with a fine edge in the accent colour while
+                                     # dictating) or "glow" (a coloured glow round it)
+CARD_STYLES = [("glow", "Glow"), ("clean", "Clean"),
+               ("accent", "Clean with a colour edge")]
 OUTLINE_LIGHT = True                 # a band of light that travels round that ring
 GLOW = "medium"                      # glow round the pop-up: off, subtle, medium, strong
 GLOW_FROM_APP = True                 # tint the glow with the colour of the app's icon
@@ -311,8 +317,11 @@ GLOW_COLOUR = ""                     # your own glow colour ("" = the accent col
 SCREEN_GLOW = True                   # also glow round the edge of the whole screen
 SCREEN_GLOW_STRENGTH = 60            # how bright that glow is, 5-100
 SCREEN_GLOW_SIZE = 56                # how far it reaches in from the edge, 20-200 pixels
+SCREEN_GLOW_FLOW = True              # a light moves along it, and it ripples with your voice
+SCREEN_GLOW_EDGES = "bottom"         # where: "bottom" (along the bottom edge) or "all"
 TRAY_LIVE = False                    # the tray icon's bars move with your voice
 SHOW_HOTKEY_HINT = True              # show the hotkey on that pill and at startup
+PILL_LOGO = False                    # the pill shows the leetsay logo instead of a dot
 LIVE_LINES = 1                       # lines of live words in the pop-up (1-6)
 LIVE_ALIGN = "left"                  # rows of live words: "left" (words never move
                                      # once shown) or "center" (rows re-centre)
@@ -320,6 +329,8 @@ CARD_WIDTH = 0                       # your own pop-up width, set by dragging it
                                      # or right edge (0 = the usual Narrow / Wide)
 WIDE_CARD = False                    # a wider pop-up when several lines are shown
 LIVE_PREVIEW = True                  # show the words in the pop-up as you speak
+LIVE_TYPE = False                    # type the words into the app at each pause, as you
+                                     # speak (a little less accurate than all at once)
 LIVE_EVERY_MS = 250                  # the preview refreshes this often, or as fast as
                                      # the PC can manage if a pass takes longer
 TEXT_SIZE = 12                       # size of the live words in the pop-up
@@ -336,6 +347,9 @@ MAX_RECORD_SECONDS = 300             # a recording is always stopped after this 
 MIC_DEVICE = ""                      # microphone by name; "" = Windows' default one
 SOUND_DEVICE = ""                    # where the sounds play; "" = Windows' default output
 ADD_SPACE = True                     # put a space after each dictation
+REMOVE_FILLERS = True                # leave out "um", "uh" and the like
+TEXTBOX_ONLY = True                  # typing as you speak: only into a text box (asks
+                                     # Windows what kind of control has the focus)
 AFTER_KEY = ""                       # key pressed for you once the text is in:
                                      # "" (nothing), "enter", "ctrl+enter" or "tab"
 PASTE_HOTKEY = ""                    # optional extra hotkey for "missed text safety"
@@ -349,6 +363,7 @@ SHOW_WAVEFORM = True                 # show the wave line that moves with your v
 SHOW_TIMER = True                    # show how long you have been dictating
 SHOW_TRAY_ICON = True                # tray icon is the only way to quit pythonw
 BOTTOM_MARGIN = 28                   # gap between the pop-up and the taskbar
+EDGE_GAP = 8                         # the pop-up never comes closer to a screen edge
 
 SAMPLE_RATE = 16000
 MIC_SILENT_PEAK = 0.0008             # below this the microphone is giving no signal
@@ -596,6 +611,9 @@ for _name, _key in (("SHOW_APP_ICON", "show_app_icon"), ("SHOW_APP_NAME", "show_
                     ("WIDE_CARD", "wide_card"),
                     ("OUTLINE_LIGHT", "outline_light"), ("GLOW_FROM_APP", "glow_from_app"),
                     ("SHOW_HOTKEY_HINT", "hotkey_hint"), ("KEEP_LAST", "keep_last"),
+                    ("PILL_LOGO", "pill_logo"), ("LIVE_TYPE", "live_type"),
+                    ("REMOVE_FILLERS", "remove_fillers"), ("TEXTBOX_ONLY", "textbox_only"),
+                    ("SCREEN_GLOW_FLOW", "screen_glow_flow"),
                     ("RETURN_FOCUS", "return_focus")):
     if isinstance(_config.get(_key), bool):
         globals()[_name] = _config[_key]
@@ -606,6 +624,10 @@ for _name, _key, _low, _high in (("SCREEN_GLOW_STRENGTH", "screen_glow_strength"
     _value = _config.get(_key)
     if isinstance(_value, (int, float)) and not isinstance(_value, bool):
         globals()[_name] = int(max(_low, min(_high, _value)))
+if _config.get("screen_glow_edges") in ("bottom", "all"):
+    SCREEN_GLOW_EDGES = _config["screen_glow_edges"]
+if _config.get("card_style") in [key for key, _label in CARD_STYLES]:
+    CARD_STYLE = _config["card_style"]
 if isinstance(_config.get("card_width"), int) and not isinstance(_config["card_width"], bool):
     CARD_WIDTH = max(0, _config["card_width"])
 TEXT_SIZES = [(11, "Small"), (12, "Medium"), (14, "Large"), (16, "Extra large")]
@@ -1383,6 +1405,126 @@ def _process_elevated(handle):
         ctypes.windll.kernel32.CloseHandle(token)
 
 
+class _GUITHREADINFO(ctypes.Structure):
+    _fields_ = [("cbSize", wintypes.DWORD), ("flags", wintypes.DWORD),
+                ("hwndActive", wintypes.HWND), ("hwndFocus", wintypes.HWND),
+                ("hwndCapture", wintypes.HWND), ("hwndMenuOwner", wintypes.HWND),
+                ("hwndMoveSize", wintypes.HWND), ("hwndCaret", wintypes.HWND),
+                ("rcCaret", wintypes.RECT)]
+
+
+def focus_details(hwnd):
+    """(the focused control's window, does it show a text cursor?) for the
+    program that owns hwnd."""
+    try:
+        user32 = ctypes.windll.user32
+        user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.c_void_p]
+        user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+        thread = user32.GetWindowThreadProcessId(hwnd, None)
+        info = _GUITHREADINFO()
+        info.cbSize = ctypes.sizeof(info)
+        if thread and user32.GetGUIThreadInfo(thread, ctypes.byref(info)):
+            return (int(info.hwndFocus or 0), bool(info.hwndCaret))
+    except Exception:
+        pass
+    return (0, False)
+
+
+class _VARIANT(ctypes.Structure):
+    _fields_ = [("vt", ctypes.c_ushort), ("r1", ctypes.c_ushort), ("r2", ctypes.c_ushort),
+                ("r3", ctypes.c_ushort), ("value", ctypes.c_longlong),
+                ("extra", ctypes.c_longlong)]
+
+
+def _guid(text):
+    import uuid
+    return (ctypes.c_byte * 16).from_buffer_copy(uuid.UUID(text).bytes_le)
+
+
+_focus_seen = {"last": None}       # for tests only: the kinds last seen, never text
+
+
+def focused_text_box():
+    """Is the keyboard focus in something you can type into? Asks Windows'
+    accessibility service (what screen readers use) about the focused
+    control. True: a text box. False: clearly not one (a web page, a video,
+    a button: typed letters would work as shortcuts there, and Space would
+    scroll). None: can't tell, so typing goes ahead as usual. Run it off the
+    main thread: a busy program can be slow to answer."""
+    ole32 = ctypes.windll.ole32
+    ole32.CoInitializeEx(None, 0)                # this thread: multithreaded COM
+    automation = ctypes.c_void_p()
+    element = ctypes.c_void_p()
+    try:
+        if ole32.CoCreateInstance(_guid("ff48dba4-60ef-4201-aa87-54103eef594e"), None,
+                                  1 | 4, _guid("30cbe57d-d9d0-452a-ab13-7ac5ac4825ee"),
+                                  ctypes.byref(automation)) != 0 or not automation:
+            return None
+
+        def method(obj, index, *types):
+            table = ctypes.cast(obj, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p)))[0]
+            return ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, *types)(table[index])
+
+        # IUIAutomation::GetFocusedElement
+        if method(automation, 8, ctypes.POINTER(ctypes.c_void_p))(
+                automation, ctypes.byref(element)) != 0 or not element:
+            return None
+        get = method(element, 10, ctypes.c_int, ctypes.POINTER(_VARIANT))   # GetCurrentPropertyValue
+
+        def prop(number):
+            value = _VARIANT()
+            if get(element, number, ctypes.byref(value)) != 0:
+                return None
+            try:
+                if value.vt == 3:                # a number
+                    return ctypes.c_int32(value.value & 0xFFFFFFFF).value
+                if value.vt == 11:               # yes / no
+                    return (value.value & 0xFFFF) != 0
+                return None
+            finally:
+                ctypes.windll.oleaut32.VariantClear(ctypes.byref(value))
+        if prop(30019):                          # IsPassword: never type into it live
+            return False
+        kind = prop(30003)                       # ControlType
+        has_value = prop(30043)                  # IsValuePatternAvailable
+        read_only = prop(30046)                  # ValueIsReadOnly
+        has_text = prop(30040)                   # IsTextPatternAvailable
+        _focus_seen["last"] = (kind, has_value, read_only, has_text)   # kinds only
+        if kind in (50000, 50005, 50011, 50020, 50018, 50008, 50024, 50002, 50013,
+                    50015, 50031, 50023):
+            # button, link, menu item, text label, tab item, list item, tree
+            # item, check box, radio button, slider, split button, toolbar:
+            # never somewhere to type, whatever else they say
+            return False
+        if kind == 50004:                        # an edit box
+            return read_only is not True
+        if kind == 50030:                        # a document: Word, Notepad, or a web page
+            if has_value and read_only:
+                return False                     # a web page (read only)
+            if has_value and read_only is False:
+                return True
+            return None if has_text else False
+        if has_value and read_only is False:
+            return True                          # something whose text can be changed
+        if kind in (50026, 50033, 50025):        # group, pane, custom: e.g. a video
+            return None if has_text else False
+        return None
+    except Exception:
+        return None
+    finally:
+        for obj in (element, automation):
+            if obj:
+                try:
+                    table = ctypes.cast(obj, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p)))[0]
+                    ctypes.WINFUNCTYPE(ctypes.c_ulong, ctypes.c_void_p)(table[2])(obj)   # Release
+                except Exception:
+                    pass
+        try:
+            ole32.CoUninitialize()
+        except Exception:
+            pass
+
+
 def window_out_of_reach(hwnd):
     """True if Windows will not let this program type into that window: it
     belongs to a program running as administrator (or with higher rights) while
@@ -1412,6 +1554,199 @@ def window_out_of_reach(hwnd):
         return elevated is None or elevated
     except Exception:
         return False
+
+
+class _KEYBDINPUT(ctypes.Structure):
+    _fields_ = [("wVk", wintypes.WORD), ("wScan", wintypes.WORD),
+                ("dwFlags", wintypes.DWORD), ("time", wintypes.DWORD),
+                ("dwExtraInfo", ctypes.c_size_t)]
+
+
+class _MOUSEINPUT(ctypes.Structure):
+    _fields_ = [("dx", wintypes.LONG), ("dy", wintypes.LONG), ("mouseData", wintypes.DWORD),
+                ("dwFlags", wintypes.DWORD), ("time", wintypes.DWORD),
+                ("dwExtraInfo", ctypes.c_size_t)]
+
+
+class _INPUTUNION(ctypes.Union):
+    _fields_ = [("ki", _KEYBDINPUT), ("mi", _MOUSEINPUT)]
+
+
+class _INPUT(ctypes.Structure):
+    _fields_ = [("type", wintypes.DWORD), ("u", _INPUTUNION)]
+
+
+# Left and right Ctrl, Shift, Alt, then the two Windows keys.
+_LIFT_VKS = (0xA2, 0xA3, 0xA0, 0xA1, 0xA4, 0xA5, 0x5B, 0x5C)
+_EXTENDED_VKS = (0xA3, 0xA5, 0x5B, 0x5C)
+_QUIET_VK = 0xE8        # a key no keyboard has: see type_while_held
+_FAMILY = {0xA2: "ctrl", 0xA3: "ctrl", 0xA0: "shift", 0xA1: "shift",
+           0xA4: "alt", 0xA5: "alt", 0x5B: "windows", 0x5C: "windows"}
+
+
+def type_while_held(text, really_held=None):
+    """Type text into the focused window while the hotkey may still be held
+    down (typing as you speak). Ctrl held down turns typed letters into
+    shortcuts (Ctrl+A would select everything), so for the app the held
+    modifier keys are let go first and pressed again straight after, all in
+    one unbroken batch that nothing else can come between. The letters go as
+    Unicode characters, so the keyboard layout doesn't matter. Letting go of
+    Alt or the Windows key on its own would open a menu or Start: a key that
+    does nothing is pressed around them, as Windows itself advises. Returns
+    True if Windows took every keystroke.
+
+    really_held: the modifier keys (by name) that are physically down, as
+    the keyboard hook saw them. Only those are pressed again afterwards, so
+    a key let go a split second earlier is never left stuck down."""
+    if not text:
+        return True
+    try:
+        user32 = ctypes.windll.user32
+        down = [vk for vk in _LIFT_VKS if user32.GetAsyncKeyState(vk) & 0x8000]
+        held = [vk for vk in down if really_held is None or _FAMILY[vk] in really_held]
+        quiet = any(vk in (0xA4, 0xA5, 0x5B, 0x5C) for vk in held)
+        events = []
+
+        def key(vk=0, scan=0, up=False, unicode=False):
+            flags = (0x0002 if up else 0) | (0x0004 if unicode else 0)
+            if vk in _EXTENDED_VKS:
+                flags |= 0x0001
+            events.append(_INPUT(1, _INPUTUNION(ki=_KEYBDINPUT(vk, scan, flags, 0, 0))))
+
+        if quiet or any(vk in (0xA4, 0xA5, 0x5B, 0x5C) for vk in down):
+            key(_QUIET_VK); key(_QUIET_VK, up=True)
+        for vk in down:                          # everything down is let go...
+            key(vk, up=True)
+        units = text.encode("utf-16-le")
+        for i in range(0, len(units), 2):
+            unit = units[i] | (units[i + 1] << 8)
+            key(scan=unit, unicode=True); key(scan=unit, up=True, unicode=True)
+        for vk in held:                          # ...but only real ones pressed again
+            key(vk)
+        if held:
+            # Again a key that does nothing, so that letting go of Ctrl next
+            # time doesn't count as a lone tap of it (which some programs, and
+            # Windows' "show the pointer" option, react to).
+            key(_QUIET_VK); key(_QUIET_VK, up=True)
+        batch = (_INPUT * len(events))(*events)
+        user32.SendInput.argtypes = [wintypes.UINT, ctypes.POINTER(_INPUT), ctypes.c_int]
+        user32.SendInput.restype = wintypes.UINT
+        return user32.SendInput(len(events), batch, ctypes.sizeof(_INPUT)) == len(events)
+    except Exception:
+        return False
+
+
+def release_stuck(really_held):
+    """Let go of any modifier key Windows still thinks is down although it
+    isn't physically held (the end of typing as you speak: a key let go at
+    the very moment it was pressed again would otherwise stay down)."""
+    try:
+        user32 = ctypes.windll.user32
+        stuck = [vk for vk in _LIFT_VKS if user32.GetAsyncKeyState(vk) & 0x8000
+                 and _FAMILY[vk] not in really_held]
+        if not stuck:
+            return
+        events = []
+        for vk, up in [(_QUIET_VK, False), (_QUIET_VK, True)] + [(vk, True) for vk in stuck]:
+            flags = (0x0002 if up else 0) | (0x0001 if vk in _EXTENDED_VKS else 0)
+            events.append(_INPUT(1, _INPUTUNION(ki=_KEYBDINPUT(vk, 0, flags, 0, 0))))
+        batch = (_INPUT * len(events))(*events)
+        user32.SendInput.argtypes = [wintypes.UINT, ctypes.POINTER(_INPUT), ctypes.c_int]
+        user32.SendInput(len(events), batch, ctypes.sizeof(_INPUT))
+        print("Let go of %d modifier key(s) left down after typing." % len(stuck))
+    except Exception:
+        pass
+
+
+def find_pause(audio, rate):
+    """Where a piece of a dictation can be cut off and typed (typing as you
+    speak): in the middle of the last short pause after some speech, as a
+    sample index into audio, or None if there is no such pause yet. Talking
+    on and on without a pause: after about 8 seconds it is cut at the
+    quietest moment of the last few seconds instead."""
+    frame = rate // 50                           # 20 ms
+    count = len(audio) // frame
+    if count < 30:
+        return None
+    loud = np.sqrt(np.mean(np.square(
+        audio[:count * frame].astype(np.float32).reshape(count, frame)), axis=1))
+    floor, top = float(np.percentile(loud, 3)), float(np.percentile(loud, 95))
+    # Judged against this microphone's own background level, never a fixed
+    # loudness: microphones differ a lot (some are very quiet).
+    if top < 0.0002 or top < floor * 3.0:
+        return None                              # nothing that stands out as speech
+    quiet = loud < floor + 0.15 * (top - floor)
+    gap = 22                                     # a pause of about 0.45 s
+    speech, run, cut = 0, 0, None
+    for i, still in enumerate(quiet):
+        if still:
+            run += 1
+            if run == gap and speech >= 15:     # 0.3 s of speech before it
+                cut = (i - gap + 1 + gap // 2) * frame
+        else:
+            run = 0
+            speech += 1
+    if cut is None and count > 8 * 50:           # no pause at all: cut anyway
+        lo = count - 200
+        smooth = np.convolve(loud, np.ones(10) / 10.0, mode="same")
+        cut = (lo + int(np.argmin(smooth[lo:count - 10]))) * frame
+    return cut
+
+
+FILLERS = {"um", "umm", "ummm", "uh", "uhh", "uhm", "erm"}
+_SENTENCE_END = (".", "!", "?", "\u2026")
+
+
+def drop_fillers(words):
+    """Leave out "um", "uh" and the like (a list of words in, a list out),
+    tidying up around them: "Um, it seems" -> "It seems", "so, um, this" ->
+    "so, this", "right now um." -> "right now.". Only these sounds: words
+    such as "like" or "you know" are often meant, so they stay."""
+    if not REMOVE_FILLERS:
+        return list(words)
+    out, capital = [], False
+    for word in words:
+        core = word.strip(".,!?;:\u2026").lower()
+        if core in FILLERS:
+            marks = word[len(word.rstrip(".,!?;:\u2026")):]
+            starts = not out or out[-1].endswith(_SENTENCE_END)
+            if starts and word[:1].isupper():
+                capital = True                   # the next word starts the sentence
+            if out and marks and marks[0] in "!?.\u2026" \
+                    and not out[-1].endswith(_SENTENCE_END):
+                out[-1] = out[-1].rstrip(",;:") + marks[0]    # "now um." -> "now."
+                capital = False
+            continue
+        if capital and word[:1].islower():
+            word = word[0].upper() + word[1:]
+        capital = False
+        out.append(word)
+    return out
+
+
+def holds_speech(audio, whole, rate):
+    """Does this leftover bit of a recording hold any speech? Measured against
+    the whole recording's speaking level, so that background noise left
+    after the last pause is not read as an "uh"."""
+    frame = rate // 50
+    def loudness(a):
+        n = len(a) // frame
+        if n < 1:
+            return np.zeros(1, dtype=np.float32)
+        return np.sqrt(np.mean(np.square(a[:n * frame].astype(np.float32).reshape(n, frame)), axis=1))
+    every = loudness(whole)
+    floor, top = float(np.percentile(every, 3)), float(np.percentile(every, 95))
+    part = loudness(audio)
+    return int(np.sum(part > floor + 0.25 * (top - floor))) >= 8     # 0.16 s of it
+
+
+def microphone_present():
+    """Does Windows have a microphone at all right now? (Asked of Windows
+    directly: it notices one being plugged in or out at once.)"""
+    try:
+        return ctypes.windll.winmm.waveInGetNumDevs() > 0
+    except Exception:
+        return True                              # can't tell: don't cry wolf
 
 
 def focus_window(hwnd):
@@ -1813,7 +2148,163 @@ class Overlay(QtWidgets.QWidget):
     def LINE_H(self):
         """Height of one line of live words: follows the chosen text size."""
         return TEXT_SIZE + 5
-    NOTE_W, NOTE_H = 120, 40       # the smaller pill used for short notices (min width)
+    NOTE_W, NOTE_H = 120, 30       # every small pill: idle, notices, one-row dictation
+    # The small pills (idle, notices): a dot or the leetsay logo in the accent
+    # colour, then the hotkey or a short notice, flat and crisp: no shadow,
+    # glow or shading. Sizes are at 100% scale; Qt multiplies them by the
+    # screen's scaling factor.
+    DOT_R = 4.5                    # the dot's radius
+    LOGO_H, LOGO_MIN = 16.0, 3.0   # the logo's height; its shortest bar at least
+    PILL_PAD_V, PILL_PAD_L, PILL_PAD_R = 6.0, 11.0, 13.0
+    MARK_GAP, WORD_GAP = 8.0, 5.0  # mark to words; between a key and its "+"
+
+    @staticmethod
+    def _pill_font(weight):
+        font = QtGui.QFont("Segoe UI")
+        font.setPixelSize(13)
+        font.setWeight(weight)
+        # Letters snapped to the pixel grid: the pill is see-through, where
+        # Windows smooths text less, so this keeps them sharp.
+        font.setHintingPreference(QtGui.QFont.PreferFullHinting)
+        return font
+
+    @classmethod
+    def _key_font(cls):
+        return cls._pill_font(QtGui.QFont.DemiBold)     # 600
+
+    @classmethod
+    def _plus_font(cls):
+        return cls._pill_font(QtGui.QFont.Medium)       # 500
+
+    @staticmethod
+    def _pill_colours():
+        """Fill, outline, key names, "+": the dark look, or the same contrast
+        on the light theme."""
+        if is_light(POPUP_BG):
+            return (QtGui.QColor("#F7F8FA"), QtGui.QColor("#C4C8D0"),
+                    QtGui.QColor("#1B1D22"), QtGui.QColor("#737885"))
+        return (QtGui.QColor("#1B1D22"), QtGui.QColor("#3A3E47"),
+                QtGui.QColor("#EEF0F3"), QtGui.QColor("#8D929D"))
+
+    @staticmethod
+    def _hotkey_keys(note):
+        """The keys to show when the pill is showing the hotkey, e.g.
+        ["Ctrl", "Space"]; None for any other text."""
+        if not note or note != pretty(HOTKEY):
+            return None
+        return [part for part in note.split("+") if part]
+
+    @classmethod
+    def _logo_metrics(cls):
+        """Bar width, gap and height per unit of the logo: bars 8 units wide
+        with 3-unit gaps, heights 1 : 3 : 3 : 7, the tallest filling LOGO_H."""
+        unit = cls.LOGO_H / float(max(ICON_BARS))
+        s = unit / 5.4                           # the app icon's own unit scale
+        return 8.0 * s, 3.0 * s, unit
+
+    @classmethod
+    def _mark_width(cls):
+        if PILL_LOGO:
+            width, gap, _unit = cls._logo_metrics()
+            return len(ICON_BARS) * width + (len(ICON_BARS) - 1) * gap
+        return 2.0 * cls.DOT_R
+
+    def _draw_mark(self, p, left, cy, colour):
+        """The dot, or the logo's four 1337 bars, centred on cy."""
+        p.setPen(Qt.NoPen)
+        p.setBrush(colour)
+        if not PILL_LOGO:
+            p.drawEllipse(QtCore.QPointF(left + self.DOT_R, cy), self.DOT_R, self.DOT_R)
+            return
+        width, gap, unit = self._logo_metrics()
+        for i, units in enumerate(ICON_BARS):
+            h = max(self.LOGO_MIN, unit * units)
+            p.drawRoundedRect(QtCore.QRectF(left + i * (width + gap), cy - h / 2.0, width, h),
+                              width / 2.0, width / 2.0)
+
+    def _hotkey_words(self, keys):
+        """[(word, is_plus, width)] for "Ctrl", "+", "Space"..., and the total width."""
+        key_metrics = QtGui.QFontMetricsF(self._key_font())
+        plus_metrics = QtGui.QFontMetricsF(self._plus_font())
+        sized = []
+        for i, key in enumerate(keys):
+            if i:
+                sized.append(("+", True, plus_metrics.horizontalAdvance("+")))
+            sized.append((key, False, key_metrics.horizontalAdvance(key)))
+        total = sum(w for _word, _plus, w in sized) + self.WORD_GAP * (len(sized) - 1)
+        return sized, total
+
+    def _pill_height(self):
+        return float(self.NOTE_H)
+
+    def _pill_width(self, keys, text=""):
+        """Width of a small pill: the mark, then the hotkey or a notice."""
+        if not keys and not text:
+            # The mark alone: a round button for the dot, a pill that hugs the logo.
+            if not PILL_LOGO:
+                return self._pill_height()
+            return float(round(self.PILL_PAD_L + self._mark_width() + self.PILL_PAD_L))
+        width = self.PILL_PAD_L + self._mark_width() + self.MARK_GAP + self.PILL_PAD_R
+        if keys:
+            width += self._hotkey_words(keys)[1]
+        else:
+            # (+2: room for the outline and pixel rounding, so it is never cut short)
+            width += QtGui.QFontMetricsF(self._key_font()).horizontalAdvance(text) + 2.0
+        return float(round(min(380.0, width)))
+
+    def _draw_pill(self, p, keys, card, accent, text=""):
+        """A whole small pill, flat: its fill and a 1 px outline lined up with
+        the screen's real pixels, the mark, then the hotkey's words or a short
+        notice."""
+        ratio = self.devicePixelRatioF() or 1.0
+        snap = lambda value: round(value * ratio) / ratio
+        # The outline is one or two whole screen pixels (1 px at 150% falls
+        # between pixels and looks fuzzy), drawn as a filled ring so its curves
+        # come out smooth.
+        line = max(1, int(round(ratio))) / ratio
+        outer_box = QtCore.QRectF(snap(card.left()), snap(card.top()),
+                                  snap(card.width()), snap(card.height()))
+        box = outer_box.adjusted(line / 2.0, line / 2.0, -line / 2.0, -line / 2.0)
+        fill, outline, key_colour, plus_colour = self._pill_colours()
+        outer = QtGui.QPainterPath()
+        outer.addRoundedRect(outer_box, outer_box.height() / 2.0, outer_box.height() / 2.0)
+        inner_box = outer_box.adjusted(line, line, -line, -line)
+        inner = QtGui.QPainterPath()
+        inner.addRoundedRect(inner_box, inner_box.height() / 2.0, inner_box.height() / 2.0)
+        p.setPen(Qt.NoPen)
+        p.fillPath(inner, QtGui.QBrush(fill))
+        p.fillPath(outer.subtracted(inner), QtGui.QBrush(outline))
+        cy = box.center().y()
+        still = self.mode == "idle" or self.previewing
+        pulse = 1.0 if still else 0.5 + 0.5 * math.sin(self.phase * 0.16)
+        colour = QtGui.QColor(accent)
+        colour.setAlphaF(colour.alphaF() * (0.55 + 0.45 * pulse))   # breathes when busy
+        if not keys and not text:                # the mark alone, in the middle
+            self._draw_mark(p, snap(box.center().x() - self._mark_width() / 2.0), cy, colour)
+            return
+        left = snap(card.left() + self.PILL_PAD_L)
+        self._draw_mark(p, left, cy, colour)
+        x = left + self._mark_width() + self.MARK_GAP
+        # Centred on the capital letters, not on the whole line (which also
+        # holds room for letters that hang below it, and so sat the words low):
+        # the gap above "Ctrl" equals the gap below it. The line it sits on is
+        # put on a whole pixel, so the letters stay sharp.
+        baseline = snap(cy + QtGui.QFontMetricsF(self._key_font()).capHeight() / 2.0)
+        if not keys:                             # a short notice
+            metrics = QtGui.QFontMetricsF(self._key_font())
+            room = box.right() - self.PILL_PAD_R - x
+            p.setFont(self._key_font())
+            # A missing microphone is said in red: nothing can work without it.
+            p.setPen(popup_theme()["danger"] if text == self.NO_MIC else key_colour)
+            p.drawText(QtCore.QPointF(snap(x), baseline),
+                       metrics.elidedText(text, Qt.ElideRight, room))
+            return
+        words, _total = self._hotkey_words(keys)
+        for word, plus, width in words:
+            p.setFont(self._plus_font() if plus else self._key_font())
+            p.setPen(plus_colour if plus else key_colour)
+            p.drawText(QtCore.QPointF(snap(x), baseline), word)
+            x += width + self.WORD_GAP
     GLOW = 36          # transparent room around the card for its glow and shadow
 
     def __init__(self, recorder):
@@ -1824,6 +2315,11 @@ class Overlay(QtWidgets.QWidget):
         self.setAttribute(Qt.WA_ShowWithoutActivating)
         self.preview_words = None  # third-row text while previewing
         self.warning = ""          # microphone problem shown where the words go
+        self.box_missing = False   # typing as you speak: no text box has the focus
+        self.status = "ok"         # the pill's light: "ok" (accent), "busy" (amber),
+                                   # "problem" (red: no microphone, no model...)
+        self._line_key = None      # what the card's words line shows, and since when
+        self._line_t0 = 0.0
         self.picking = False       # welcome card is showing the hotkey choices
         self._hits = {}            # welcome card: name -> (x, y, w, h) click targets
         self._mouse = None         # last mouse position over the window
@@ -1867,6 +2363,16 @@ class Overlay(QtWidgets.QWidget):
         self._pos = self._load_position()    # where the user dragged it, if anywhere
         self.setMouseTracking(True)
 
+        self._morph = None             # a shape change under way (pill <-> card)
+        self._shape_kind = None        # "small", "card" or "welcome": what was drawn
+        self._last_frame = None        # the last picture, at full strength
+        self._last_origin = QtCore.QPointF(0, 0)
+        self._last_shape = None        # ... and its card's rectangle and corner radius
+        self._last_fade = 0.0
+        self._card_radius = 0.0
+        self._clamp_shift = QtCore.QPointF(0, 0)   # how far the card was moved to fit
+        self._card_screen = None       # the screen the card is on
+        self._glow_margin = None       # the glow's size, kept steady while dragging
         self.timer = QtCore.QTimer(self)
         self.timer.setInterval(16)               # about 60 frames a second
         self.timer.timeout.connect(self._tick)
@@ -1904,17 +2410,25 @@ class Overlay(QtWidgets.QWidget):
         self.reveal_credit = 0.0
         self._clear_words()
         self.warning = ""
+        self.box_missing = False
         self.rows = 1.0
         self._present()
+
+    NO_SOUND = "No sound from the microphone"
+    CARD_EDGE_GAP = 24             # a dictation card's room from the screen's edges
+    NO_BOX = "No text box selected"
+    NO_MIC = "Microphone not detected  \u00b7  click for help"
 
     def _mic_warning(self):
         """Say so if the microphone is giving nothing a couple of seconds in."""
         elapsed = time.monotonic() - self.started
         peak = getattr(self.recorder, "peak", 1.0)
         if elapsed > 1.5 and peak < MIC_SILENT_PEAK:
-            return "No sound from the microphone"
+            return self.NO_SOUND
         if elapsed > 5.0 and peak < MIC_QUIET_PEAK and not self.live_text:
             return "Can't hear you. Check the mic"
+        if self.box_missing:
+            return self.NO_BOX                   # typing as you speak is waiting
         return ""
 
     # -- size ------------------------------------------------------------------
@@ -1923,23 +2437,33 @@ class Overlay(QtWidgets.QWidget):
         """Height set aside for the live words (grows with the line count)."""
         return 8 + self.LINE_H * LIVE_LINES
 
+    def _below(self):
+        """Room below the pill's bottom line. A card opens centred on the pill,
+        but a pill dragged to the top of the screen has its card open
+        downwards instead, so there is room for the whole card below it."""
+        return int(self.CARD_H + self.live_h - self.NOTE_H) + 4
+
     def apply_size(self):
         """Size the window for the current settings, keeping its base in place."""
         anchor = self._anchor() if self.isVisible() else None
-        self.resize(self.WIN_W + 2 * self.GLOW,
-                    max(self.CARD_H + self.live_h, self.WELCOME_H) + 2 * self.GLOW)
+        # Twice the widest card: a pill pushed against a screen edge opens its
+        # card beside it, shifted inwards, and that card must still fit in the
+        # (see-through) window.
+        self.resize(2 * (self.WIN_W + self.GLOW),
+                    max(self.CARD_H + self.live_h, self.WELCOME_H) + 2 * self.GLOW
+                    + self._below())
         if anchor is not None:
             self.move(self._top_left(anchor))
         self.update()
 
     def _anchor(self):
-        """The card's bottom-centre point: stays put when the size changes."""
+        """The pill's bottom-centre point: stays put when the size changes."""
         return QtCore.QPoint(self.pos().x() + self.width() // 2,
-                             self.pos().y() + self.height() - self.GLOW)
+                             self.pos().y() + self.height() - self.GLOW - self._below())
 
     def _top_left(self, anchor):
         return QtCore.QPoint(anchor.x() - self.width() // 2,
-                             anchor.y() - self.height() + self.GLOW)
+                             anchor.y() - self.height() + self.GLOW + self._below())
 
     def show_idle(self):
         """The small always-there pill between dictations."""
@@ -2205,18 +2729,45 @@ class Overlay(QtWidgets.QWidget):
         """Bottom-centre point for the pop-up: the dragged spot, else just above
         the taskbar in the middle of the screen."""
         if self._pos is not None:
-            # The card itself must be on a screen, not merely the (mostly
-            # see-through) window around it: test a patch of the card just above
-            # its bottom-centre point. A spot on a monitor that has since been
-            # unplugged or moved falls back to the usual place.
+            # The pill must be fully on a screen, a little away from its edges
+            # (older versions let it be dragged half off). A spot on a monitor
+            # that has since been unplugged or moved falls back to the usual
+            # place; a spot partly off a screen is pulled back onto it.
             card = QtCore.QRect(self._pos.x() - 30, self._pos.y() - 26, 60, 20)
-            if any(screen.availableGeometry().contains(card)
-                   for screen in QtGui.QGuiApplication.screens()):
-                return self._pos
+            for screen in QtGui.QGuiApplication.screens():
+                if screen.availableGeometry().intersects(card):
+                    # Half the idle pill's own width (never a card's: a card
+                    # as wide would push the pill away from where you put it).
+                    keys = self._hotkey_keys(pretty(HOTKEY)) if SHOW_HOTKEY_HINT else None
+                    half = self._pill_width(keys) / 2.0
+                    spot = self._inside(screen.availableGeometry(), QtCore.QRectF(
+                        self._pos.x() - half, self._pos.y() - self.NOTE_H,
+                        2 * half, self.NOTE_H))
+                    return QtCore.QPoint(self._pos.x() + int(round(spot.x())),
+                                         self._pos.y() + int(round(spot.y())))
         screen = QtGui.QGuiApplication.primaryScreen()    # the main monitor
         area = screen.availableGeometry()     # excludes the taskbar
         return QtCore.QPoint(area.x() + area.width() // 2,
                              area.y() + area.height() - BOTTOM_MARGIN)
+
+    @staticmethod
+    def _inside(area, rect, gaps=None):
+        """How far rect (in screen coordinates) must move to sit inside area,
+        EDGE_GAP away from its edges (or gaps: left, top, right, bottom).
+        Too big to fit: its top-left wins."""
+        gl, gt, gr, gb = gaps or (EDGE_GAP,) * 4
+        left, top = area.left() + gl, area.top() + gt
+        right, bottom = area.right() + 1 - gr, area.bottom() + 1 - gb
+        dx = dy = 0.0
+        if rect.right() > right:
+            dx = right - rect.right()
+        if rect.left() + dx < left:
+            dx = left - rect.left()
+        if rect.bottom() > bottom:
+            dy = bottom - rect.bottom()
+        if rect.top() + dy < top:
+            dy = top - rect.top()
+        return QtCore.QPointF(dx, dy)
 
     @staticmethod
     def _load_position():
@@ -2303,7 +2854,17 @@ class Overlay(QtWidgets.QWidget):
         if not self._dragging and (here - self._press).manhattanLength() > 6:
             self._dragging = True
         if self._dragging:
-            self.move(here - self._offset)
+            spot = here - self._offset
+            if self._card is not None:
+                # Stop at the edges of the screen under the mouse (the taskbar
+                # included), a few pixels short, so it can't be lost off-screen.
+                screen = QtGui.QGuiApplication.screenAt(here) or self.screen()
+                if screen is not None:
+                    left, top, width, height = self._card
+                    nudge = self._inside(screen.availableGeometry(), QtCore.QRectF(
+                        spot.x() + left, spot.y() + top, width, height))
+                    spot += QtCore.QPoint(int(round(nudge.x())), int(round(nudge.y())))
+            self.move(spot)
             self.update()
 
     def mouseReleaseEvent(self, event):
@@ -2382,8 +2943,8 @@ class Overlay(QtWidgets.QWidget):
             self._press = None
             self._dragging = False
             self._resizing = None
-        # Fade in quickly, fade out a little slower.
-        speed = 0.19 if self.fade_target > self.fade else 0.16
+        # Fade in quickly (about 120 ms), fade out a little slower.
+        speed = 0.30 if self.fade_target > self.fade else 0.16
         self.fade += (self.fade_target - self.fade) * speed
         if self.fade_target == 0.0 and self.fade < 0.03 and self._press is None:
             self.fade = 0.0
@@ -2391,7 +2952,8 @@ class Overlay(QtWidgets.QWidget):
             self.timer.stop()
             self.hide()
             return
-        if self.mode == "idle" and abs(self.fade - self.fade_target) < 0.02:
+        if self.mode == "idle" and abs(self.fade - self.fade_target) < 0.02 \
+                and self._morph is None:
             self.fade = self.fade_target        # nothing moves while idle:
             self.timer.stop()                   # stop redrawing, use no CPU
             self.update()
@@ -2406,6 +2968,8 @@ class Overlay(QtWidgets.QWidget):
             wanted = 50                           # progress and small movements only
         else:
             wanted = 16
+        if self._morph is not None:
+            wanted = 16                           # a shape change: every frame
         if self.timer.interval() != wanted:
             self.timer.setInterval(wanted)
 
@@ -2430,34 +2994,143 @@ class Overlay(QtWidgets.QWidget):
         self.update()
 
     def paintEvent(self, event):
-        """Draw the pop-up, faded as one piece. While fading in or out, the
-        whole picture is drawn at full strength off-screen and then shown at
-        the right transparency. (Fading each layer separately lets the shadow
-        and glow show through the card, which turns it a muddy grey.)"""
+        """Draw the pop-up, faded as one piece. Each frame is drawn fresh, at
+        full strength, at the screen's real scale, then shown at the right
+        transparency. (Fading each layer separately lets the shadow and glow
+        show through the card, which turns it a muddy grey.) While the pill
+        turns into the card or back, the two are blended as one changing
+        shape (see _morph_frame)."""
         fade = max(0.0, min(1.0, self.fade))
-        if fade >= 0.995:
-            p = QtGui.QPainter(self)
-            try:
-                self._draw(p)
-            finally:
-                p.end()
-            return
         ratio = self.devicePixelRatioF()
-        picture = QtGui.QPixmap(max(1, int(round(self.width() * ratio))),
-                                max(1, int(round(self.height() * ratio))))
-        picture.setDevicePixelRatio(ratio)
-        picture.fill(Qt.transparent)
-        p = QtGui.QPainter(picture)
+        area = self._paint_area()
+        frame = QtGui.QPixmap(max(1, int(round(area.width() * ratio))),
+                              max(1, int(round(area.height() * ratio))))
+        frame.setDevicePixelRatio(ratio)
+        frame.fill(Qt.transparent)
+        p = QtGui.QPainter(frame)
         try:
+            p.translate(-area.x(), -area.y())
             self._draw(p)
         finally:
             p.end()
+        shown = self._morph_frame(frame, fade, area)
         p = QtGui.QPainter(self)
         try:
-            p.setOpacity(fade)
-            p.drawPixmap(0, 0, picture)
+            if fade < 0.995:
+                p.setOpacity(fade)
+            p.drawPixmap(area.topLeft(), shown)
         finally:
             p.end()
+
+    def _paint_area(self):
+        """The part of the window drawn this frame: the card with room for its
+        glow and shadow. The window is far wider than the card (so a card can
+        shift at a screen edge), and drawing all of it every frame cost three
+        times as much. The whole window is drawn when the shape is changing
+        (pill to card), for the welcome card and the "Ready" pulse."""
+        whole = QtCore.QRect(0, 0, self.width(), self.height())
+        note = self._note_text()
+        kind = "small" if note is not None else ("welcome" if self.mode == "welcome" else "card")
+        if (self._card is None or self._morph is not None or kind != self._shape_kind
+                or kind == "welcome" or self.pulse_started is not None or self._dragging):
+            return whole
+        left, top, width, height = self._card
+        room = self.GLOW + 28
+        return QtCore.QRectF(left - room, top - room, width + 2 * room,
+                             height + 2 * room).toAlignedRect().intersected(whole)
+
+    def _morph_frame(self, frame, fade, area):
+        """Pill to card (or back) as one shape: its position, size, corners and
+        fill move smoothly from one to the other (about 200 ms growing, 160 ms
+        shrinking, fast at first, gentle at the end). What the pill showed
+        fades out in the first third, what the card shows fades in over the
+        last half, and the card's glow comes last. The contents are never
+        stretched: each is a picture drawn at its real size, only revealed
+        inside the changing shape. Windows' "Animation effects" off: no
+        animation, the new shape is simply there."""
+        note = self._note_text()
+        kind = "small" if note is not None else ("welcome" if self.mode == "welcome" else "card")
+        target = QtCore.QRectF(*self._card) if self._card else None
+        radius = float(self._card_radius)
+        now = time.monotonic()
+        if (kind != self._shape_kind and self._last_frame is not None
+                and self._last_shape is not None and target is not None
+                and fade > 0.9 and self._last_fade > 0.9 and "welcome" not in
+                (kind, self._shape_kind) and animations_on()):
+            start, start_radius = self._last_shape
+            grow = target.width() * target.height() >= start.width() * start.height()
+            self._morph = {"t0": now, "length": 0.20 if grow else 0.16, "rect": start,
+                           "radius": start_radius, "old": self._last_frame,
+                           "origin": QtCore.QPointF(self._last_origin),
+                           "from": self._shape_fill(self._shape_kind),
+                           "to": self._shape_fill(kind)}
+            self.timer.start()
+        elif kind != self._shape_kind:
+            self._morph = None
+        self._shape_kind = kind
+        self._last_fade = fade
+        shown = frame
+        morph = self._morph
+        if morph is not None and target is not None:
+            t = min(1.0, (now - morph["t0"]) / morph["length"])
+            eased = 1.0 - (1.0 - t) ** 3
+
+            def mix(a, b):
+                return a + (b - a) * eased
+            was = morph["rect"]
+            shape = QtCore.QRectF(mix(was.left(), target.left()), mix(was.top(), target.top()),
+                                  mix(was.width(), target.width()),
+                                  mix(was.height(), target.height()))
+            corner = min(mix(morph["radius"], radius), shape.height() / 2.0)
+            a, b = morph["from"], morph["to"]
+            body = QtGui.QColor(int(mix(a.red(), b.red())), int(mix(a.green(), b.green())),
+                                int(mix(a.blue(), b.blue())), int(mix(a.alpha(), b.alpha())))
+            shown = QtGui.QPixmap(frame.size())
+            shown.setDevicePixelRatio(frame.devicePixelRatio())
+            shown.fill(Qt.transparent)
+            p = QtGui.QPainter(shown)
+            try:
+                p.setRenderHint(QtGui.QPainter.Antialiasing)
+                p.setPen(QtGui.QPen(self._pill_colours()[1], 1.0))
+                p.setBrush(body)
+                p.drawRoundedRect(shape, corner, corner)
+                outline = QtGui.QPainterPath()
+                outline.addRoundedRect(shape, corner, corner)
+                p.save()
+                p.setClipPath(outline)
+                leaving = max(0.0, 1.0 - t / 0.33)        # the pill's contents
+                if leaving > 0.0:
+                    p.setOpacity(leaving)
+                    p.drawPixmap(morph["origin"], morph["old"])
+                arriving = max(0.0, (t - 0.5) / 0.5)      # the card's contents
+                if arriving > 0.0:
+                    p.setOpacity(arriving)
+                    p.drawPixmap(0, 0, frame)
+                p.restore()
+                outside = max(0.0, (t - 0.75) / 0.25)     # its glow, last of all
+                if outside > 0.0:
+                    # Only round the shape: inside it the card is drawn already.
+                    around = QtGui.QPainterPath()
+                    around.addRect(QtCore.QRectF(0, 0, frame.width(), frame.height()))
+                    p.save()
+                    p.setClipPath(around.subtracted(outline))
+                    p.setOpacity(outside)
+                    p.drawPixmap(0, 0, frame)
+                    p.restore()
+            finally:
+                p.end()
+            if t >= 1.0:
+                self._morph = None
+        self._last_frame = frame
+        self._last_origin = QtCore.QPointF(area.topLeft())   # where that picture sits
+        self._last_shape = (QtCore.QRectF(target), radius) if target is not None else None
+        return shown
+
+    def _shape_fill(self, kind):
+        """The fill colour of a small pill, or of a card."""
+        if kind == "small":
+            return QtGui.QColor(self._pill_colours()[0])
+        return QtGui.QColor(popup_theme()["bg"])
 
     def _download_lines(self, note):
         """The download card's two lines of text, and whether it is stalled."""
@@ -2604,7 +3277,7 @@ class Overlay(QtWidgets.QWidget):
         fade = 1.0
         p.setOpacity(fade)
         g = self.GLOW
-        base = self.height() - g                 # every card sits on this line
+        base = self.height() - g - self._below()  # the pill sits on this line
         note = self._note_text()
         warning = "" if self.previewing else self.warning
         third = LIVE_PREVIEW or bool(self.previewing and self.preview_words) or bool(warning)
@@ -2627,8 +3300,12 @@ class Overlay(QtWidgets.QWidget):
             wanted = QtGui.QFontMetricsF(note_font).horizontalAdvance(note) + 58.0
             width = max(80.0, min(380.0, wanted))                # hugs short text
             height, radius = float(self.NOTE_H), self.NOTE_H / 2.0
-            if not note:                                          # the dot alone: round
-                width = height
+            # Every small pill (idle, "Ready", notices) is one height and one
+            # look, so moving from one to the next never jumps in size.
+            keys = self._hotkey_keys(note)
+            width = self._pill_width(keys, "" if keys else note)
+            height = self._pill_height()
+            radius = height / 2.0
             if self.progress is not None and self.mode == "message":
                 # The download card: just wide enough for its text, with the
                 # same margin on every side.
@@ -2649,6 +3326,12 @@ class Overlay(QtWidgets.QWidget):
             if CARD_WIDTH:                       # dragged to your own width
                 width = float(max(self.CARD_W, min(self.WIN_W, CARD_WIDTH)))
             width = self._fit_width(width)       # room for the app's name in full
+            if warning:                          # a microphone warning, never cut short
+                said = QtGui.QFont("Segoe UI")
+                said.setPixelSize(TEXT_SIZE)
+                width = max(width, min(float(self.WIN_W),
+                                       QtGui.QFontMetricsF(said).horizontalAdvance(warning)
+                                       + 34.0))
             # What sits on the top row, left to right: the app's icon (or a
             # dot), its name if wanted, the wave, the timer.
             one_row = not third                  # no words under it: a pill
@@ -2679,14 +3362,46 @@ class Overlay(QtWidgets.QWidget):
                 # resting pill, not a short card with card-sized corners.
                 height = float(self.NOTE_H)
                 radius = height / 2.0
-        card = QtCore.QRectF(g + (self.WIN_W - width) / 2.0, base - height, width, height)
+        top = base - height                      # small pills, welcome, download card
+        if note is None and self.mode != "welcome":
+            # A dictation card opens centred on the pill: it grows out evenly
+            # from the pill's middle. Never into the taskbar or off the screen,
+            # though: then it sits just high enough to stay clear.
+            top = base - self.NOTE_H / 2.0 - height / 2.0
+        card = QtCore.QRectF((self.width() - width) / 2.0, top, width, height)
+        if self._dragging:
+            card.translate(self._clamp_shift)    # as it was when the drag began
+        else:
+            # Never into the taskbar or off the screen: a card opened from a
+            # pill near an edge or a corner moves just far enough to fit.
+            # (While dragging it keeps that shift: the drag itself stops at
+            # the edges, and dropping it changes nothing for one frame.)
+            centre = self.mapToGlobal(QtCore.QPoint(self.width() // 2, int(base)))
+            screen = (QtGui.QGuiApplication.screenAt(centre) or self.screen()
+                      or QtGui.QGuiApplication.primaryScreen())
+            if screen is not None:
+                room, whole = screen.availableGeometry(), screen.geometry()
+                gaps = None
+                if note is None and self.mode != "welcome":
+                    # A dictation card keeps a little more room from the
+                    # screen's real edges (not from the taskbar), so its glow
+                    # has space to fade out instead of meeting the edge.
+                    gaps = tuple(self.CARD_EDGE_GAP if at_edge else EDGE_GAP for at_edge in (
+                        room.left() == whole.left(), room.top() == whole.top(),
+                        room.right() == whole.right(), room.bottom() == whole.bottom()))
+                shift = self._inside(room, card.translated(self.x(), self.y()), gaps)
+                card.translate(shift)
+                self._clamp_shift = shift
+                self._card_screen = screen
         self._card = (card.left(), card.top(), width, height)
+        self._card_radius = radius
         cy = card.center().y()
         cx = card.center().x()
         accent = QtGui.QColor(ACCENT)
         theme = popup_theme()
         if is_light(POPUP_BG):
             accent = accent_on_light(accent)     # keeps the bars vivid on a pale card
+        flat = note is not None and self.progress is None
 
         # Soft drop shadow under the card: lighter and tighter under the small
         # pill, where a full shadow reads as a heavy dark ring.
@@ -2697,8 +3412,8 @@ class Overlay(QtWidgets.QWidget):
             spread = 5
         p.setPen(Qt.NoPen)
         p.setBrush(shadow)
-        for i in range(spread, 0, -1):
-            p.drawRoundedRect(card.adjusted(-i, 2 - i, i, 2 + i), radius + i, radius + i)
+        # (The card no longer gets this stepped shadow: a soft blurred shadow
+        # or the glow does that job, and the steps showed as faint rings.)
 
         # A single pulse of the accent colour, used once when the app says
         # "Ready": it swells out from the pill and fades as it goes.
@@ -2719,6 +3434,20 @@ class Overlay(QtWidgets.QWidget):
                                                card.center().y() - gh / 2.0, gw, gh),
                                  wave, QtCore.QRectF(wave.rect()))
                     p.setOpacity(fade)
+
+        if flat:
+            # A small pill (idle, "Ready", a notice): flat and crisp, with no
+            # shadow, glow or shading. ("Ready" still sends out its one pulse.)
+            keys = self._hotkey_keys(note)
+            # The mark is a status light: the accent colour when all is well,
+            # amber while the model loads, red when something needs you.
+            light = accent
+            if self.status == "problem":
+                light = QtGui.QColor(theme["danger"])
+            elif self.status == "busy":
+                light = QtGui.QColor(theme["warning"])
+            self._draw_pill(p, keys, card, light, "" if keys else note)
+            return
 
         if note is not None and self.progress is not None and self.mode == "message":
             halo = glow_pixmap(width, height, radius,
@@ -2747,7 +3476,20 @@ class Overlay(QtWidgets.QWidget):
         vivid = glow_base()
         if GLOW_FROM_APP and self.app_colour is not None and self.mode == "recording":
             vivid = QtGui.QColor(self.app_colour)    # glow in the app icon's own colour
-        amount = glow_amount()
+        amount = glow_amount() if CARD_STYLE == "glow" else 0.0
+        if CARD_STYLE != "glow":
+            # A soft, neutral shadow under the card, the way the system's own
+            # pop-ups float: dark and wide, a little lower than the card, never
+            # tinted (a coloured halo looks muddy over some apps).
+            shade = glow_pixmap(width, height, radius, QtGui.QColor(0, 0, 0),
+                                float(self.GLOW), 16.0, self.devicePixelRatioF())
+            if shade is not None:
+                p.setOpacity(fade * (0.22 if is_light(POPUP_BG) else 0.42))
+                p.drawPixmap(QtCore.QRectF(card.left() - self.GLOW,
+                                           card.top() - self.GLOW + 5.0,
+                                           width + 2 * self.GLOW, height + 2 * self.GLOW),
+                             shade, QtCore.QRectF(shade.rect()))
+                p.setOpacity(fade)
 
         # The glow belongs to dictating: it is there while you are talking to
         # the app (and in previews from Settings), never on the idle pill, the
@@ -2756,8 +3498,23 @@ class Overlay(QtWidgets.QWidget):
             breath = 0.5 + 0.5 * math.sin(self.phase * 0.07) if live else 0.5
             strength = ((0.55 + 0.10 * breath + 0.35 * self.ring) if live else 0.6) * amount
             spread = 1.0 + (0.012 * breath + 0.05 * self.ring if live else 0.0)
+            # Near a screen edge the whole glow draws in, evenly on every
+            # side, to the room there is: smooth all round, never cut off by
+            # the edge or squeezed on one side.
             margin = float(self.GLOW)
-            glow = glow_pixmap(width, height, radius, vivid, margin, 15.0,
+            screen = (self._card_screen or self.screen()
+                      or QtGui.QGuiApplication.primaryScreen())
+            if self._dragging and self._glow_margin is not None:
+                margin = self._glow_margin       # steady while dragging (no rebuilds)
+            elif screen is not None:
+                whole = QtCore.QRectF(screen.geometry()).translated(-self.x(), -self.y())
+                space = min(card.left() - whole.left(), card.top() - whole.top(),
+                            whole.right() - card.right(), whole.bottom() - card.bottom())
+                # In steps of 4 px, so the picture is made a few times, not
+                # once for every pixel the card moves.
+                margin = float(max(8, min(self.GLOW, (int(space) - 2) // 4 * 4)))
+            self._glow_margin = margin
+            glow = glow_pixmap(width, height, radius, vivid, margin, 15.0 * margin / self.GLOW,
                                self.devicePixelRatioF())
             if glow is not None:
                 # One smooth picture of the glow, faded in and out and nudged
@@ -2768,8 +3525,16 @@ class Overlay(QtWidgets.QWidget):
                 gw = width + 2 * margin + (self.CARD_W + 2 * margin) * (spread - 1.0)
                 gh = height + 2 * margin + (100.0 + 2 * margin) * (spread - 1.0)
                 p.setOpacity(fade * min(1.0, strength * 1.15))
-                p.drawPixmap(QtCore.QRectF(cx - gw / 2.0, cy - gh / 2.0, gw, gh), glow,
-                             QtCore.QRectF(glow.rect()))
+                outer = QtCore.QRectF(cx - gw / 2.0, cy - gh / 2.0, gw, gh)
+                p.drawPixmap(outer, glow, QtCore.QRectF(glow.rect()))
+                if live and self.ring > 0.06 and animations_on():
+                    # Your voice brings in the partner shade over the app's colour.
+                    partner = glow_pixmap(width, height, radius, partner_colour(vivid),
+                                          margin, 15.0 * margin / self.GLOW,
+                                          self.devicePixelRatioF())
+                    if partner is not None:
+                        p.setOpacity(fade * min(1.0, strength * 1.15) * min(0.45, self.ring * 0.7))
+                        p.drawPixmap(outer, partner, QtCore.QRectF(partner.rect()))
                 p.setOpacity(fade)
             else:
                 # Fallback: the same glow built from many faint outlines.
@@ -2829,7 +3594,7 @@ class Overlay(QtWidgets.QWidget):
         if not ACCENT_OUTLINE:
             if amount > 0.0 and (live or self.previewing):
                 edge = QtGui.QColor(vivid)
-                edge.setAlpha(150)
+                edge.setAlpha(125)
             else:
                 # A bezel: the one edge line catches light at the top and falls
                 # away toward the bottom, like the rim of a raised button. (It is
@@ -2842,8 +3607,27 @@ class Overlay(QtWidgets.QWidget):
                                         else ((0.0, 14), (0.55, 24), (1.0, 40))):
                     rim.setColorAt(position, QtGui.QColor(*tone, alpha))
                 edge = QtGui.QBrush(rim)
-            p.setPen(QtGui.QPen(edge, 1.2))
-            p.drawRoundedRect(card, radius, radius)
+                if CARD_STYLE == "accent" and (live or self.previewing):
+                    edge = QtGui.QColor(glow_base())   # your accent, never the app's
+                    edge.setAlpha(170)
+            if True:
+                # One whole screen pixel or two, lined up with the pixels, so
+                # the edge is crisp rather than a soft grey smear.
+                ratio = self.devicePixelRatioF() or 1.0
+                line = max(1, int(round(ratio))) / ratio
+                snap = lambda value: round(value * ratio) / ratio
+                # Drawn as a filled ring (the card's shape less the same shape
+                # one line smaller): its curves come out smoother than a thin
+                # drawn line, which shows steps at the corners at 100%.
+                outer_box = QtCore.QRectF(snap(card.left()), snap(card.top()),
+                                          snap(card.width()), snap(card.height()))
+                outer = QtGui.QPainterPath()
+                outer.addRoundedRect(outer_box, radius, radius)
+                inner = QtGui.QPainterPath()
+                inner.addRoundedRect(outer_box.adjusted(line, line, -line, -line),
+                                     radius - line, radius - line)
+                p.setPen(Qt.NoPen)
+                p.fillPath(outer.subtracted(inner), QtGui.QBrush(edge))
         p.setPen(Qt.NoPen)
 
         font = QtGui.QFont("Segoe UI")
@@ -2866,9 +3650,6 @@ class Overlay(QtWidgets.QWidget):
             self._draw_download(p, card, font, accent, theme, note)
             return
 
-        if note == "":                               # just the dot, in the middle
-            breathing_dot(QtCore.QPointF(cx, cy), 4.5)
-            return
         if note is not None:
             metrics = QtGui.QFontMetricsF(font)
             text = metrics.elidedText(note, Qt.ElideRight, width - 52)
@@ -2935,7 +3716,8 @@ class Overlay(QtWidgets.QWidget):
             metrics = QtGui.QFontMetricsF(font)
             room = width - 32
             if warning:
-                words, colour, lines = warning, theme["warning"], 1
+                words, lines = warning, 1
+                colour = theme["danger" if warning == self.NO_SOUND else "warning"]
             elif self.previewing:
                 words = self.preview_words or "Your words appear here"
                 colour = theme["muted"]
@@ -2944,6 +3726,16 @@ class Overlay(QtWidgets.QWidget):
             else:
                 words, colour = "Listening\u2026", theme["faint"]
             p.setPen(colour)
+            # When the line changes between your words and a notice ("No text
+            # box selected"), the new one fades in over a fifth of a second
+            # instead of snapping in.
+            key = warning or "words"
+            now = time.monotonic()
+            if key != self._line_key:
+                self._line_key, self._line_t0 = key, now
+            appear = min(1.0, (now - self._line_t0) / 0.2) if animations_on() else 1.0
+            p.save()
+            p.setOpacity(p.opacity() * (1.0 - (1.0 - appear) ** 2))
             if lines == 1:
                 side = Qt.ElideRight if warning else Qt.ElideLeft
                 p.drawText(QtCore.QRectF(card.left() + 16, card.top() + 70 - drop, room,
@@ -3004,6 +3796,7 @@ class Overlay(QtWidgets.QWidget):
             font.setPixelSize(12)
             p.setFont(font)
 
+            p.restore()
         if cancel_view:
             p.setOpacity(fade)
             font.setWeight(QtGui.QFont.DemiBold)
@@ -3018,10 +3811,16 @@ class Overlay(QtWidgets.QWidget):
 BACKGROUND_CHOICES = [("Dark", "#16171B"), ("Light", "#F8F8FA")]
 
 class EdgeStrip(QtWidgets.QWidget):
-    """One edge of the screen glow: a thin see-through window that fades from
-    the screen edge inward. Clicks pass straight through it, and it can never
-    take the keyboard. It is painted once; after that only its overall
-    opacity changes, which costs next to nothing."""
+    """One edge of the screen glow: a thin see-through window along a screen
+    edge. Clicks pass straight through it, and it can never take the
+    keyboard.
+
+    The light is built like real light: a thin bright core at the very
+    edge, a tight glow behind it and a wide soft haze, rounding off smoothly
+    in the corners. Its brightness is a picture made once per size; the
+    colour is laid over it, and with "flowing colours" it drifts slowly round
+    the screen (the strip is then redrawn while you dictate, about 30 times a
+    second; otherwise it is painted once and only its opacity changes)."""
 
     def __init__(self, side):
         super().__init__(None)
@@ -3032,77 +3831,139 @@ class EdgeStrip(QtWidgets.QWidget):
         self.setAttribute(Qt.WA_TransparentForMouseEvents)
         self.side = side
         self.colour = QtGui.QColor(ACCENT)
+        self.phase = 0.0                     # where the moving light is on its way round
+        self.voice = []                      # recent voice levels (the bottom edge's ripples)
+        self.alone = False                   # the only strip: the bottom edge on its own
+        self.span = (0.0, 1.0)               # this strip's share of the way round
+        self._mask = None                    # (key, picture of the brightness)
 
-    # How far in -> how strong. A thin, fully bright line right at the edge with
-    # a short halo behind it: that is what makes it look like light. (Dim and
-    # wide looks like smoke, most of all over a dark screen.)
-    STOPS = ((0.0, 255), (0.035, 240), (0.09, 135), (0.2, 58), (0.4, 20), (0.7, 5),
-             (1.0, 0))
+    @staticmethod
+    def light(distance, depth):
+        """How bright the glow is at `distance` pixels in from the edge
+        (numbers, or a numpy array), for a glow `depth` pixels deep: a thin
+        hot core, a tight glow and a wide haze, each fading smoothly."""
+        x = np.maximum(distance, 0.0)
+        core = np.exp(-x / 1.6)
+        glow = 0.55 * np.exp(-(x / max(2.0, 0.14 * depth)) ** 2)
+        haze = 0.34 * np.exp(-(x / max(4.0, 0.42 * depth)) ** 1.6)
+        fade = np.clip(1.0 - x / depth, 0.0, 1.0) ** 0.6     # gone by the far side
+        return np.minimum(1.0, (core + glow + haze) * fade)
 
-    def _shade(self, alpha):
-        # A lighter shade of the colour: bright at the edge and gone quickly
-        # reads as light. (A faint, even tint reads as a shadow.)
+    def _brightness(self, w, h, ratio):
+        """The strip's brightness as a picture (white, see-through), made at
+        the screen's real pixels, with a whisper of noise so the soft fade
+        shows no bands."""
+        key = (w, h, self.side, round(ratio, 2), self.alone)
+        if self._mask is not None and self._mask[0] == key:
+            return self._mask[1]
+        pw, ph = max(1, int(round(w * ratio))), max(1, int(round(h * ratio)))
+        depth = (h if self.side in ("top", "bottom") else w) * ratio
+        xs = np.arange(pw, dtype=np.float32) + 0.5
+        ys = np.arange(ph, dtype=np.float32) + 0.5
+        gx, gy = np.meshgrid(xs, ys)
+        if self.side in ("left", "right"):
+            dist = gx if self.side == "left" else pw - gx
+        elif self.alone:
+            dist = ph - gy                       # the bottom edge on its own, no corners
+        else:
+            dist = gy if self.side == "top" else ph - gy
+            # The corners (the top and bottom strips own them): the distance
+            # to the nearest edge, softened, so the light bends round in a
+            # smooth curve instead of meeting the other edge in a crease.
+            # (Further along, it is just the distance to this edge.)
+            soft = max(1.0, 0.12 * depth)
+            dist = -soft * np.log(np.exp(-dist / soft) + np.exp(-gx / soft)
+                                  + np.exp(-(pw - gx) / soft))
+            dist = np.maximum(dist, 0.0)
+        alpha = self.light(dist, depth)
+        if self.alone:
+            # On its own along the bottom it carries more light: a fuller haze
+            # rising from the edge, strongest in the middle and fading out
+            # towards both ends (no hard ends).
+            rise = 0.55 * np.exp(-(np.maximum(dist, 0.0) / (0.5 * depth)) ** 1.3)
+            alpha = np.minimum(1.0, alpha * 1.6 + rise) * np.sin(np.pi * gx / pw) ** 0.7
+        alpha = alpha + (np.random.default_rng(7).random(alpha.shape, dtype=np.float32)
+                         - 0.5) / 255.0
+        a = np.clip(alpha * 255.0, 0, 255).astype(np.uint8)
+        pixels = np.empty((ph, pw, 4), dtype=np.uint8)
+        pixels[..., 0] = a
+        pixels[..., 1] = a
+        pixels[..., 2] = a
+        pixels[..., 3] = a                   # premultiplied white
+        image = QtGui.QImage(np.ascontiguousarray(pixels).tobytes(), pw, ph, 4 * pw,
+                             QtGui.QImage.Format_ARGB32_Premultiplied).copy()
+        image.setDevicePixelRatio(ratio)
+        self._mask = (key, image)
+        return image
+
+    def _tint(self, position, along):
+        """The colour (and strength) at a point on the way round the screen
+        (0..1); `along` is how far along this strip (0..1). With "moving
+        light": a brighter band in a neighbouring shade travels round the
+        edge, and the bottom edge ripples out from its middle with your voice."""
         base = QtGui.QColor(self.colour)
-        # The brighter the point, the closer to white: a hot core, coloured halo.
-        lift = 0.10 + 0.25 * (alpha / 255.0) ** 2
-        shade = QtGui.QColor(int(base.red() + (255 - base.red()) * lift),
-                             int(base.green() + (255 - base.green()) * lift),
-                             int(base.blue() + (255 - base.blue()) * lift))
-        shade.setAlpha(alpha)
-        return shade
+        if not SCREEN_GLOW_FLOW:
+            return base
+        hue, sat, val, _a = base.getHsvF()
+        hue = max(0.0, hue)
+        gap = abs(position - self.phase) % 1.0
+        gap = min(gap, 1.0 - gap)                # round the screen, either way
+        light = math.exp(-(gap / 0.07) ** 2)     # the travelling band
+        shifted = partner_colour(base)            # a shade that goes with it
+        colour = QtGui.QColor(int(base.red() + (shifted.red() - base.red()) * light),
+                              int(base.green() + (shifted.green() - base.green()) * light),
+                              int(base.blue() + (shifted.blue() - base.blue()) * light))
+        strength = (0.8 + 0.2 * light) if self.alone else (0.55 + 0.45 * light)
+        if self.side == "bottom" and self.voice:
+            # Your voice, rippling outwards from the middle: the newest sound
+            # in the middle, older sounds further out.
+            spot = min(len(self.voice) - 1, int(abs(along - 0.5) * 2.0 * len(self.voice)))
+            strength += 0.6 * self.voice[-1 - spot]
+        colour.setAlphaF(min(1.0, strength))
+        return colour
 
     def paintEvent(self, _event):
-        w, h = float(self.width()), float(self.height())
+        w, h = self.width(), self.height()
+        ratio = self.devicePixelRatioF() or 1.0
+        mask = self._brightness(w, h, ratio)
+        layer = QtGui.QImage(mask)
+        q = QtGui.QPainter(layer)
+        q.setCompositionMode(QtGui.QPainter.CompositionMode_SourceIn)
+        along = (QtCore.QPointF(0, 0), QtCore.QPointF(w, 0)) \
+            if self.side in ("top", "bottom") else (QtCore.QPointF(0, 0), QtCore.QPointF(0, h))
+        tint = QtGui.QLinearGradient(*along)
+        first, last = self.span
+        for i in range(41):
+            tint.setColorAt(i / 40.0, self._tint(first + (last - first) * i / 40.0, i / 40.0))
+        q.fillRect(QtCore.QRectF(0, 0, w, h), QtGui.QBrush(tint))
+        # The hot core is lighter, nearly white, right at the edge: that is
+        # what makes it read as light rather than paint.
+        q.setCompositionMode(QtGui.QPainter.CompositionMode_SourceAtop)
+        if self.side == "top":
+            start, stop = QtCore.QPointF(0, 0), QtCore.QPointF(0, 4)
+        elif self.side == "bottom":
+            start, stop = QtCore.QPointF(0, h), QtCore.QPointF(0, h - 4)
+        elif self.side == "left":
+            start, stop = QtCore.QPointF(0, 0), QtCore.QPointF(4, 0)
+        else:
+            start, stop = QtCore.QPointF(w, 0), QtCore.QPointF(w - 4, 0)
+        hot = QtGui.QLinearGradient(start, stop)
+        hot.setColorAt(0.0, QtGui.QColor(255, 255, 255, 105))
+        hot.setColorAt(1.0, QtGui.QColor(255, 255, 255, 0))
+        q.fillRect(QtCore.QRectF(0, 0, w, h), QtGui.QBrush(hot))
+        if self.side in ("top", "bottom") and not self.alone:
+            # The corners belong to this strip: the side edges' hot line runs
+            # on into them, right up to the corner.
+            for x0, x1 in ((0.0, 4.0), (float(w), w - 4.0)):
+                hot = QtGui.QLinearGradient(QtCore.QPointF(x0, 0), QtCore.QPointF(x1, 0))
+                hot.setColorAt(0.0, QtGui.QColor(255, 255, 255, 105))
+                hot.setColorAt(1.0, QtGui.QColor(255, 255, 255, 0))
+                q.fillRect(QtCore.QRectF(min(x0, x1), 0, 4.0, h), QtGui.QBrush(hot))
+        q.end()
         p = QtGui.QPainter(self)
-        if self.side in ("left", "right"):
-            # The side strips stop short of the corners (the top and bottom
-            # strips own those), so nothing overlaps and doubles up.
-            start, end = (0.0, w) if self.side == "left" else (w, 0.0)
-            fall = QtGui.QLinearGradient(QtCore.QPointF(start, 0), QtCore.QPointF(end, 0))
-            for position, alpha in self.STOPS:
-                fall.setColorAt(position, self._shade(alpha))
-            p.fillRect(QtCore.QRectF(0, 0, w, h), QtGui.QBrush(fall))
-            p.end()
-            return
-        d = h                                    # the strip is as tall as the glow is deep
-        edge, inner = (0.0, d) if self.side == "top" else (d, 0.0)
-        fall = QtGui.QLinearGradient(QtCore.QPointF(0, edge), QtCore.QPointF(0, inner))
-        for position, alpha in self.STOPS:
-            fall.setColorAt(position, self._shade(alpha))
-        p.fillRect(QtCore.QRectF(d, 0, max(0.0, w - 2 * d), d), QtGui.QBrush(fall))
-        # Corners: the two edges meet with no join and no doubled-up patch.
-        size = max(1, int(round(d)))
-        for at_right in (False, True):
-            picture = self._corner(size, at_right, self.side == "bottom")
-            p.drawImage(QtCore.QRectF(w - d if at_right else 0.0, 0, d, d), picture)
+        p.setCompositionMode(QtGui.QPainter.CompositionMode_Source)
+        p.drawImage(QtCore.QPointF(0, 0), layer)
         p.end()
-
-    def _corner(self, size, flip_x, flip_y):
-        """One corner of the glow as a picture, worked out point by point with
-        the same fall-off as the straight edges."""
-        base = QtGui.QColor(self.colour)
-        across = (np.arange(size, dtype=np.float32) + 0.5)
-        gap_x, gap_y = np.meshgrid(size - across, size - across)
-        # Square to the screen: each point is exactly as strong as it would be
-        # on the nearer edge, so a corner is no heavier than the edges and
-        # covers nothing extra. (A rounded turn filled the corner in.)
-        reach = np.maximum(gap_x, gap_y)
-        depth = np.clip(1.0 - reach / size, 0.0, 1.0)
-        alpha = np.interp(depth, [stop[0] for stop in self.STOPS],
-                          [stop[1] for stop in self.STOPS]) / 255.0
-        pixels = np.empty((size, size, 4), dtype=np.uint8)   # blue, green, red, alpha
-        lift = 0.10 + 0.25 * alpha ** 2          # same rule as _shade
-        pixels[..., 0] = (base.blue() + (255 - base.blue()) * lift) * alpha
-        pixels[..., 1] = (base.green() + (255 - base.green()) * lift) * alpha
-        pixels[..., 2] = (base.red() + (255 - base.red()) * lift) * alpha
-        pixels[..., 3] = 255 * alpha
-        if flip_x:
-            pixels = pixels[:, ::-1]
-        if flip_y:
-            pixels = pixels[::-1]
-        data = np.ascontiguousarray(pixels).tobytes()
-        return QtGui.QImage(data, size, size, 4 * size,
-                            QtGui.QImage.Format_ARGB32_Premultiplied).copy()
 
 
 class ScreenGlow:
@@ -3121,9 +3982,46 @@ class ScreenGlow:
             self.strips = [EdgeStrip(side) for side in ("top", "bottom", "left", "right")]
         x, y, w, h = area.x(), area.y(), area.width(), area.height()
         d = int(SCREEN_GLOW_SIZE)
+        if SCREEN_GLOW_EDGES == "bottom":
+            # Just along the bottom: a little deeper, rising from the bottom
+            # of the screen, strongest in the middle.
+            depth = int(SCREEN_GLOW_SIZE * 2.2)
+            # It rises from the top of the taskbar (where the pop-up sits),
+            # not from under it, where most of it would be hidden.
+            floor = y + h
+            screen = QtGui.QGuiApplication.screenAt(area.center())
+            if screen is not None:
+                room = screen.availableGeometry()
+                if room.left() <= x + w // 2 <= room.right() and room.bottom() + 1 < floor:
+                    floor = room.bottom() + 1
+            bottom = self.strips[1]
+            for strip in self.strips:
+                strip.alone = strip is bottom
+                if strip is not bottom:
+                    strip.hide()
+            bottom.span = (0.0, 1.0)
+            bottom.colour = QtGui.QColor(colour)
+            bottom.setGeometry(x, floor - depth, w, depth)
+            if not self.showing:
+                bottom.setWindowOpacity(0.0)
+                self.fade = 0.0
+            bottom.show()
+            bottom.update()
+            self.showing = True
+            return
+        for strip in self.strips:
+            strip.alone = False
+            strip.setWindowOpacity(self.fade if self.showing else 0.0)
         places = ((x, y, w, d), (x, y + h - d, w, d),
                   (x, y + d, d, h - 2 * d), (x + w - d, y + d, d, h - 2 * d))
-        for strip, place in zip(self.strips, places):
+        # Each strip's share of the way round the screen, clockwise from the
+        # top left, so the colours flow on from one edge into the next.
+        round_trip = 2.0 * (w + h)
+        spans = ((0.0, w / round_trip), ((2.0 * w + h) / round_trip, (w + h) / round_trip),
+                 (1.0 - d / round_trip, (2.0 * w + h + d) / round_trip),
+                 ((w + d) / round_trip, (w + h - d) / round_trip))
+        for strip, place, span in zip(self.strips, places, spans):
+            strip.span = span
             strip.colour = QtGui.QColor(colour)
             strip.setGeometry(*place)
             if not self.showing:
@@ -3144,8 +4042,22 @@ class ScreenGlow:
         if not active and self.fade < 0.02:
             self.stop()
             return False
+        moving = SCREEN_GLOW_FLOW and animations_on()
+        if moving:
+            # The light travels round clockwise, once in about 6.5 s, quicker
+            # while you speak. Your voice is kept for a moment, for the bottom
+            # edge's ripples (none while you are quiet).
+            voice = max(0.0, min(1.0, level)) if active else 0.0
+            self.phase = (getattr(self, "phase", 0.0) + 0.005 * (1.0 + 1.5 * voice)) % 1.0
+            self.voice = (getattr(self, "voice", []) + [voice])[-20:]
         for strip in self.strips:
+            if not strip.isVisible():
+                continue
             strip.setWindowOpacity(self.fade)
+            if moving:
+                strip.phase = self.phase
+                strip.voice = self.voice if strip.side == "bottom" else []
+                strip.update()
         return True
 
     def stop(self):
@@ -3199,8 +4111,8 @@ def glow_pixmap(width, height, radius, colour, margin, blur, dpr):
         scene.render(painter, QtCore.QRectF(0, 0, w, h), QtCore.QRectF(0, 0, w, h))
         painter.end()
         result = QtGui.QPixmap.fromImage(image)
-        if len(_GLOW_CACHE) > 12:
-            _GLOW_CACHE.clear()
+        while len(_GLOW_CACHE) > 16:             # forget the oldest, keep the rest
+            _GLOW_CACHE.pop(next(iter(_GLOW_CACHE)))
         _GLOW_CACHE[key] = result
         return result
     except Exception as exc:
@@ -3251,6 +4163,19 @@ def icon_colour(pixmap):
         return None
 
 
+def partner_colour(colour):
+    """A second shade that goes with a colour: its neighbour on the colour
+    wheel, a little lighter (warm with warm, cool with cool, never a clash).
+    Your voice brings it in, over the app's own colour."""
+    base = QtGui.QColor(colour)
+    hue, sat, _val, _a = base.getHsvF()
+    near = QtGui.QColor.fromHsvF((max(0.0, hue) + 0.09) % 1.0, min(1.0, sat * 0.85), 1.0)
+    lift = 0.14
+    return QtGui.QColor(int(near.red() + (255 - near.red()) * lift),
+                        int(near.green() + (255 - near.green()) * lift),
+                        int(near.blue() + (255 - near.blue()) * lift))
+
+
 def accent_on_light(accent):
     """A deeper, richer version of the accent colour for pale backgrounds
     (the same hue, so it still reads as the colour that was picked)."""
@@ -3258,6 +4183,24 @@ def accent_on_light(accent):
     if saturation > 0.25:                        # leave greys and white neutral
         saturation = min(1.0, saturation * 1.1 + 0.08)
     return QtGui.QColor.fromHslF(max(0.0, hue), saturation, min(lightness, 0.37))
+
+
+_animations = {"checked": 0.0, "on": True}
+
+
+def animations_on():
+    """Windows' own "Animation effects" switch (Settings, Accessibility, Visual
+    effects). Off: the pop-up changes shape at once instead of animating."""
+    now = time.monotonic()
+    if now - _animations["checked"] > 5.0:
+        _animations["checked"] = now
+        try:
+            value = wintypes.BOOL(True)
+            if ctypes.windll.user32.SystemParametersInfoW(0x1042, 0, ctypes.byref(value), 0):
+                _animations["on"] = bool(value.value)      # SPI_GETCLIENTAREAANIMATION
+        except Exception:
+            _animations["on"] = True
+    return _animations["on"]
 
 
 def is_light(colour):
@@ -3287,6 +4230,7 @@ def popup_theme():
                 "text": QtGui.QColor(29, 29, 31), "text2": QtGui.QColor(60, 60, 67),
                 "muted": QtGui.QColor(110, 110, 118), "faint": QtGui.QColor(142, 142, 150),
                 "quiet": QtGui.QColor(0, 0, 0, 34), "warning": QtGui.QColor(181, 95, 0),
+                "danger": QtGui.QColor(200, 40, 40),
                 "chip": QtGui.QColor(0, 0, 0, 10), "chip_hot": QtGui.QColor(0, 0, 0, 24),
                 "chip_border": QtGui.QColor(0, 0, 0, 40),
                 "sheen": QtGui.QColor(255, 255, 255, 150)}
@@ -3296,6 +4240,7 @@ def popup_theme():
             "text": QtGui.QColor(240, 240, 244), "text2": QtGui.QColor(214, 216, 224),
             "muted": QtGui.QColor(170, 172, 182), "faint": QtGui.QColor(120, 122, 132),
             "quiet": QtGui.QColor(255, 255, 255, 60), "warning": QtGui.QColor(255, 181, 71),
+            "danger": QtGui.QColor(255, 107, 107),
             "chip": QtGui.QColor(255, 255, 255, 14), "chip_hot": QtGui.QColor(255, 255, 255, 32),
             "chip_border": QtGui.QColor(255, 255, 255, 46),
             "sheen": QtGui.QColor(255, 255, 255, 16)}
@@ -3454,6 +4399,8 @@ class Dictation(QtCore.QObject):
     model_suspect = QtCore.Signal(str)        # files that fail their fingerprint check
     finished = QtCore.Signal(str)
     live_text = QtCore.Signal(int, str)
+    live_piece = QtCore.Signal(int, str, int, int)   # typing as you speak: a finished piece
+    live_words = QtCore.Signal(int, str, int)   # ... and a reading of the piece so far
     hotkey_captured = QtCore.Signal(str)
     paste_again = QtCore.Signal()
     failed = QtCore.Signal(str)
@@ -3472,6 +4419,23 @@ class Dictation(QtCore.QObject):
         self.session = 0                       # which recording a preview belongs to
         self.live_busy = False
         self.live_seen = 0
+        # Typing as you speak: what part of the recording is already done
+        # (typed, or waiting for its window), as a sample index.
+        self.lt_active = False
+        self.lt_commit = 0
+        self.lt_index = (0, 0)               # a chunk of the recording and where it starts
+        self.lt_done = ""                    # typed so far, this dictation
+        self.lt_pending = ""                 # read but not typed yet (window not in front)
+        self.lt_counts = [0, 0, 0]           # parts typed, waits for the window, refused
+        self.lt_prev = []                    # the last reading of the piece, its words
+        self.lt_seg_words = []               # words of this piece typed so far
+        self.lt_all = []                     # every word typed, this dictation
+        self.lt_held = None                  # punctuation held back at a piece's end
+        self.lt_pacer = QtCore.QTimer()      # types the waiting words a little at a time
+        self.lt_credit = 0.0                 # letters it may type now (the pace)
+        self.lt_box = {"key": None, "verdict": None, "busy": False}   # is it a text box?
+        self.lt_pacer.setInterval(30)
+        self.lt_pacer.timeout.connect(self._pace_tick)
         self.live_timer = QtCore.QTimer()
         self.live_timer.setInterval(LIVE_EVERY_MS)
         self.live_timer.timeout.connect(self._live_tick)
@@ -3492,6 +4456,11 @@ class Dictation(QtCore.QObject):
         self.fx_timer.setInterval(33)
         self.fx_timer.timeout.connect(self._fx_tick)
         self.keys_up_checks = 0
+        self.mic_silent = False                # the last dictation got no sound at all
+        self.status_timer = QtCore.QTimer()    # the pill's status light, every few seconds
+        self.status_timer.setInterval(3000)
+        self.status_timer.timeout.connect(self.update_status)
+        self.status_timer.start()
         self.recorder = Recorder()
         self.overlay = Overlay(self.recorder)
 
@@ -3514,6 +4483,8 @@ class Dictation(QtCore.QObject):
         self.model_outdated = False            # loaded an older trusted release
         self.finished.connect(self.on_finished)
         self.live_text.connect(self.on_live_text)
+        self.live_piece.connect(self.on_live_piece)
+        self.live_words.connect(self.on_live_words)
         self.hotkey_captured.connect(self.on_hotkey_captured)
         self.paste_again.connect(self.on_paste_again)
         self._capture_apply = True             # is the hotkey being recorded the main one?
@@ -3521,6 +4492,7 @@ class Dictation(QtCore.QObject):
         self._capture_done = None              # who to tell when they have
         self._swallow_up = None                # key whose release should be hidden too
         self._typing_until = 0.0               # ignore our own typed keystrokes
+        self._phys = set()                     # modifier keys physically down (by name)
         self.failed.connect(self.on_failed)
 
         # The keyboard library calls back on its own thread; signals hop to Qt's.
@@ -3992,13 +4964,35 @@ class Dictation(QtCore.QObject):
         """Sees every key event, on the keyboard thread.
         Return True to let the key through, False to swallow it."""
         try:
-            if time.monotonic() < self._typing_until:
+            # Keys this app sends itself carry no hardware scan code (the
+            # keyboard library then reports minus the key's number); a real
+            # keyboard always has one. So the two can be told apart.
+            ours = (getattr(event, "scan_code", 1) or 0) <= 0
+            family = (event.name or "").lower().replace("left ", "").replace("right ", "")
+            family = "alt" if family == "alt gr" else family
+            if not ours and family in self._MODIFIER_VKS:
+                if event.event_type == "down":
+                    self._phys.add(family)
+                else:
+                    self._phys.discard(family)
+            if self.lt_active and self.state == "recording":
+                # Typing as you speak types almost all the time, so the hotkey
+                # must keep listening throughout: only our own keys are let by.
+                # (Standing aside, as below, missed you letting go of the hotkey.)
+                if ours:
+                    return True
+            elif time.monotonic() < self._typing_until:
                 # Our own typed text: hands off. But a hotkey being let go just
                 # now still counts, or the next Space would be taken for it.
-                if self._held and event.event_type == "up" and \
-                        (event.name or "").lower().replace("left ", "").replace(
-                            "right ", "") == self._held_trigger:
-                    self._held = False
+                trigger = family == self._held_trigger
+                if self._held and trigger:
+                    if event.event_type == "up":
+                        self._held = False
+                        self.released.emit()
+                    elif self._held_trigger not in self._MODIFIER_VKS:
+                        # The held hotkey repeating (Windows repeats a held
+                        # key): still swallowed.
+                        return False
                 return True
             name = (event.name or "").lower()
             for prefix in ("left ", "right "):
@@ -4090,6 +5084,22 @@ class Dictation(QtCore.QObject):
         except Exception:
             return True                               # never block the keyboard
 
+    def update_status(self):
+        """Set the pill's status light: amber while the model loads; red when
+        there is no microphone in Windows, the last dictation got no sound at
+        all, or there is no usable model; otherwise the accent colour."""
+        if not self.overlay.isVisible():
+            return                               # nothing shows the light: don't ask
+        if self.state == "loading":
+            status = "busy"
+        elif self.state == "nomodel" or not microphone_present() or self.mic_silent:
+            status = "problem"
+        else:
+            status = "ok"
+        if status != self.overlay.status:
+            self.overlay.status = status
+            self.overlay.update()
+
     def on_released(self):
         if HOLD_TO_TALK and self.state == "recording":
             self._finish()
@@ -4115,7 +5125,7 @@ class Dictation(QtCore.QObject):
             self.recorder.start()
         except Exception as exc:
             print("Microphone error:", exc, file=sys.stderr)
-            self.overlay.show_message("No microphone found  \u00b7  click for help", ms=6000)
+            self.overlay.show_message(Overlay.NO_MIC, ms=6000)
             return
         self.state = "recording"
         play_sound("start")
@@ -4143,7 +5153,17 @@ class Dictation(QtCore.QObject):
             self.overlay.hover_armed = not by_click
         self.session += 1
         self.live_seen = 0
-        if LIVE_PREVIEW and self.popup_shown:    # no card: no need to read along
+        self.lt_active = LIVE_TYPE
+        self.lt_commit, self.lt_index = 0, (0, 0)
+        self.lt_done = self.lt_pending = ""
+        self.lt_counts = [0, 0, 0]
+        self.lt_prev, self.lt_seg_words = [], []
+        self.lt_all, self.lt_held = [], None
+        self.lt_box = {"key": None, "verdict": None, "busy": False}
+        # Typing as you speak reads along more often, so words appear sooner.
+        self.live_timer.setInterval(120 if LIVE_TYPE else LIVE_EVERY_MS)
+        # No card and no typing as you speak: no need to read along.
+        if (LIVE_PREVIEW and self.popup_shown) or LIVE_TYPE:
             self.live_timer.start()
         self.record_started = time.monotonic()
         self.keys_up_checks = 0
@@ -4228,7 +5248,10 @@ class Dictation(QtCore.QObject):
         if HOLD_TO_TALK and self._held_modifiers and not self.overlay.click_started:
             # Hold-to-talk: if the hotkey's modifier keys are no longer down but
             # the release was somehow missed (screen lock, a crash elsewhere),
-            # stop anyway.
+            # stop anyway. (Not judged right after typing as you speak: it lets
+            # go of the keys for the app for a moment.)
+            if time.monotonic() - getattr(self, "_last_batch", 0.0) < 0.15:
+                return
             try:
                 state = ctypes.windll.user32.GetAsyncKeyState
                 held = all(any(state(vk) & 0x8000 for vk in self._MODIFIER_VKS[name])
@@ -4243,11 +5266,27 @@ class Dictation(QtCore.QObject):
 
     # -- live preview: re-read the recent audio every so often ---------------
     def _live_tick(self):
-        if self.state != "recording" or not LIVE_PREVIEW:
+        if self.state != "recording" or not (LIVE_PREVIEW or self.lt_active):
             self.live_timer.stop()
             return
+        if self.lt_active:
+            self._flush_live()                   # back in the right window: catch up
+            if TEXTBOX_ONLY and self.target_window \
+                    and foreground_window() == self.target_window:
+                # Said on the card as it happens: "No text box selected". Only
+                # after two checks in a row, so a quick change of focus doesn't
+                # make it flicker on and off.
+                missing = not self._in_text_box(self.target_window)
+                self.lt_missing = (getattr(self, "lt_missing", 0) + 1) if missing else 0
+                self.overlay.box_missing = self.lt_missing >= 2
+            else:
+                self.lt_missing = 0
+                self.overlay.box_missing = False
         if self.live_busy:
             return                               # previous pass still running
+        if self.lt_active:
+            self._live_type_tick()
+            return
         total = sum(len(chunk) for chunk in list(self.recorder.chunks))
         if total < SAMPLE_RATE * 0.6 or total == self.live_seen:
             return
@@ -4269,8 +5308,292 @@ class Dictation(QtCore.QObject):
             self.live_busy = False
 
     def on_live_text(self, session, text):
-        if session == self.session and self.state == "recording" and text:
+        if session == self.session and self.state == "recording" and text \
+                and LIVE_PREVIEW and self.popup_shown:
             self.overlay.set_live_text(text)
+
+    # -- typing as you speak -------------------------------------------------------
+    def _audio_since(self, start):
+        """The recording from sample `start` on (without joining all of it
+        again on every tick: it remembers which chunk that was)."""
+        chunks = list(self.recorder.chunks)
+        i, pos = self.lt_index
+        if pos > start or i > len(chunks):
+            i, pos = 0, 0
+        while i < len(chunks) and pos + len(chunks[i]) <= start:
+            pos += len(chunks[i])
+            i += 1
+        self.lt_index = (i, pos)
+        if i >= len(chunks):
+            return np.zeros(0, dtype=np.float32)
+        return np.concatenate(chunks[i:])[start - pos:]
+
+    LT_CONTEXT = 2.0     # seconds of what came before, read along with each piece
+
+    def _live_type_tick(self):
+        """Typing as you speak. The piece being spoken (since the last pause)
+        is read again and again, together with the last couple of seconds
+        before it (so a word right after a pause is understood in its
+        sentence, and the sentence isn't broken up). A word is typed once two
+        readings in a row agree on it, the newest word excepted (it is often
+        still changing). At a pause the piece is read once more to finish it."""
+        start = max(0, self.lt_commit - int(self.LT_CONTEXT * SAMPLE_RATE))
+        audio = self._audio_since(start)
+        lead = self.lt_commit - start            # the part before the piece
+        cut = find_pause(audio[lead:], SAMPLE_RATE)
+        if cut:
+            self.live_busy = True
+            threading.Thread(target=self._live_piece_run,
+                             args=(audio[:lead + cut], self.lt_commit + cut, self.session,
+                                   self.lt_commit), daemon=True).start()
+            return
+        total = start + len(audio)
+        if len(audio) - lead < SAMPLE_RATE * 0.4 or total == self.live_seen:
+            return
+        self.live_seen = total
+        self.live_busy = True
+        threading.Thread(target=self._live_read_run,
+                         args=(audio, self.lt_commit, self.session), daemon=True).start()
+
+    def _live_read_run(self, audio, start, session):
+        try:
+            audio = leveled(audio)
+            with self.model_lock:
+                text = str(self.model.recognize(audio, sample_rate=SAMPLE_RATE))
+            self.live_words.emit(session, " ".join(text.split()), start)
+        except Exception:
+            pass
+        finally:
+            self.live_busy = False
+
+    def _live_piece_run(self, audio, end, session, start):
+        try:
+            audio = leveled(audio)
+            with self.model_lock:
+                text = str(self.model.recognize(audio, sample_rate=SAMPLE_RATE))
+            self.live_piece.emit(session, " ".join(text.split()), end, start)
+        except Exception:
+            pass                                 # not done: the final pass reads it
+        finally:
+            self.live_busy = False
+
+    @staticmethod
+    def _plain(words):
+        """Words compared without capitals or punctuation ("Hello," = "hello")."""
+        return ["".join(c for c in w.lower() if c.isalnum() or c == "'") for w in words]
+
+    @staticmethod
+    def _end_marks(word):
+        """The punctuation a word ends with ("great." -> ".")."""
+        i = len(word)
+        while i > 0 and word[i - 1] in ".,!?;:\u2026":
+            i -= 1
+        return word[i:] if i > 0 else ""
+
+    def _after_typed(self, plain):
+        """Where, in a new reading, the words not typed yet begin. A reading
+        starts with words typed already (the end of the last piece, read
+        again for context, and this piece's typed words), and they can come
+        out a little differently the second time: line them up, and skip
+        past them. Only the start of the reading is searched, so a common
+        word further on ("the") is never mistaken for one already typed."""
+        typed = self.lt_seg_words
+        if not typed:
+            return 0
+        import difflib
+        near = plain[:len(typed) + 3]
+        blocks = [b for b in difflib.SequenceMatcher(None, typed, near, autojunk=False)
+                  .get_matching_blocks() if b.size]
+        if not blocks:
+            return min(len(typed), len(plain))
+        last = blocks[-1]
+        return min(len(plain), last.b + last.size + (len(typed) - (last.a + last.size)))
+
+    def _compose(self, words, before=None, piece_end=False):
+        """The text to type for these new words. The last word's full stop
+        (or comma) is held back: the model often only decides it on hearing
+        what comes next, so the next words, read together with it, show
+        whether the sentence really ended there."""
+        text = ""
+        if self.lt_held is not None:
+            # The held-back mark, as the newest reading has it (none: the
+            # sentence went on).
+            text = self.lt_held if before is None else self._end_marks(before)
+            first = words[0] if words else ""
+            if (not text and first[:1].isupper()
+                    and self._plain([first])[0] not in ("i", "i'm", "i've", "i'll", "i'd")):
+                text = self.lt_held                # a capital: a new sentence after all
+            if not words and before is None:
+                self.lt_held = None
+                return text
+            self.lt_held = None
+        if not words:
+            return text
+        words = list(words)
+        if piece_end:
+            # Held back, even when it has none yet: a full stop often appears
+            # only once the model hears the next word ("now" -> "now. So").
+            marks = self._end_marks(words[-1])
+            if marks and len(marks) < len(words[-1]):
+                words[-1] = words[-1][:-len(marks)]
+            else:
+                marks = ""
+            self.lt_held = marks
+        if self.lt_done or self.lt_pending or text:
+            text += " "
+        self.lt_all += self._plain(words)
+        return text + " ".join(words)
+
+    def _queue_words(self, words, before=None, piece_end=False):
+        text = self._compose(words, before, piece_end)
+        if text:
+            self.lt_pending += text
+            self._flush_live()
+
+    def on_live_words(self, session, text, start):
+        if session != self.session or self.state != "recording" or not self.lt_active:
+            return
+        if start != self.lt_commit:
+            return                               # a reading of a piece already done
+        words = drop_fillers(text.split())
+        plain = self._plain(words)
+        begin = self._after_typed(plain)
+        self.on_live_text(session, " ".join(words[begin:]) or text)   # the card
+        fresh = plain[begin:]
+        # Compare only the words not typed yet: a typed word read a little
+        # differently again must not hold up everything after it.
+        agreed = 0
+        for a, b in zip(fresh, self.lt_prev):
+            if a != b:
+                break
+            agreed += 1
+        self.lt_prev = fresh
+        upto = begin + min(agreed, len(fresh) - 1)       # never the newest word
+        if upto > begin:
+            self._queue_words(words[begin:upto], words[begin - 1] if begin else None,
+                              piece_end=True)
+            self.lt_seg_words += plain[begin:upto]
+
+    def on_live_piece(self, session, text, end, start):
+        # Too late (the dictation is over): the final pass reads this part
+        # anyway, as the done mark was not moved on. A second reading of a
+        # piece already done (its start has moved on) is dropped, or its words
+        # would be typed twice.
+        if session != self.session or self.state != "recording" or not self.lt_active:
+            return
+        if start != self.lt_commit:
+            return
+        words = drop_fillers(text.split())
+        begin = self._after_typed(self._plain(words))
+        self._queue_words(words[begin:], words[begin - 1] if begin else None, piece_end=True)
+        self.lt_commit = max(self.lt_commit, end)
+        self.lt_prev = []
+        self.lt_seg_words = self.lt_all[-8:]     # read again as context for the next piece
+
+    def _flush_live(self):
+        """Words are waiting: start typing them (see _pace_tick)."""
+        if self.lt_pending and not self.lt_pacer.isActive():
+            self.lt_credit = 0.0
+            self.lt_pacer.start()
+
+    def _in_text_box(self, target):
+        """Typing as you speak only goes into a text box. Asked again whenever
+        the focus moves (and every second), in the background; until the
+        answer is in, it waits. "Can't tell" counts as yes, so programs that
+        don't answer still get their words."""
+        if not TEXTBOX_ONLY:
+            return True                          # switched off: Windows isn't asked
+        focus, _caret = focus_details(target)
+        key = (int(target), focus)
+        box = self.lt_box
+        # Asked again every quarter of a second: in a browser the whole page
+        # is one window, so a click from a text box onto the page doesn't
+        # change the window that has the focus.
+        stale = box["key"] != key or time.monotonic() - box.get("at", 0.0) > 0.25
+        if stale and not box["busy"]:
+            box["busy"] = True
+
+            def ask():
+                try:
+                    verdict = focused_text_box()
+                except Exception:
+                    verdict = None
+                box.update(key=key, verdict=verdict, at=time.monotonic(), busy=False)
+            threading.Thread(target=ask, daemon=True).start()
+        if box["key"] != key:
+            return False                         # not asked yet about this one: wait
+        # A clear answer counts (a web page's "not a text box" wins even over a
+        # text cursor some browsers keep); "can't tell" types as usual.
+        return box["verdict"] is not False
+
+    def _release_stuck_soon(self):
+        """After typing as you speak: let go of any modifier key left down that
+        you are not holding. Now, and again a moment later, because the last
+        batch of keystrokes can still be on its way through Windows."""
+        release_stuck(set(self._phys))
+        QtCore.QTimer.singleShot(250, lambda: release_stuck(set(self._phys)))
+
+    def _lt_forget(self):
+        """Drop everything typing as you speak kept of this dictation: the
+        words stay in memory no longer than needed ("Missed text safety"
+        decides separately whether the last dictation is kept)."""
+        self.lt_done = self.lt_pending = ""
+        self.lt_all, self.lt_prev, self.lt_seg_words = [], [], []
+        self.lt_held = None
+
+    def _text_box_now(self, target):
+        """The same question, answered now (waits at most half a second)."""
+        if not TEXTBOX_ONLY:
+            return True
+        answer = {}
+        asking = threading.Thread(target=lambda: answer.setdefault("v", focused_text_box()),
+                                  daemon=True)
+        asking.start()
+        asking.join(0.5)
+        return answer.get("v")
+
+    def _pace_tick(self):
+        """Typing as you speak, smoothly: the waiting words go in a few letters
+        at a time at an even pace rather than in jumps, a little faster when
+        more are waiting, so it never falls behind. Only into the window the
+        dictation started in: with another window in front it waits (and is
+        typed when you come back, or with the rest when you let go)."""
+        if self.state != "recording" or not self.lt_active or not self.lt_pending:
+            self.lt_pacer.stop()
+            return
+        target = self.target_window
+        if not target or foreground_window() != target or window_out_of_reach(target):
+            self.lt_counts[1] += 1
+            self.lt_pacer.stop()                 # the live tick tries again
+            return
+        if not self._in_text_box(target):
+            # Not in a text box (a web page, a video): typed letters would be
+            # shortcuts there and Space would scroll. Wait: the words stay on
+            # the card, and go in if you click into a text box.
+            self.lt_counts[1] += 1
+            self.lt_pacer.stop()
+            return
+        # A steady flow: the more is waiting, the faster it goes (about a
+        # quarter of a second to catch up), never stopping and starting in jumps.
+        self.lt_credit += max(len(self.lt_pending) / 8.0, 1.0)
+        count = min(len(self.lt_pending), int(self.lt_credit))
+        if count < 1:
+            return
+        self.lt_credit -= count
+        part = self.lt_pending[:count]
+        self._typing_until = time.monotonic() + 5.0          # our own keystrokes
+        try:
+            typed = type_while_held(part, set(self._phys))
+        finally:
+            self._typing_until = time.monotonic() + 0.3
+            self._last_batch = time.monotonic()
+        if typed:
+            self.lt_done += part
+            self.lt_pending = self.lt_pending[count:]
+            self.lt_counts[0] += 1
+        else:
+            self.lt_counts[2] += 1
+            self.lt_pacer.stop()
 
     def move_popup(self):
         if self.state in ("idle", "loading", "nomodel"):
@@ -4300,14 +5623,23 @@ class Dictation(QtCore.QObject):
         if self.state != "recording":
             return
         self.live_timer.stop()
+        self.lt_pacer.stop()
         self.watch_timer.stop()
         self.recorder.stop()
         self.show_listening(False)
         self.state = "idle"
+        if self.lt_active:
+            self._release_stuck_soon()
+        self.lt_active = False                   # what was typed already stays
+        self._lt_forget()
+        self.lt_pending = ""
         self.overlay.dismiss()
 
     def _finish(self):
+        if self.lt_active:
+            self._release_stuck_soon()
         self.live_timer.stop()
+        self.lt_pacer.stop()
         self.watch_timer.stop()
         audio = self.recorder.stop()
         self.show_listening(False)
@@ -4321,6 +5653,8 @@ class Dictation(QtCore.QObject):
             else:
                 self.overlay.dismiss()
             return
+        self.mic_silent = self.recorder.peak < MIC_SILENT_PEAK
+        QtCore.QTimer.singleShot(0, self.update_status)
         if self.recorder.peak < MIC_SILENT_PEAK:  # the microphone gave pure silence
             self.state = "idle"
             if getattr(self, "popup_shown", True):
@@ -4330,6 +5664,16 @@ class Dictation(QtCore.QObject):
                     "No sound from the microphone  \u00b7  click for help", ms=6000)
             return
         self.state = "transcribing"
+        if self.lt_active and self.lt_commit:
+            # Typing as you speak: only the piece since the last pause is left
+            # to read, with a little of what came before (its first words are
+            # typed already: see on_finished).
+            whole, rest = audio, audio[self.lt_commit:]
+            if len(rest) < SAMPLE_RATE * 0.3 or not holds_speech(rest, whole, SAMPLE_RATE):
+                self.overlay.dismiss()
+                QtCore.QTimer.singleShot(0, lambda: self.on_finished(""))
+                return
+            audio = whole[max(0, self.lt_commit - int(self.LT_CONTEXT * SAMPLE_RATE)):]
         if SHOW_TRANSCRIBING and getattr(self, "popup_shown", True):
             self.overlay.show_transcribing()
         else:
@@ -4381,12 +5725,63 @@ class Dictation(QtCore.QObject):
 
     def on_failed(self, error):
         print("Transcription error:", error, file=sys.stderr)
+        if self.lt_active and (self.lt_done or self.lt_pending):
+            self.on_finished("")                 # keep (and type) what was read already
+            return
         self.state = "idle"
         self.overlay.show_message("Transcription failed", ms=2500)
 
     def on_finished(self, text):
         self.state = "idle"
-        text = " ".join(text.split())          # one line: a stray Enter could send a message
+        text = " ".join(drop_fillers(text.split()))   # one line: a stray Enter could
+                                               # send a message
+        typed = ""
+        if self.lt_active:
+            # Typing as you speak: what is left, after what was typed already
+            # (and anything that waited for its window to come back).
+            self.lt_active = False
+            # Counts only: the log never holds your words or program names.
+            print("Typing as you speak: %d bits typed while speaking, %d waits for "
+                  "the starting window or a text box, %d refused by Windows."
+                  % tuple(self.lt_counts))
+            typed = self.lt_done
+            words = text.split()                 # skip the words typed already
+            begin = self._after_typed(self._plain(words)) if words else 0
+            text = self._compose(words[begin:], words[begin - 1] if begin else None)
+            text = self.lt_pending + text
+            self._lt_forget()
+            if text.strip() and self.target_window \
+                    and foreground_window() != self.target_window:
+                # Typing as you speak only ever types into the window you
+                # started in: back to it, or the rest isn't typed.
+                if not focus_window(self.target_window):
+                    print("Typing as you speak: the starting window is gone or out of "
+                          "reach; the rest was not typed.")
+                    self.remember(typed + text)  # kept only with "Missed text safety"
+                    self.overlay.show_message("Back in the other window? The rest "
+                                              "wasn't typed", ms=3000)
+                    return
+            if (text.strip() and TEXTBOX_ONLY and self.target_window
+                    and foreground_window() == self.target_window
+                    and self._text_box_now(self.target_window) is False):
+                # Still no text box when you let go (a web page, a video):
+                # typing it now would set off shortcuts there, so it isn't.
+                print("Typing as you speak: no text box at the end; the rest was not typed.")
+                self.remember(typed + text)      # kept only with "Missed text safety"
+                self.overlay.show_message("No text box here, so the rest wasn't typed",
+                                          ms=3000)
+                return
+            if not text and typed:
+                text = " " if ADD_SPACE else ""
+                after_key = ACTION_KEY if (self.do_action and ACTION_KEY) else AFTER_KEY
+                self.remember(typed)
+                if text or after_key:
+                    self.overlay.dismiss()
+                    QtCore.QTimer.singleShot(60, lambda: self._deliver(
+                        "" if after_key else text, 30, finish=True, after_key=after_key))
+                else:
+                    self.overlay.dismiss()
+                return
         if not text:
             self.overlay.show_message("Didn't catch that", ms=1400)
             return
@@ -4398,7 +5793,7 @@ class Dictation(QtCore.QObject):
         after_key = ACTION_KEY if (self.do_action and ACTION_KEY) else AFTER_KEY
         if ADD_SPACE and not after_key:
             text += " "                        # so the next dictation doesn't run on
-        self.remember(text)
+        self.remember(typed + text)
         delay = 60
         if RETURN_FOCUS and self.target_window:
             now = foreground_window()
@@ -4810,8 +6205,11 @@ for _key in ("add_space", "always_show", "accent_outline", "outline_light", "glo
              "hotkey_hint", "return_focus", "screen_glow", "show_app_icon", "show_app_name",
              "show_popup", "show_timer", "show_waveform", "sounds", "tray_live", "wide_card",
              "hold_to_talk", "live_preview", "type_text", "keep_last",
-             "check_app_updates"):
+             "check_app_updates", "pill_logo", "live_type", "remove_fillers",
+             "textbox_only", "screen_glow_flow"):
     _PORTABLE_CHECKS[_key] = lambda v: isinstance(v, bool)
+_PORTABLE_CHECKS["card_style"] = lambda v: v in [key for key, _label in CARD_STYLES]
+_PORTABLE_CHECKS["screen_glow_edges"] = lambda v: v in ("bottom", "all")
 
 # Turning these on touches the clipboard, keeps text, or goes online. For
 # "type_text" it is turning it OFF that switches to pasting via the clipboard.
@@ -6835,6 +8233,36 @@ class SettingsWindow(QtWidgets.QDialog):
         self._refresh_hotkey_note()
 
         heading("Text")
+        check("Type as you speak", LIVE_TYPE, option("LIVE_TYPE", "live_type"),
+              tip="Off by default. Your words are typed into your app while you "
+                  "speak, about half a second behind you, instead of all at once "
+                  "when you finish. The hotkey can stay held: it doesn't get in "
+                  "the way of the typing.\n\n"
+                  "Words only go into the window you started in, and only into "
+                  "a text box (see below). Otherwise typing waits; if you click "
+                  "into a text box, it catches up.\n\n"
+                  "A little less accurate: each part is read on its own, and "
+                  "words already typed are never changed afterwards.",
+              hint="Words appear as you say them. A little less accurate than "
+                   "all at once.")
+        check("Text box detection", TEXTBOX_ONLY, option("TEXTBOX_ONLY", "textbox_only"),
+              tip="On by default. While typing as you speak, words only go in "
+                  "when the cursor is in a text box: on a web page or a video, "
+                  "typed letters would work as shortcuts and Space would scroll. "
+                  "If there is no text box, the pop-up says \"No text box "
+                  "selected\" and nothing is typed until you click into one.\n\n"
+                  "To tell, the app asks Windows' accessibility service (the one "
+                  "screen readers use) what kind of control has the focus: a text "
+                  "box, a button, a page. Only that: never the text in it, the "
+                  "page or the program. Nothing is kept or written down.\n\n"
+                  "Off: Windows isn't asked, and words are typed wherever the "
+                  "focus is.",
+              hint="Typing as you speak waits for a text box, and the pop-up says "
+                   "when there isn't one. Asks Windows only what kind of control "
+                   "has the focus.")
+        check("Remove filler words", REMOVE_FILLERS,
+              option("REMOVE_FILLERS", "remove_fillers"),
+              hint="Leaves out um, uh and erm.")
         check("Add a space after each dictation", ADD_SPACE,
               option("ADD_SPACE", "add_space"),
               hint="So two dictations in a row don't run together.")
@@ -6990,6 +8418,17 @@ class SettingsWindow(QtWidgets.QDialog):
                   "running. The microphone stays off until you press the hotkey.")
         check("Show the hotkey text", SHOW_HOTKEY_HINT,
               option("SHOW_HOTKEY_HINT", "hotkey_hint", refresh=True))
+        self.pill_mark = QtWidgets.QComboBox()
+        self.pill_mark.addItem("Dot", False)
+        self.pill_mark.addItem("%s logo" % APP_TITLE, True)
+        self.pill_mark.setCurrentIndex(1 if PILL_LOGO else 0)
+        self.pill_mark.setToolTip("What the small pill shows next to the hotkey: a dot, "
+                                  "or the %s logo (four bars)." % APP_TITLE)
+        self.pill_mark.currentIndexChanged.connect(
+            lambda index: (set_option("PILL_LOGO", "pill_logo",
+                                      bool(self.pill_mark.itemData(index))),
+                           dictation.refresh_popup(), dictation.preview_popup()))
+        row(field("Pill mark"), self.pill_mark, None)
         heading("Position")
         def reset_popup():
             dictation.overlay.reset_position()
@@ -7027,6 +8466,25 @@ class SettingsWindow(QtWidgets.QDialog):
             background_row.append(choice)
         row(*(background_row + [button("Custom", self._background_custom), None]))
         self._paint_backgrounds()
+        heading("Card")
+        self.card_style = QtWidgets.QComboBox()
+        for key, label in CARD_STYLES:
+            self.card_style.addItem(label, key)
+        self.card_style.setCurrentIndex(max(0, self.card_style.findData(CARD_STYLE)))
+        self.card_style.setToolTip(
+            "How the pop-up stands out while you dictate. Clean: a soft shadow and a "
+            "crisp edge. With a colour edge: the same, with a fine line in your "
+            "accent colour. Glow: a coloured glow round it (set below).")
+
+        def card_style_chosen(index):
+            set_option("CARD_STYLE", "card_style", self.card_style.itemData(index))
+            for box in (self.glow, self.glow_colour):
+                box.setEnabled(CARD_STYLE == "glow")
+            dictation.preview_popup()
+
+        self.card_style.currentIndexChanged.connect(card_style_chosen)
+        row(field("Style"), self.card_style, None)
+
         heading("Glow")
         self.glow = QtWidgets.QComboBox()
         for key, label, _amount in GLOW_LEVELS:
@@ -7078,6 +8536,8 @@ class SettingsWindow(QtWidgets.QDialog):
                                     "round the screen. The app's icon colour changes "
                                     "with whichever app you are dictating into.")
         row(field("Glow colour"), self.glow_colour, None)
+        for box in (self.glow, self.glow_colour):     # only for the Glow card style
+            box.setEnabled(CARD_STYLE == "glow")
         check("Glow around the edge of the screen", SCREEN_GLOW, screen_glow_changed,
               hint="A soft glow round the whole screen while you dictate, which "
                    "swells with your voice.")
@@ -7105,6 +8565,24 @@ class SettingsWindow(QtWidgets.QDialog):
                                            SCREEN_GLOW_STRENGTH)
         self.screen_size = glow_slider("Edge size", "SCREEN_GLOW_SIZE", "screen_glow_size",
                                        20, 200, SCREEN_GLOW_SIZE)
+
+        self.glow_where = QtWidgets.QComboBox()
+        self.glow_where.addItem("Bottom glow", "bottom")
+        self.glow_where.addItem("Full-screen border", "all")
+        self.glow_where.setCurrentIndex(max(0, self.glow_where.findData(SCREEN_GLOW_EDGES)))
+        self.glow_where.currentIndexChanged.connect(
+            lambda index: (set_option("SCREEN_GLOW_EDGES", "screen_glow_edges",
+                                      self.glow_where.itemData(index)),
+                           dictation.demo_screen_glow()))
+        row(field("Edge glow"), self.glow_where, None)
+
+        def flow_changed(value):
+            set_option("SCREEN_GLOW_FLOW", "screen_glow_flow", bool(value))
+            dictation.demo_screen_glow()
+        check("Moving light", SCREEN_GLOW_FLOW, flow_changed,
+              hint="A light travels round the edge while you dictate, and the "
+                   "bottom edge ripples with your voice. Off: one still colour, a "
+                   "little lighter on the PC.")
         heading("Outline")
         check("Outline in the accent colour", ACCENT_OUTLINE,
               option("ACCENT_OUTLINE", "accent_outline", refresh=True, preview=True))
@@ -7335,7 +8813,7 @@ class SettingsWindow(QtWidgets.QDialog):
             "Paste using the clipboard instead of typing", not TYPE_TEXT,
             self._paste_mode_changed,
             tip="Off by default. The words are normally typed as keystrokes, so "
-                "the clipboard is never touched.\n\n"
+                "the clipboard is not used.\n\n"
                 "With this on, the text is pasted instead: it borrows the "
                 "clipboard for a second, then puts back what you had copied. "
                 "Pasting is quicker for long text and safer if no text box is "
@@ -7350,8 +8828,8 @@ class SettingsWindow(QtWidgets.QDialog):
                 "quick tap of the hotkey pastes it again once you have clicked the "
                 "right box.\n\n"
                 "Off by default, because it means holding on to your words after "
-                "you have finished. They stay in this program's memory only: never "
-                "on disk, never left on the clipboard." % minutes,
+                "you have finished. They stay in this program's memory only: not "
+                "written to disk or left on the clipboard." % minutes,
             hint="Keeps your last dictation for %d minutes so you can paste it again "
                  "if needed." % minutes)
         self.paste_title = field("Paste hotkey")
@@ -7741,7 +9219,7 @@ class SettingsWindow(QtWidgets.QDialog):
                   "Your last dictation will be kept for %d minutes" % minutes,
                   "This is so a quick tap of the hotkey can paste it again if it missed "
                   "the text box.\n\nThe words are held in this program's memory only. "
-                  "They are never written to disk and never left on the clipboard, and "
+                  "leetsay does not write them to disk or leave them on the clipboard, and "
                   "they are dropped after %d minutes, at your next dictation, or when "
                   "the program closes." % minutes, accept="Turn on", reject="Keep off"):
             set_option("KEEP_LAST", "keep_last", True)
@@ -8087,9 +9565,11 @@ def show_about(dictation):
         "%s %s" % (APP_TITLE, VERSION),
         "",
         "Local dictation for Windows. Speech is recognised on this PC by",
-        "NVIDIA's Parakeet model; the audio is not saved or sent anywhere.",
+        "NVIDIA's Parakeet model; leetsay does not save your audio or send it",
+        "anywhere.",
         "",
-        "Model:  %s%s" % (MODEL, quant),
+        "Model:  %s%s, release %s" % (model_label(MODEL), quant,
+                                      (current_release() or {}).get("tag", "unknown")),
         "Stored in:  %s" % (folder or "not downloaded yet"),
     ]
     if megabytes:
@@ -8107,9 +9587,18 @@ def show_about(dictation):
         "Settings file:  %s" % _CONFIG_FILE,
         "Log file:  %s" % os.path.join(_DATA, "dictate.log"),
         "",
+        "Speech model: Parakeet TDT 0.6B %s by NVIDIA Corporation, under the "
+        "CC-BY-4.0 licence, converted to ONNX and reduced to 8 bits by this "
+        "project (github.com/%s). Not reviewed or endorsed by NVIDIA. Helper "
+        "for long dictations: Silero VAD by the Silero Team, MIT licence."
+        % ("v3" if MODEL.endswith("v3") else "v2", MODELS_REPO),
+        "",
         "Free software under the MIT licence, provided as is, without any "
-        "warranty. You are responsible for where the text it types goes. "
-        "See the licence and the README.",
+        "warranty. Speech recognition makes mistakes, and can add words that "
+        "were never said: check the text before you send it, and do not rely "
+        "on it where a wrong word could cause harm. You are responsible for "
+        "where the text it types goes. The licences of everything it uses are "
+        "in its licenses folder and CREDITS.md; see also the README.",
     ]
     dialog(None, "About %s" % APP_TITLE, "%s %s" % (APP_TITLE, VERSION),
            "\n".join(line for line in lines[2:]))
