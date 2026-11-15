@@ -302,7 +302,7 @@ SHOW_TRANSCRIBING = False            # False: pop-up vanishes as soon as you fin
 STARTUP_MESSAGE = False              # show a "Loading..." pop-up while starting
 STARTUP_FLASH = True                 # briefly show the pop-up once it can be used
 ALWAYS_SHOW = False                  # keep a small pill on screen between dictations
-ACCENT_OUTLINE = False               # a ring in the accent colour round the pop-up
+ACCENT_OUTLINE = True                # a ring in the accent colour round the pop-up
 CARD_STYLE = "glow"                  # the dictation card: "clean" (a soft neutral
                                      # shadow and a crisp edge), "accent" (the same,
                                      # with a fine edge in the accent colour while
@@ -321,7 +321,8 @@ SCREEN_GLOW_FLOW = True              # a light moves along it, and it ripples wi
 SCREEN_GLOW_EDGES = "bottom"         # where: "bottom" (along the bottom edge) or "all"
 TRAY_LIVE = False                    # the tray icon's bars move with your voice
 SHOW_HOTKEY_HINT = True              # show the hotkey on that pill and at startup
-PILL_LOGO = False                    # the pill shows the leetsay logo instead of a dot
+PILL_MARK = "logo"                   # the pill's mark: "logo" (leetsay's), "dot" or "none"
+PILL_MARKS = ("logo", "dot", "none")
 LIVE_LINES = 1                       # lines of live words in the pop-up (1-6)
 LIVE_ALIGN = "left"                  # rows of live words: "left" (words never move
                                      # once shown) or "center" (rows re-centre)
@@ -334,6 +335,11 @@ LIVE_TYPE = False                    # type the words into the app at each pause
 LIVE_EVERY_MS = 250                  # the preview refreshes this often, or as fast as
                                      # the PC can manage if a pass takes longer
 TEXT_SIZE = 12                       # size of the live words in the pop-up
+# How long the speech model rests between readings while you speak, as a share
+# of the last reading's time: on PCs with up to 8 cores it rests as long as it
+# worked (reading along then uses at most about half the processor time it
+# would), on bigger PCs only briefly, so words appear as soon as possible.
+LIVE_REST = 1.0 if (os.cpu_count() or 4) <= 8 else 0.25
 LIVE_WINDOW_SECONDS = 10             # recent audio the preview re-reads, per line shown
 RETURN_FOCUS = True                  # paste into the window you started in, even if
                                      # another program grabbed the focus meanwhile
@@ -611,7 +617,7 @@ for _name, _key in (("SHOW_APP_ICON", "show_app_icon"), ("SHOW_APP_NAME", "show_
                     ("WIDE_CARD", "wide_card"),
                     ("OUTLINE_LIGHT", "outline_light"), ("GLOW_FROM_APP", "glow_from_app"),
                     ("SHOW_HOTKEY_HINT", "hotkey_hint"), ("KEEP_LAST", "keep_last"),
-                    ("PILL_LOGO", "pill_logo"), ("LIVE_TYPE", "live_type"),
+                    ("LIVE_TYPE", "live_type"),
                     ("REMOVE_FILLERS", "remove_fillers"), ("TEXTBOX_ONLY", "textbox_only"),
                     ("SCREEN_GLOW_FLOW", "screen_glow_flow"),
                     ("RETURN_FOCUS", "return_focus")):
@@ -624,6 +630,10 @@ for _name, _key, _low, _high in (("SCREEN_GLOW_STRENGTH", "screen_glow_strength"
     _value = _config.get(_key)
     if isinstance(_value, (int, float)) and not isinstance(_value, bool):
         globals()[_name] = int(max(_low, min(_high, _value)))
+if _config.get("pill_mark") in PILL_MARKS:
+    PILL_MARK = _config["pill_mark"]
+elif isinstance(_config.get("pill_logo"), bool):   # saved by an earlier 0.2.0 build
+    PILL_MARK = "logo" if _config["pill_logo"] else "dot"
 if _config.get("screen_glow_edges") in ("bottom", "all"):
     SCREEN_GLOW_EDGES = _config["screen_glow_edges"]
 if _config.get("card_style") in [key for key, _label in CARD_STYLES]:
@@ -2181,7 +2191,9 @@ class Overlay(QtWidgets.QWidget):
         """Fill, outline, key names, "+": the dark look, or the same contrast
         on the light theme."""
         if is_light(POPUP_BG):
-            return (QtGui.QColor("#F7F8FA"), QtGui.QColor("#C4C8D0"),
+            # A faint see-through edge (a solid grey line showed its steps
+            # round the curves); a soft shadow does the rest (see _draw_pill).
+            return (QtGui.QColor("#FBFBFC"), QtGui.QColor(0, 0, 0, 34),
                     QtGui.QColor("#1B1D22"), QtGui.QColor("#737885"))
         return (QtGui.QColor("#1B1D22"), QtGui.QColor("#3A3E47"),
                 QtGui.QColor("#EEF0F3"), QtGui.QColor("#8D929D"))
@@ -2202,18 +2214,29 @@ class Overlay(QtWidgets.QWidget):
         s = unit / 5.4                           # the app icon's own unit scale
         return 8.0 * s, 3.0 * s, unit
 
-    @classmethod
-    def _mark_width(cls):
-        if PILL_LOGO:
-            width, gap, _unit = cls._logo_metrics()
+    def _mark(self):
+        """The mark the pill shows now: "logo", "dot" or None. With the mark
+        hidden, a dot still appears while something needs you (the status
+        light: amber while loading, red for a problem)."""
+        if PILL_MARK == "none":
+            return "dot" if self.status != "ok" else None
+        return PILL_MARK
+
+    def _mark_width(self):
+        mark = self._mark()
+        if mark == "logo":
+            width, gap, _unit = self._logo_metrics()
             return len(ICON_BARS) * width + (len(ICON_BARS) - 1) * gap
-        return 2.0 * cls.DOT_R
+        return 2.0 * self.DOT_R if mark == "dot" else 0.0
 
     def _draw_mark(self, p, left, cy, colour):
         """The dot, or the logo's four 1337 bars, centred on cy."""
+        mark = self._mark()
+        if mark is None:
+            return
         p.setPen(Qt.NoPen)
         p.setBrush(colour)
-        if not PILL_LOGO:
+        if mark == "dot":
             p.drawEllipse(QtCore.QPointF(left + self.DOT_R, cy), self.DOT_R, self.DOT_R)
             return
         width, gap, unit = self._logo_metrics()
@@ -2241,10 +2264,13 @@ class Overlay(QtWidgets.QWidget):
         """Width of a small pill: the mark, then the hotkey or a notice."""
         if not keys and not text:
             # The mark alone: a round button for the dot, a pill that hugs the logo.
-            if not PILL_LOGO:
+            if self._mark() != "logo":
                 return self._pill_height()
             return float(round(self.PILL_PAD_L + self._mark_width() + self.PILL_PAD_L))
-        width = self.PILL_PAD_L + self._mark_width() + self.MARK_GAP + self.PILL_PAD_R
+        if self._mark() is None:                 # no mark: the words, evenly padded
+            width = 2 * self.PILL_PAD_R
+        else:
+            width = self.PILL_PAD_L + self._mark_width() + self.MARK_GAP + self.PILL_PAD_R
         if keys:
             width += self._hotkey_words(keys)[1]
         else:
@@ -2272,7 +2298,33 @@ class Overlay(QtWidgets.QWidget):
         inner = QtGui.QPainterPath()
         inner.addRoundedRect(inner_box, inner_box.height() / 2.0, inner_box.height() / 2.0)
         p.setPen(Qt.NoPen)
-        p.fillPath(inner, QtGui.QBrush(fill))
+        if is_light(POPUP_BG):
+            # On the light theme a soft shadow lifts the pill off the screen,
+            # as light pop-ups do, instead of a strong outline.
+            shade = glow_pixmap(outer_box.width(), outer_box.height(),
+                                outer_box.height() / 2.0, QtGui.QColor(0, 0, 0), 10.0, 5.0,
+                                ratio)
+            if shade is not None:
+                p.save()
+                p.setOpacity(p.opacity() * 0.11)
+                p.drawPixmap(outer_box.adjusted(-10, -7, 10, 13), shade,
+                             QtCore.QRectF(shade.rect()))
+                p.restore()
+        # The whole shape filled first, the outline laid over it: drawn as two
+        # pieces that only touch, a faint seam of the background showed
+        # between them (worst on a light pill).
+        p.fillPath(outer, QtGui.QBrush(fill))
+        # Edge correction: a light shape on a dark screen (or the other way)
+        # loses some strength in its softened edge pixels, so the curve looks
+        # thin and stepped. A hair-thin line of the fill colour, half strength,
+        # along the edge gives those pixels back their proper weight.
+        firm = QtGui.QColor(fill)
+        firm.setAlphaF(0.5)
+        p.setPen(QtGui.QPen(firm, 0.6))
+        p.setBrush(Qt.NoBrush)
+        p.drawRoundedRect(outer_box.adjusted(0.3, 0.3, -0.3, -0.3),
+                          outer_box.height() / 2.0 - 0.3, outer_box.height() / 2.0 - 0.3)
+        p.setPen(Qt.NoPen)
         p.fillPath(outer.subtracted(inner), QtGui.QBrush(outline))
         cy = box.center().y()
         still = self.mode == "idle" or self.previewing
@@ -2280,11 +2332,19 @@ class Overlay(QtWidgets.QWidget):
         colour = QtGui.QColor(accent)
         colour.setAlphaF(colour.alphaF() * (0.55 + 0.45 * pulse))   # breathes when busy
         if not keys and not text:                # the mark alone, in the middle
+            if self._mark() is None:             # nothing else to show: a quiet dot
+                p.setPen(Qt.NoPen)
+                p.setBrush(colour)
+                p.drawEllipse(QtCore.QPointF(box.center().x(), cy), self.DOT_R, self.DOT_R)
+                return
             self._draw_mark(p, snap(box.center().x() - self._mark_width() / 2.0), cy, colour)
             return
-        left = snap(card.left() + self.PILL_PAD_L)
-        self._draw_mark(p, left, cy, colour)
-        x = left + self._mark_width() + self.MARK_GAP
+        if self._mark() is None:
+            x = snap(card.left() + self.PILL_PAD_R)
+        else:
+            left = snap(card.left() + self.PILL_PAD_L)
+            self._draw_mark(p, left, cy, colour)
+            x = left + self._mark_width() + self.MARK_GAP
         # Centred on the capital letters, not on the whole line (which also
         # holds room for letters that hang below it, and so sat the words low):
         # the gap above "Ctrl" equals the gap below it. The line it sits on is
@@ -4472,6 +4532,10 @@ class Dictation(QtCore.QObject):
         self.session = 0                       # which recording a preview belongs to
         self.live_busy = False
         self.live_seen = 0
+        # The speech model rests between readings at least as long as the last
+        # one took, so reading along uses at most about half the processor
+        # time it otherwise would (it can use several cores while it reads).
+        self._live_rest_until = 0.0
         # Typing as you speak: what part of the recording is already done
         # (typed, or waiting for its window), as a sample index.
         self.lt_active = False
@@ -5340,6 +5404,8 @@ class Dictation(QtCore.QObject):
                 self.overlay.box_missing = False
         if self.live_busy:
             return                               # previous pass still running
+        if time.monotonic() < self._live_rest_until:
+            return                               # the model is resting a moment
         if self.lt_active:
             self._live_type_tick()
             return
@@ -5356,7 +5422,10 @@ class Dictation(QtCore.QObject):
         try:
             audio = leveled(audio)
             with self.model_lock:
+                began = time.monotonic()
                 text = str(self.model.recognize(audio, sample_rate=SAMPLE_RATE))
+                done = time.monotonic()
+                self._live_rest_until = done + (done - began) * LIVE_REST
             self.live_text.emit(session, " ".join(text.split()))
         except Exception:
             pass
@@ -5415,7 +5484,10 @@ class Dictation(QtCore.QObject):
         try:
             audio = leveled(audio)
             with self.model_lock:
+                began = time.monotonic()
                 text = str(self.model.recognize(audio, sample_rate=SAMPLE_RATE))
+                done = time.monotonic()
+                self._live_rest_until = done + (done - began) * LIVE_REST
             self.live_busy = False               # free for the next reading at once
             self.live_words.emit(session, " ".join(text.split()), start)
         except Exception:
@@ -5427,7 +5499,10 @@ class Dictation(QtCore.QObject):
         try:
             audio = leveled(audio)
             with self.model_lock:
+                began = time.monotonic()
                 text = str(self.model.recognize(audio, sample_rate=SAMPLE_RATE))
+                done = time.monotonic()
+                self._live_rest_until = done + (done - began) * LIVE_REST
             self.live_piece.emit(session, " ".join(text.split()), end, start)
         except Exception:
             pass                                 # not done: the final pass reads it
@@ -5526,9 +5601,10 @@ class Dictation(QtCore.QObject):
             agreed += 1
         self.lt_prev = fresh
         upto = begin + min(agreed, len(fresh) - 1)       # never the newest word
-        # The next reading starts now, not at the next tick of the clock: words
-        # are confirmed as soon as the speech model can manage.
-        QtCore.QTimer.singleShot(0, self._live_tick)
+        # The next reading starts as soon as the model has rested, not at the
+        # next tick of the clock: words are confirmed as soon as it can manage.
+        wait = max(0.0, self._live_rest_until - time.monotonic())
+        QtCore.QTimer.singleShot(int(wait * 1000) + 1, self._live_tick)
         if upto > begin:
             self._queue_words(words[begin:upto], words[begin - 1] if begin else None,
                               piece_end=True)
@@ -6268,11 +6344,12 @@ for _key in ("add_space", "always_show", "accent_outline", "outline_light", "glo
              "hotkey_hint", "return_focus", "screen_glow", "show_app_icon", "show_app_name",
              "show_popup", "show_timer", "show_waveform", "sounds", "tray_live", "wide_card",
              "hold_to_talk", "live_preview", "type_text", "keep_last",
-             "check_app_updates", "pill_logo", "live_type", "remove_fillers",
+             "check_app_updates", "live_type", "remove_fillers",
              "textbox_only", "screen_glow_flow"):
     _PORTABLE_CHECKS[_key] = lambda v: isinstance(v, bool)
 _PORTABLE_CHECKS["card_style"] = lambda v: v in [key for key, _label in CARD_STYLES]
 _PORTABLE_CHECKS["screen_glow_edges"] = lambda v: v in ("bottom", "all")
+_PORTABLE_CHECKS["pill_mark"] = lambda v: v in PILL_MARKS
 
 # Turning these on touches the clipboard, keeps text, or goes online. For
 # "type_text" it is turning it OFF that switches to pasting via the clipboard.
@@ -8482,14 +8559,17 @@ class SettingsWindow(QtWidgets.QDialog):
         check("Show the hotkey text", SHOW_HOTKEY_HINT,
               option("SHOW_HOTKEY_HINT", "hotkey_hint", refresh=True))
         self.pill_mark = QtWidgets.QComboBox()
-        self.pill_mark.addItem("Dot", False)
-        self.pill_mark.addItem("%s logo" % APP_TITLE, True)
-        self.pill_mark.setCurrentIndex(1 if PILL_LOGO else 0)
-        self.pill_mark.setToolTip("What the small pill shows next to the hotkey: a dot, "
-                                  "or the %s logo (four bars)." % APP_TITLE)
+        self.pill_mark.addItem("%s logo" % APP_TITLE, "logo")
+        self.pill_mark.addItem("Dot", "dot")
+        self.pill_mark.addItem("None", "none")
+        self.pill_mark.setCurrentIndex(max(0, self.pill_mark.findData(PILL_MARK)))
+        self.pill_mark.setToolTip("What the small pill shows next to the hotkey: the %s "
+                                  "logo (four bars), a dot, or nothing. It is also a "
+                                  "status light: with None, a dot still appears while "
+                                  "something needs you." % APP_TITLE)
         self.pill_mark.currentIndexChanged.connect(
-            lambda index: (set_option("PILL_LOGO", "pill_logo",
-                                      bool(self.pill_mark.itemData(index))),
+            lambda index: (set_option("PILL_MARK", "pill_mark",
+                                      self.pill_mark.itemData(index)),
                            dictation.refresh_popup(), dictation.preview_popup()))
         row(field("Pill mark"), self.pill_mark, None)
         heading("Position")
