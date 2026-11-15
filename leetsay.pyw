@@ -9109,9 +9109,9 @@ class SettingsWindow(QtWidgets.QDialog):
             set_option("SCREEN_GLOW_FLOW", "screen_glow_flow", bool(value))
             dictation.demo_screen_glow()
         check("Moving light", SCREEN_GLOW_FLOW, flow_changed,
-              hint="A light travels round the edge while you dictate, and the "
-                   "bottom edge ripples with your voice. Off: one still colour, a "
-                   "little lighter on the PC.")
+              hint="A light travels along the glow while you dictate, and it "
+                   "ripples with your voice. Off: one still colour, a little "
+                   "lighter on the PC.")
         heading("Outline")
         check("Outline in the accent colour", ACCENT_OUTLINE,
               option("ACCENT_OUTLINE", "accent_outline", refresh=True, preview=True))
