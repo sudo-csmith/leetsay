@@ -4038,8 +4038,8 @@ class EdgeStrip(QtWidgets.QWidget):
             # On its own along the bottom it carries more light: a fuller haze
             # rising from the edge, strongest in the middle and fading out
             # towards both ends (no hard ends).
-            rise = 0.45 * np.exp(-(np.maximum(dist, 0.0) / (0.45 * depth)) ** 1.3)
-            alpha = np.minimum(1.0, alpha * 1.6 + rise) * np.sin(np.pi * gx / pw) ** 0.7
+            rise = 0.85 * np.exp(-(np.maximum(dist, 0.0) / (0.45 * depth)) ** 1.3)
+            alpha = np.minimum(1.0, alpha * 2.0 + rise) * np.sin(np.pi * gx / pw) ** 0.6
         alpha = alpha + (np.random.default_rng(7).random(alpha.shape, dtype=np.float32)
                          - 0.5) / 255.0
         a = np.clip(alpha * 255.0, 0, 255).astype(np.uint8)
@@ -4158,6 +4158,26 @@ class ScreenGlow:
             self.fade = 0.0
         self.showing = True
 
+    @staticmethod
+    def _move(strip, rect):
+        """Move or resize a strip without a jump: hidden for that moment and
+        redrawn at its new size before it shows again. (Windows would show
+        the old picture stretched to the new size for an instant, so a
+        change of size made the glow leap up and settle back.)"""
+        if strip.geometry() == rect:
+            return
+        if strip.isVisible():
+            strip.setWindowOpacity(0.0)
+            strip.setGeometry(rect)
+            strip.repaint()                      # the new picture, before it shows
+        else:
+            strip.setGeometry(rect)
+
+    def _shown(self, strip):
+        """How strongly a strip shows: the glow along the bottom on its own
+        shows stronger, so the low glow still reads clearly."""
+        return min(1.0, self.fade * (1.8 if strip.alone else 1.0))
+
     def _place(self, strips, colour, area):
         """Put one screen's four strips in place for the chosen style."""
         x, y, w, h = area.x(), area.y(), area.width(), area.height()
@@ -4183,8 +4203,8 @@ class ScreenGlow:
                     strip.hide()
             bottom.span = (0.0, 1.0)
             bottom.colour = QtGui.QColor(colour)
-            bottom.setGeometry(x, floor - depth, w, depth)
-            bottom.setWindowOpacity(self.fade if self.showing else 0.0)
+            self._move(bottom, QtCore.QRect(x, floor - depth, w, depth))
+            bottom.setWindowOpacity(self._shown(bottom) if self.showing else 0.0)
             bottom.show()
             bottom.update()
             return
@@ -4202,7 +4222,7 @@ class ScreenGlow:
         for strip, place, span in zip(strips, places, spans):
             strip.span = span
             strip.colour = QtGui.QColor(colour)
-            strip.setGeometry(*place)
+            self._move(strip, QtCore.QRect(*place))
             if not self.showing:
                 strip.setWindowOpacity(0.0)
             strip.show()
@@ -4233,7 +4253,7 @@ class ScreenGlow:
         for strip in self.strips:
             if not strip.isVisible():
                 continue
-            strip.setWindowOpacity(self.fade)
+            strip.setWindowOpacity(self._shown(strip))
             if moving:
                 strip.phase = self.phase
                 strip.voice = self.voice if strip.side == "bottom" else []
