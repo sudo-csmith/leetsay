@@ -4286,21 +4286,9 @@ class ScreenGlow:
             self._move(one, place)
             one.setWindowOpacity(self._shown(one) if self.showing else 0.0)
             one.show()
-            line = strips[4]                     # the fine line in front, with the tint
+            strips[4].hide()                     # (a line in front: tried, looked worse)
             if one.behind:
                 tuck_behind_taskbar(one)
-                # Behind the frosted taskbar the glow is a gentle tint; a fine
-                # line of light along the very bottom, in front and below the
-                # icons' marks (5 px), makes it clearly visible and lively.
-                line.alone, line.behind = True, False
-                line.span = (0.0, 1.0)
-                line.colour = QtGui.QColor(colour)
-                self._move(line, QtCore.QRect(rx, y + h - 5, rw, 5))
-                line.setWindowOpacity(self._shown(line) if self.showing else 0.0)
-                line.show()
-                line.update()
-            else:
-                line.hide()
             one.update()
             return
         d = max(12, int(SCREEN_GLOW_SIZE * 0.32))   # the full border: slim as well
