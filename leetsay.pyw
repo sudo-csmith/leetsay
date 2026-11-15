@@ -8635,6 +8635,19 @@ class IntroWindow(QtWidgets.QDialog):
             button_.clicked.connect(lambda _checked=False, v=value: self._theme(v))
             self.menu_themes.append((button_, value))
         line(look, field("Theme"), *([b for b, _v in self.menu_themes] + [None]))
+        # How lively it looks: the glow and moving light while you dictate.
+        self.effects = []
+        for name, value, tip in (("Full", "full", "Glow and a moving light while you dictate."),
+                                 ("Calm", "calm", "No moving effects. Lighter on older PCs.")):
+            button_ = ChoiceButton(name)
+            button_.setMinimumWidth(68)
+            button_.setToolTip(tip)
+            button_.clicked.connect(lambda _checked=False, v=value: self._effects_chosen(v))
+            self.effects.append((button_, value))
+        line(look, field("Effects"), *([b for b, _v in self.effects] + [None]))
+        lively = "full" if (SCREEN_GLOW or SCREEN_GLOW_FLOW) else "calm"
+        for button_, value in self.effects:
+            button_.setChosen(value == lively)
         self.pill = QtWidgets.QCheckBox("Always show a small status pill on screen")
         self.pill.setChecked(bool(ALWAYS_SHOW))
         self.pill.toggled.connect(self._pill_toggled)
@@ -8702,50 +8715,8 @@ class IntroWindow(QtWidgets.QDialog):
         self.hear.setInterval(250)
         self.hear.timeout.connect(self._check_hearing)
 
-        # 5. How it should work: the one choice that changes accuracy, and how
-        # lively it looks (which doesn't). Both can be changed in Settings.
-        how = page(None, "How it should work",
-                   "You can change these later in Settings.")
-
-        def choices(title, options, current, on_pick, notes):
-            heading_label = QtWidgets.QLabel(title)
-            heading_label.setStyleSheet("font-size: 13px; font-weight: 600;")
-            how.addWidget(heading_label)
-            buttons = []
-            note = small("")
-            note.setMinimumHeight(34)            # up to two short lines
-
-            def pick(key):
-                for button_, value in buttons:
-                    button_.setChosen(value == key)
-                note.setText(notes[key])
-                on_pick(key)
-            for label, key in options:
-                button_ = ChoiceButton(label)
-                button_.clicked.connect(lambda _checked=False, k=key: pick(k))
-                buttons.append((button_, key))
-            line(how, *([b for b, _k in buttons] + [None]))
-            how.addWidget(note)
-            for button_, value in buttons:     # show the current choice, change nothing
-                button_.setChosen(value == current)
-            note.setText(notes[current])
-
-        choices("How should your words appear?",
-                [("All at once when I let go", "once"), ("As I speak", "live")],
-                "live" if LIVE_TYPE else "once", self._words_style,
-                {"once": "Most accurate. You see your words on the pop-up, then "
-                         "they're typed when you let go.",
-                 "live": "Typed straight into your app as you speak. Less accurate."})
-        how.addSpacing(8)
-        lively = SCREEN_GLOW or SCREEN_GLOW_FLOW
-        choices("How lively should it look?",
-                [("Full effects", "full"), ("Calm", "calm")],
-                "full" if lively else "calm", self._effects_style,
-                {"full": "Glow and a moving light while you dictate.",
-                 "calm": "No moving effects. Lighter on older PCs."})
-        how.addStretch(1)
-
-        # 6. Getting around
+        # 5. Getting around (how words appear is not asked here: all at
+        # once, the most accurate, unless chosen in Settings; owner)
         fourth = page("tips", "Good to know",
                       "Settings: right-click the pill, or click the %s icon by the "
                       "clock." % APP_TITLE)
@@ -9123,12 +9094,11 @@ QPlainTextEdit { font-size: 13px; background: #17181C; color: #F0F0F4;
         self._paint_swatches()
         self._redraw()
 
-    def _words_style(self, key):
-        """How your words should appear: all at once (most accurate) or live.
-        Live comes with its helpers: the text box check and the pointer tag."""
-        set_option("LIVE_TYPE", "live_type", key == "live")
-        if key == "live":
-            set_option("TEXTBOX_ONLY", "textbox_only", True)
+    def _effects_chosen(self, key):
+        self._effects_style(key)
+        for button_, value in self.effects:
+            button_.setChosen(value == key)
+        self._live(self.stack.currentIndex() == self.look_page)   # shown at once
 
     def _effects_style(self, key):
         """How lively it should look. Full: glow round the pop-up, the screen
