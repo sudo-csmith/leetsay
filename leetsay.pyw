@@ -2641,7 +2641,13 @@ class Overlay(QtWidgets.QWidget):
         self.app_colour = None
         if (SHOW_APP_ICON or GLOW_FROM_APP) and exe_path:
             try:
-                icon = QtWidgets.QFileIconProvider().icon(QtCore.QFileInfo(exe_path))
+                if os.path.normcase(os.path.abspath(exe_path)) == \
+                        os.path.normcase(os.path.abspath(sys.executable)):
+                    # Typing into our own window (the setup's try box): our
+                    # icon, not Python's when it runs as a script.
+                    icon = app_icon()
+                else:
+                    icon = QtWidgets.QFileIconProvider().icon(QtCore.QFileInfo(exe_path))
                 if not icon.isNull():
                     # Take the largest picture the app offers and shrink it once,
                     # with proper smoothing, to exactly the pixels it will cover.
