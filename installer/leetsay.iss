@@ -31,7 +31,9 @@ UninstallDisplayName={#AppName}
 LicenseFile=terms.txt
 Compression=lzma2/max
 SolidCompression=yes
-WizardStyle=modern
+; Dark, like the app. Needs Inno Setup 6.6 or newer.
+WizardStyle=modern dark
+WizardImageAlphaFormat=defined
 WizardSmallImageFile=wizard-small-55.bmp,wizard-small-110.bmp
 WizardImageFile=wizard-large-164.bmp,wizard-large-328.bmp
 ; A running copy is asked to close before files are replaced or removed.
