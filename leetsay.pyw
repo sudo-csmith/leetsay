@@ -8641,8 +8641,7 @@ class IntroWindow(QtWidgets.QDialog):
         # goes on in the background). The real screen glow shows while this
         # page is up, so the colour can be seen for real. Nothing is recorded.
         look = page("look", "Welcome to %s" % APP_TITLE,
-                    "Your speech stays on this PC. Pick a look; you can change it "
-                    "any time in Settings.")
+                    "Dictation that stays on your PC. Choose a look to get started.")
         self.look_page = self.stack.count() - 1
         colours = []
         for label, value in ACCENT_CHOICES:
