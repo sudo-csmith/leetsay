@@ -388,7 +388,8 @@ SHOW_POPUP = True                    # show the pop-up while dictating (off: sou
 SHOW_WAVEFORM = True                 # show the wave line that moves with your voice
 SHOW_TIMER = True                    # show how long you have been dictating
 SHOW_TRAY_ICON = True                # tray icon is the only way to quit pythonw
-BOTTOM_MARGIN = 28                   # gap between the pop-up and the taskbar
+BOTTOM_MARGIN = 36                   # gap between the pop-up and the taskbar (its
+                                     # glow stays clear of the taskbar's icons)
 EDGE_GAP = 8                         # the pop-up never comes closer to a screen edge
 
 SAMPLE_RATE = 16000
@@ -2629,6 +2630,7 @@ class Overlay(QtWidgets.QWidget):
 
     NO_SOUND = "No sound from the microphone"
     CARD_EDGE_GAP = 24             # a dictation card's room from the screen's edges
+    TASKBAR_GAP = 18               # ... and from the taskbar
     NO_BOX = "No text box selected"
     NO_MIC = "Microphone not detected  \u00b7  click for help"
 
@@ -3638,9 +3640,11 @@ class Overlay(QtWidgets.QWidget):
                 gaps = None
                 if note is None and self.mode != "welcome":
                     # A dictation card keeps a little more room from the
-                    # screen's real edges (not from the taskbar), so its glow
-                    # has space to fade out instead of meeting the edge.
-                    gaps = tuple(self.CARD_EDGE_GAP if at_edge else EDGE_GAP for at_edge in (
+                    # screen's real edges, so its glow has space to fade out
+                    # instead of meeting the edge, and from the taskbar, so
+                    # its glow doesn't touch the icons there (owner).
+                    gaps = tuple(self.CARD_EDGE_GAP if at_edge else self.TASKBAR_GAP
+                                 for at_edge in (
                         room.left() == whole.left(), room.top() == whole.top(),
                         room.right() == whole.right(), room.bottom() == whole.bottom()))
                 shift = self._inside(room, card.translated(self.x(), self.y()), gaps)
@@ -3648,6 +3652,10 @@ class Overlay(QtWidgets.QWidget):
                 self._clamp_shift = shift
                 self._card_screen = screen
         card.translate(self._ready_slide(card, note, width, height))
+        # On whole screen pixels: a card at half a pixel smears every letter
+        # in it over two rows of pixels, and the text looks slightly blurred.
+        ratio = max(1.0, float(self.devicePixelRatioF()))
+        card.moveTo(round(card.left() * ratio) / ratio, round(card.top() * ratio) / ratio)
         self._card = (card.left(), card.top(), width, height)
         self._card_radius = radius
         cy = card.center().y()
@@ -6860,7 +6868,11 @@ if LEET_MODE:
 def ui_font():
     """The pop-up's font: Segoe UI, or Consolas (a typewriter font that comes
     with Windows) in 1337 mode."""
-    return QtGui.QFont("Consolas" if LEET_MODE else "Segoe UI")
+    font = QtGui.QFont("Consolas" if LEET_MODE else "Segoe UI")
+    # Letters snapped to the pixel grid: the pop-up is see-through, where
+    # Windows smooths text less, so this keeps them sharp.
+    font.setHintingPreference(QtGui.QFont.PreferFullHinting)
+    return font
 
 
 _PORTABLE_CHECKS = {
@@ -8224,11 +8236,17 @@ QPushButton#primary:hover { background: %(accent)s; border-color: #FFFFFF; }
 def responsibility_notice():
     """Shown once before first use (and after Reset all settings): what the
     application does and does not do, and that where the text goes is up to
-    the user. Quit, or closing the window, quits. Returns True if understood."""
-    app = {"app": APP_TITLE}
+    the user. Quit, or closing the window, quits. Returns True if understood.
+    (On a first start it is a page of the setup window instead.)"""
     return hold_confirm_window(
         None, "%s: before you start" % APP_TITLE, "Before you start",
-        ["%(app)s types what you dictate into whichever window or application is "
+        responsibility_paragraphs(), "Hold to confirm: I understand", "Quit")
+
+
+def responsibility_paragraphs():
+    """The words of "Before you start"."""
+    app = {"app": APP_TITLE}
+    return ["%(app)s types what you dictate into whichever window or application is "
          "active: the one that has your keyboard input. For example, if you click "
          "into a text box, your words go there. %(app)s does not check which "
          "program, chat or document is active; that is for you to control." % app,
@@ -8239,8 +8257,18 @@ def responsibility_notice():
          "\u2022  Do not dictate passwords, or anything you would not want typed "
          "into the wrong place.",
          "You are responsible for what %(app)s types for you and where it goes. "
-         "%(app)s is free software, provided as is, without any warranty." % app],
-        "Hold to confirm: I understand", "Quit")
+         "%(app)s is free software, provided as is, without any warranty." % app]
+
+
+def download_question_words():
+    """The words of the one-time download question (a window, or a page of
+    the setup window on a first start)."""
+    size = dict((entry[0], entry[3]) for entry in MODELS).get(MODEL, "several hundred MB")
+    return ("This application will go online once to download the speech model "
+            "(%(model)s, %(size)s) and a small helper (about 2 MB) from this "
+            "project's page on github.com, a third-party website that we do not run "
+            "or control. Every file is checked; after that, %(app)s works offline."
+            % dict(app=APP_TITLE, model=model_label(MODEL), size=size))
 
 
 def auto_key_warning(parent, key):
@@ -8258,197 +8286,27 @@ def auto_key_warning(parent, key):
         "Hold to confirm: turn it on", "Cancel")
 
 
-def first_look_window():
-    """The very first thing a new user sees: pick a colour, dark or light, and
-    whether the screen glows. It comes before the download question, so the
-    download card and everything after it already look the way they chose."""
-    box = QtWidgets.QDialog(None)
-    box.setWindowTitle("Welcome to %s" % APP_TITLE)
-    box.setWindowIcon(app_icon())
-    box.setWindowFlags(Qt.Dialog | Qt.WindowTitleHint | Qt.WindowCloseButtonHint
-                       | Qt.WindowStaysOnTopHint)
-    box.setFixedWidth(500)
-
-    def restyle():
-        box.setStyleSheet(settings_style() + """
-QLabel#headline { color: #FFFFFF; font-size: 21px; font-weight: 600; }
-QLabel#body { color: #B9BBC6; font-size: 14px; }
-QLabel#field { color: #E6E7EC; font-size: 13px; }
-QCheckBox { font-size: 13px; spacing: 10px; }
-QPushButton { padding: 8px 20px; border-radius: 8px; font-size: 13px; }
-QPushButton#primary { background: %(accent)s; color: #101114; border: 1px solid %(accent)s;
-    font-weight: 600; }
-QPushButton#primary:hover { background: %(accent)s; border-color: #FFFFFF; }
-QPushButton#chosen { border: 1px solid %(accent)s; }
-""" % {"accent": ACCENT})
-
-    restyle()
-    dark_title_bar(box)
-    layout = QtWidgets.QVBoxLayout(box)
-    layout.setContentsMargins(34, 26, 34, 24)
-    layout.setSpacing(14)
-    picture = Sketch("look")
-    layout.addWidget(picture)
-    layout.addSpacing(6)
-    headline = QtWidgets.QLabel("Welcome to %s" % APP_TITLE)
-    headline.setObjectName("headline")
-    headline.setAlignment(Qt.AlignHCenter)       # under the centred picture
-    # Only as tall as its text: given spare height, it sat in the middle of it,
-    # leaving a gap above the text below.
-    headline.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed)
-    layout.addWidget(headline)
-    body = QtWidgets.QLabel("First, make it yours. Above is the pop-up you will see at the "
-                            "bottom of your screen while you dictate. Pick a colour and a "
-                            "look; you can change all of it later in Settings.")
-    body.setObjectName("body")
-    body.setWordWrap(True)
-    body.setAlignment(Qt.AlignHCenter)
-    layout.addWidget(body)
-    body.ensurePolished()                        # in the window: its 14 px font
-    body.setFixedHeight(body.heightForWidth(box.width() - 68))   # the margins: 34 + 34
-    layout.addSpacing(4)
-
-    def line(title, widgets):
-        row = QtWidgets.QHBoxLayout()
-        row.setSpacing(8)
-        label = QtWidgets.QLabel(title)
-        label.setObjectName("field")
-        label.setFixedWidth(84)
-        row.addWidget(label)
-        for widget in widgets:
-            row.addWidget(widget)
-        row.addStretch(1)
-        layout.addLayout(row)
-
-    swatches, themes = [], []
-
-    def repaint():
-        for button, value in swatches:
-            button.setStyleSheet("background: transparent; border: none; padding: 0; "
-                                 "min-height: 0;")
-            button.setIcon(QtGui.QIcon(swatch_picture(value, value.lower() == ACCENT.lower(),
-                                                      3.0)))
-            button.setIconSize(QtCore.QSize(24, 24))
-        for button, value in themes:
-            button.setChosen(value.lower() == POPUP_BG.lower())
-        restyle()
-        box.setWindowIcon(app_icon())
-        picture.update()
-
-    def pick_colour(value):
-        set_accent(value)
-        repaint()
-        show_live()
-
-    def pick_theme(value):
-        set_option("POPUP_BG", "popup_bg", value)
-        repaint()
-
-    for name, value in ACCENT_CHOICES:
-        button = QtWidgets.QPushButton()
-        button.setFixedSize(24, 24)
-        button.setCursor(Qt.PointingHandCursor)
-        button.setToolTip(name)
-        button.clicked.connect(lambda _checked=False, v=value: pick_colour(v))
-        swatches.append((button, value))
-    line("Colour", [button for button, _value in swatches])
-    for name, value in BACKGROUND_CHOICES:
-        button = ChoiceButton(name, radius=8.0, height=34)
-        button.setMinimumWidth(68)
-        button.clicked.connect(lambda _checked=False, v=value: pick_theme(v))
-        themes.append((button, value))
-    line("Pop-up", [button for button, _value in themes])
-    glow = QtWidgets.QCheckBox("Glow around the edge of the screen while I dictate")
-    glow.setChecked(bool(SCREEN_GLOW))
-    layout.addWidget(glow)
-
-    # The real glow, on the real screen, while it is being chosen: what you set
-    # here is exactly what you will get. Nothing is recorded.
-    live = ScreenGlow()
-    sliders = []
-
-    def show_live():
-        try:
-            if SCREEN_GLOW:
-                screen = QtGui.QGuiApplication.primaryScreen()
-                live.start(glow_base(), screen.geometry())
-        except Exception as exc:
-            print("The glow preview could not be shown:", exc, file=sys.stderr)
-
-    def live_tick():
-        try:
-            live.step(0.55, bool(SCREEN_GLOW))
-        except Exception:
-            pass
-
-    def slider(title, name, key, low, high):
-        made = QtWidgets.QSlider(Qt.Horizontal)
-        made.setRange(low, high)
-        made.setValue(int(globals()[name]))
-        made.setFixedWidth(220)
-
-        def moved(_value=None):
-            globals()[name] = int(made.value())      # seen at once, on screen
-            if not made.isSliderDown():
-                save_setting(key, int(made.value()))
-            picture.update()
-            show_live()
-
-        made.valueChanged.connect(moved)
-        made.sliderReleased.connect(lambda: save_setting(key, int(made.value())))
-        sliders.append(made)
-        line(title, [made])
-        return made
-
-    slider("Strength", "SCREEN_GLOW_STRENGTH", "screen_glow_strength", 5, 100)
-    slider("Size", "SCREEN_GLOW_SIZE", "screen_glow_size", 20, 200)
-
-    def glow_toggled(on):
-        set_option("SCREEN_GLOW", "screen_glow", bool(on))
-        for made in sliders:
-            made.setEnabled(bool(on))
-        picture.update()
-        show_live()
-
-    glow.toggled.connect(glow_toggled)
-    for made in sliders:
-        made.setEnabled(bool(SCREEN_GLOW))
-    ticker = QtCore.QTimer(box)
-    ticker.setInterval(33)
-    ticker.timeout.connect(live_tick)
-    ticker.start()
-    layout.addSpacing(8)
-    buttons = QtWidgets.QHBoxLayout()
-    buttons.addStretch(1)
-    go = QtWidgets.QPushButton("Continue")
-    go.setObjectName("primary")
-    go.setDefault(True)
-    go.clicked.connect(lambda _checked=False: box.accept())
-    buttons.addWidget(go)
-    layout.addLayout(buttons)
-    on_main_screen(box)                          # the main monitor, not the mouse's
-    repaint()
-    show_live()
-    box.exec()                                   # closing it also carries on
-    ticker.stop()
-    try:
-        live.stop()                              # the preview glow goes with the window
-    except Exception:
-        pass
-
-
 class IntroWindow(QtWidgets.QDialog):
-    """Shown the first time the application starts: a few short pages to say
-    hello, choose a hotkey and a look, and point out how to get around. Every
-    choice here is an ordinary setting and can be changed later in Settings."""
+    """The setup window of a first start: one window, page by page.
+
+    First the steps that come before anything else is started: the look,
+    "Before you start" and (if the model is not here) the one-time download
+    question. main() waits for them with run_gate(); closing the window there
+    quits, as the download question always has. Then, once the application is
+    running (attach()), the hotkey and microphone, how it should work, and
+    where things are. Every choice here is an ordinary setting and can be
+    changed later in Settings."""
 
     CANT_HEAR = ("We can't hear you. Is your microphone muted, or is a different "
                  "input device in use? Choose another one above and try again.")
 
-    def __init__(self, dictation, look_chosen=False):
+    def __init__(self, dictation=None, need_ok=False, need_download=False):
         super().__init__()
         self.dictation = dictation
-        self.look_page = -1                      # no look page unless one is added below
+        self.download_choice = "go"           # what the download page said
+        self.gate_result = None                  # "go", "download", "manual" or "quit"
+        self._gate_loop = None
+        self.ok_page = self.download_page = -1
         self.setWindowTitle("Welcome to %s" % APP_TITLE)
         self.setWindowIcon(app_icon())
         self.setWindowFlags(Qt.Window | Qt.WindowTitleHint | Qt.WindowCloseButtonHint
@@ -8463,19 +8321,21 @@ class IntroWindow(QtWidgets.QDialog):
         outer.addWidget(self.stack)
         self.sketches = []
         self.swatches = []
+        self.themes = []
 
         def page(kind, headline, body, controls=True):
-            """One page: a picture, a headline, a paragraph, and (for pages
-            with things to set) a panel that holds the controls. Returns the
-            layout to put the controls in."""
+            """One page: a picture (if `kind`), a headline, a paragraph, and
+            (for pages with things to set) a panel that holds the controls.
+            Returns the layout to put the controls in."""
             holder = QtWidgets.QWidget()
             layout = QtWidgets.QVBoxLayout(holder)
             layout.setContentsMargins(0, 0, 0, 0)
             layout.setSpacing(0)
-            sketch = Sketch(kind)
-            self.sketches.append(sketch)
-            layout.addWidget(sketch)
-            layout.addSpacing(18)
+            if kind:
+                sketch = Sketch(kind)
+                self.sketches.append(sketch)
+                layout.addWidget(sketch)
+                layout.addSpacing(18)
             title = QtWidgets.QLabel(headline)
             title.setObjectName("headline")
             layout.addWidget(title)
@@ -8514,27 +8374,89 @@ class IntroWindow(QtWidgets.QDialog):
             label.setWordWrap(True)
             return label
 
-        # 1. Hello
-        first = page("welcome", ("How %s works" if look_chosen else "Welcome to %s")
-                     % APP_TITLE, controls=False, body=
-                     "Hold a hotkey, speak, and your words are typed into whatever "
-                     "application you are using.\n\nYour speech is turned into text "
-                     "on this PC. %s does not save it or send it anywhere; where the "
-                     "text goes is up to the program you type into." % APP_TITLE)
-        first.addStretch(1)
+        def field(text):
+            name = QtWidgets.QLabel(text)
+            name.setObjectName("field")
+            name.setFixedWidth(86)
+            return name
 
-        # 2. The hotkey and the microphone, on one page, as short labelled rows.
+        # 1. The one-time download (only when the model is not on this PC):
+        # asked first, so it can run while the rest is set up. Nothing is
+        # downloaded until "Before you start" has been held as well.
+        if need_download:
+            down = page("welcome", "One-time download needed", download_question_words())
+            self.download_page = self.stack.count() - 1
+            leave = QtWidgets.QPushButton("Quit")
+            leave.clicked.connect(lambda: self._pass_gate("quit"))
+            manual = QtWidgets.QPushButton("Manual download")
+            manual.setToolTip("Fetch the files yourself with your web browser; the "
+                              "steps are shown.")
+            manual.clicked.connect(lambda: self._download_answer("manual"))
+            fetch = QtWidgets.QPushButton("Download")
+            fetch.setObjectName("primary")
+            fetch.clicked.connect(lambda: self._download_answer("download"))
+            line(down, leave, None, manual, fetch)
+        # 2. Before you start (once; held for 3 seconds so it gets read).
+        if need_ok:
+            words = responsibility_paragraphs()
+            ok = page(None, "Before you start", words[0])
+            self.ok_page = self.stack.count() - 1
+            for text in words[1:]:
+                label = QtWidgets.QLabel(text)
+                label.setObjectName("note")
+                label.setWordWrap(True)
+                ok.addWidget(label)
+            ok.addSpacing(4)
+            leave = QtWidgets.QPushButton("Quit")
+            leave.clicked.connect(lambda: self._pass_gate("quit"))
+            self.hold = HoldButton("Hold to confirm: I understand")
+            self.hold.completed.connect(self._understood)
+            line(ok, leave, None, self.hold)
+            hint = small("Press and hold the button for 3 seconds (or hold Space).")
+            hint.setAlignment(Qt.AlignRight)
+            ok.addWidget(hint)
+        self.gate = self.stack.count()           # from here on the application runs
+
+        # 3. Make it yours (the application runs from here on, and a download
+        # goes on in the background). The real screen glow shows while this
+        # page is up, so the colour can be seen for real. Nothing is recorded.
+        look = page("look", "Welcome to %s" % APP_TITLE,
+                    "Your speech stays on this PC. Pick a look; you can change it "
+                    "any time in Settings.")
+        self.look_page = self.stack.count() - 1
+        colours = []
+        for label, value in ACCENT_CHOICES:
+            swatch = QtWidgets.QPushButton()
+            swatch.setFixedSize(24, 24)
+            swatch.setCursor(Qt.PointingHandCursor)
+            swatch.setToolTip(label)
+            swatch.clicked.connect(lambda _checked=False, v=value: self._colour(v))
+            self.swatches.append((swatch, value))
+            colours.append(swatch)
+        line(look, field("Colour"), *(colours + [None]))
+        for name, value in BACKGROUND_CHOICES:
+            button_ = ChoiceButton(name)
+            button_.setMinimumWidth(68)
+            button_.clicked.connect(lambda _checked=False, v=value: self._theme(v))
+            self.themes.append((button_, value))
+        line(look, field("Pop-up"), *([b for b, _v in self.themes] + [None]))
+        self.pill = QtWidgets.QCheckBox("Keep a small pill on screen between dictations")
+        self.pill.setChecked(bool(ALWAYS_SHOW))
+        self.pill.toggled.connect(self._pill_toggled)
+        look.addWidget(self.pill)
+        self.live = ScreenGlow()
+        self.live_timer = QtCore.QTimer(self)
+        self.live_timer.setInterval(33)
+        self.live_timer.timeout.connect(self._live_tick)
+
+        # 4. The hotkey and the microphone, on one page, as short labelled rows.
         # (There is no separate microphone test: trying the hotkey in the box
         # below is the test, and a note appears if nothing is heard.)
         second = page("hotkey", "Hotkey and microphone",
-                      "Choose what you press to dictate and which microphone to use. "
                       "The microphone is only on while you dictate.")
 
         def labelled(title, *widgets):
-            name = QtWidgets.QLabel(title)
-            name.setObjectName("field")
-            name.setFixedWidth(86)
-            line(second, name, *widgets)
+            line(second, field(title), *widgets)
 
         self.record = QtWidgets.QPushButton("Record")
         self.record.setFixedWidth(84)
@@ -8586,36 +8508,11 @@ class IntroWindow(QtWidgets.QDialog):
         self.hear = QtCore.QTimer(self)          # only reads what dictation already knows
         self.hear.setInterval(250)
         self.hear.timeout.connect(self._check_hearing)
-        self.hear.start()
 
-        # 3. The look. Left out when it was already chosen on the very first
-        # screen, before the model was downloaded.
-        if not look_chosen:
-            third = page("look", "Make it yours",
-                         "Pick a colour. A small pop-up shows while you dictate; the "
-                         "glow round the screen is optional. Both are shown on your "
-                         "screen now, so you can see what you are choosing.")
-            self.look_page = self.stack.count() - 1
-            colours = []
-            for label, value in ACCENT_CHOICES:
-                swatch = QtWidgets.QPushButton()
-                swatch.setFixedSize(24, 24)
-                swatch.setCursor(Qt.PointingHandCursor)
-                swatch.setToolTip(label)
-                swatch.clicked.connect(lambda _checked=False, v=value: self._colour(v))
-                self.swatches.append((swatch, value))
-                colours.append(swatch)
-            line(third, *(colours + [None]))
-            self.glow = QtWidgets.QCheckBox("Glow around the edge of the screen while I dictate")
-            self.glow.setChecked(bool(SCREEN_GLOW))
-            self.glow.toggled.connect(self._glow_toggled)
-            third.addWidget(self.glow)
-            third.addStretch(1)
-
-        # 4. How it should work: the one choice that changes accuracy, and how
+        # 5. How it should work: the one choice that changes accuracy, and how
         # lively it looks (which doesn't). Both can be changed in Settings.
         how = page("style", "How it should work",
-                   "Two quick choices. Both can be changed later in Settings.")
+                   "You can change these later in Settings.")
 
         def choices(title, options, current, on_pick, notes):
             heading_label = QtWidgets.QLabel(title)
@@ -8623,6 +8520,7 @@ class IntroWindow(QtWidgets.QDialog):
             how.addWidget(heading_label)
             buttons = []
             note = small("")
+            note.setMinimumHeight(18)            # one short line
 
             def pick(key):
                 for button_, value in buttons:
@@ -8642,16 +8540,17 @@ class IntroWindow(QtWidgets.QDialog):
         choices("How should your words appear?",
                 [("All at once when I let go", "once"), ("As I speak", "live")],
                 "live" if LIVE_TYPE else "once", self._words_style,
-                {"once": "Most accurate, recommended: your words are typed when you "
-                         "let go of the hotkey. The whole sentence is heard first, so "
-                         "small words like \"and\" or \"on\" come out right.",
-                 "live": "Live: words appear about half a second behind you. Less "
-                         "accurate: each word is typed before the rest of the "
-                         "sentence is heard, and small words are more often wrong."})
+                {"once": "Most accurate. Recommended.",
+                 "live": "Words appear as you speak. Less accurate."})
         # Live typing's note by the mouse pointer: easy to switch off here.
         self.pointer_box = QtWidgets.QCheckBox("Show \"No text box\" by the mouse pointer")
         self.pointer_box.setChecked(bool(POINTER_HINT))
-        self.pointer_box.setEnabled(bool(LIVE_TYPE))
+        # Only shown with "As I speak" (it means nothing otherwise). Its space
+        # is kept while hidden, so the page doesn't jump when you switch.
+        keep = self.pointer_box.sizePolicy()
+        keep.setRetainSizeWhenHidden(True)
+        self.pointer_box.setSizePolicy(keep)
+        self.pointer_box.setVisible(bool(LIVE_TYPE))
         self.pointer_box.setToolTip("While typing as you speak waits for a text box, a "
                                     "small note follows the mouse pointer. Off: only the "
                                     "pop-up says so.")
@@ -8663,24 +8562,14 @@ class IntroWindow(QtWidgets.QDialog):
         choices("How lively should it look?",
                 [("Full effects", "full"), ("Calm", "calm")],
                 "full" if lively else "calm", self._effects_style,
-                {"full": "A glow round the pop-up, and a moving light along the "
-                         "bottom of the screen while you dictate.",
-                 "calm": "No glow round the screen and no moving light: quieter, "
-                         "and lighter on older PCs. Doesn't change accuracy."})
+                {"full": "Glow and a moving light while you dictate.",
+                 "calm": "No moving effects. Lighter on older PCs."})
         how.addStretch(1)
 
-        # 5. Getting around
+        # 6. Getting around
         fourth = page("tips", "Good to know",
-                      "Settings are always two clicks away: right-click the pill on "
-                      "screen, or click the %s icon in the taskbar tray, by the clock."
-                      "\n\nNo hotkey handy: click the pill to dictate, then click the "
-                      "pop-up to finish.\n\nChanged your mind mid-sentence: hover the "
-                      "pop-up and click to cancel." % APP_TITLE)
-        self.pill = QtWidgets.QCheckBox("Keep a small pill on screen between dictations")
-        self.pill.setChecked(bool(ALWAYS_SHOW))
-        self.pill.toggled.connect(self._pill_toggled)
-        fourth.addWidget(self.pill)
-        fourth.addSpacing(6)                     # room between the two choices
+                      "Settings: right-click the pill, or click the %s icon by the "
+                      "clock." % APP_TITLE)
         self.startup = QtWidgets.QCheckBox("Start with Windows")
         # Ticked for a new user: applied when the introduction is finished (a
         # choice they can see and untick, never one made on its own).
@@ -8703,6 +8592,9 @@ class IntroWindow(QtWidgets.QDialog):
         line(fourth, more, None)
         fourth.addSpacing(8)
         self.status = small("")
+        # Room for its two lines from the start: the window takes its height
+        # before the text is known, and a later line would be cut off.
+        self.status.setMinimumHeight(36)
         fourth.addWidget(self.status)
         fourth.addStretch(1)
 
@@ -8737,15 +8629,17 @@ class IntroWindow(QtWidgets.QDialog):
         self.watch = QtCore.QTimer(self)         # keeps the last page's status current
         self.watch.setInterval(500)
         self.watch.timeout.connect(self._refresh_status)
-        self.watch.start()
         self._paint_swatches()
         self._go(0)
+        if self.gate == 0:                       # nothing to ask before the start
+            self._pass_gate("go")
 
     # -- looks ---------------------------------------------------------------
     def _restyle(self):
         self.setStyleSheet(settings_style() + """
 QLabel#headline { color: #FFFFFF; font-size: 21px; font-weight: 600; }
 QLabel#body { color: #B9BBC6; font-size: 14px; }
+QLabel#note { color: #C4C6CF; font-size: 13px; }
 QLabel#info { color: #8E909A; font-size: 12px; }
 QLabel#field { color: #E6E7EC; font-size: 13px; }
 QFrame#panel { background: #1D1F25; border: 1px solid #2A2C33; border-radius: 12px; }
@@ -8769,6 +8663,8 @@ QPlainTextEdit { font-size: 13px; }
             button.setIcon(QtGui.QIcon(swatch_picture(value, value.lower() == ACCENT.lower(),
                                                       3.0)))
             button.setIconSize(QtCore.QSize(24, 24))
+        for button, value in self.themes:
+            button.setChosen(value.lower() == POPUP_BG.lower())
 
     def _redraw(self):
         for sketch in self.sketches:
@@ -8776,41 +8672,108 @@ QPlainTextEdit { font-size: 13px; }
 
     # -- moving between pages ---------------------------------------------------
     def _go(self, index):
-        index = max(0, min(self.stack.count() - 1, index))
+        early = self.dictation is None           # the steps before the application runs
+        index = max(0 if early else self.gate, min(self.stack.count() - 1, index))
         self._note_until = 0.0
         self._show_note(False)
-        self.dictation.cancel_capture()          # a half-recorded hotkey is dropped
+        if not early:
+            self.dictation.cancel_capture()      # a half-recorded hotkey is dropped
         self.record.setText("Record")
         self.record.setEnabled(True)
         self.hotkey_label.setText(pretty(HOTKEY))
         self.stack.setCurrentIndex(index)
         last = index == self.stack.count() - 1
-        self.back.setVisible(index > 0)
-        self.skip.setVisible(not last)           # the last page's own button closes it
+        own_buttons = index in (self.ok_page, self.download_page)
+        self.back.setVisible(index > (0 if early else self.gate))
+        # Before the application runs there is nothing to skip to: the way on
+        # is Next (or the page's own buttons), and closing the window quits.
+        self.skip.setVisible(not last and not early)
+        self.next.setVisible(not own_buttons)
         self.next.setText("Get started" if last else "Next")
         for i, dot in enumerate(self.dots):
             dot.setStyleSheet("border-radius: 4px; background: %s;"
                               % (ACCENT if i == index else "#3A3D46"))
-        self._refresh_status()
+        if not early:
+            self._refresh_status()
         self._redraw()
-        if index == self.look_page:
-            self._show_look()
+        self._live(index == self.look_page)
+        if index == self.ok_page:
+            self.hold.setFocus()
 
-    def _show_look(self):
-        """Show the real pop-up, and the screen glow if it is on, so the choices
-        on the look page can be seen for real. Nothing is recorded."""
+    def _live(self, on):
+        """The real screen glow, while the look page is up (nothing recorded)."""
         try:
-            self.dictation.preview_popup()
-            if SCREEN_GLOW:
-                self.dictation.demo_screen_glow()
+            if on and SCREEN_GLOW:
+                screen = QtGui.QGuiApplication.primaryScreen()
+                self.live.start(glow_base(), screen.geometry())
+                self.live_timer.start()
+            elif not on and self.live_timer.isActive():
+                self.live_timer.stop()
+                self.live.stop()
         except Exception as exc:
-            print("Preview could not be shown:", exc, file=sys.stderr)
+            print("The glow preview could not be shown:", exc, file=sys.stderr)
+
+    def _live_tick(self):
+        try:
+            self.live.step(0.55, bool(SCREEN_GLOW))
+        except Exception:
+            pass
+
+    def _download_answer(self, choice):
+        """Download or Manual download: remembered, and on to "Before you
+        start" (nothing is downloaded until that is held too)."""
+        self.download_choice = choice
+        if self.ok_page >= 0:
+            self._go(self.ok_page)
+        else:
+            self._pass_gate(choice)
+
+    def _understood(self):
+        """ "Before you start" was held: the application can start."""
+        save_setting("responsibility_ok", True)
+        self._pass_gate(self.download_choice)
+
+    def _pass_gate(self, result):
+        """The steps before the application runs are done (or Quit was chosen):
+        main() carries on from run_gate()."""
+        if self.gate_result is not None:
+            return
+        self.gate_result = result
+        self._live(False)
+        self.next.setEnabled(False)              # until the application is running
+        self.back.setEnabled(False)
+        if self._gate_loop is not None:
+            self._gate_loop.quit()
+
+    def run_gate(self):
+        """Wait (the window stays open) until the first steps are done. Returns
+        "go", "download", "manual" or "quit"."""
+        if self.gate_result is None:
+            self._gate_loop = QtCore.QEventLoop()
+            self._gate_loop.exec()
+            self._gate_loop = None
+        return self.gate_result
+
+    def attach(self, dictation):
+        """The application is running now: on to the rest of the pages."""
+        self.dictation = dictation
+        self.next.setEnabled(True)
+        self.back.setEnabled(True)
+        if not self.isVisible():                 # closed while it was starting
+            self.closeEvent(None)
+            return
+        self.hear.start()
+        self.watch.start()
+        self._go(self.gate)
 
     def _open_settings(self):
         self.close()                             # finishes the introduction
         open_settings(self.dictation)
 
     def _next(self):
+        if self.dictation is None and self.stack.currentIndex() + 1 >= self.gate:
+            self._pass_gate("go")
+            return
         if self.stack.currentIndex() == self.stack.count() - 1:
             self.close()                         # closeEvent finishes up
         else:
@@ -8912,12 +8875,12 @@ QPlainTextEdit { font-size: 13px; }
             dot.setStyleSheet("border-radius: 4px; background: %s;"
                               % (ACCENT if i == index else "#3A3D46"))
         self._redraw()
-        self._show_look()                        # the real thing, in the new colour
+        self._live(index == self.look_page)      # the real glow, in the new colour
 
-    def _glow_toggled(self, on):
-        set_option("SCREEN_GLOW", "screen_glow", bool(on))
+    def _theme(self, value):
+        set_option("POPUP_BG", "popup_bg", value)
+        self._paint_swatches()
         self._redraw()
-        self._show_look()
 
     def _words_style(self, key):
         """How your words should appear: all at once (most accurate) or live.
@@ -8926,7 +8889,7 @@ QPlainTextEdit { font-size: 13px; }
         if key == "live":
             set_option("TEXTBOX_ONLY", "textbox_only", True)
         if getattr(self, "pointer_box", None) is not None:   # only means something live
-            self.pointer_box.setEnabled(key == "live")
+            self.pointer_box.setVisible(key == "live")
 
     def _effects_style(self, key):
         """How lively it should look. Full: glow round the pop-up, the screen
@@ -8936,15 +8899,12 @@ QPlainTextEdit { font-size: 13px; }
         set_option("SCREEN_GLOW_FLOW", "screen_glow_flow", full)
         set_option("OUTLINE_LIGHT", "outline_light", full)
         set_option("CARD_STYLE", "card_style", "glow" if full else "clean")
-        if getattr(self, "glow", None) is not None:      # the look page's own tick
-            self.glow.blockSignals(True)
-            self.glow.setChecked(full)
-            self.glow.blockSignals(False)
         self._redraw()
 
     def _pill_toggled(self, on):
         set_option("ALWAYS_SHOW", "always_show", bool(on))
-        self.dictation.refresh_popup()
+        if self.dictation is not None:
+            self.dictation.refresh_popup()
 
     def _app_updates_toggled(self, on):
         if on and not ask_app_update_check(self, at_startup=True):
@@ -8955,6 +8915,15 @@ QPlainTextEdit { font-size: 13px; }
         set_check_app_updates(on)
 
     def closeEvent(self, event):
+        if self.dictation is None:
+            # Before the application runs, closing the window is Quit (as the
+            # download question has always been); main() leaves.
+            self._live(False)
+            self._pass_gate("quit")
+            if event is not None:
+                event.accept()
+            self.hide()
+            return
         # Finishing and closing the window are the same thing: nothing here
         # has to be completed, and every choice made so far is already saved.
         try:
@@ -8976,7 +8945,8 @@ QPlainTextEdit { font-size: 13px; }
         # Esc would only hide the window without finishing the introduction
         # (no "Ready", the introduction again next time): finish it properly.
         if event.key() == Qt.Key_Escape:
-            self.close()
+            if self.dictation is not None:       # never quits by accident early on
+                self.close()
             return
         super().keyPressEvent(event)
 
@@ -11032,16 +11002,25 @@ def main():
     # the application never goes online for it without a fresh yes.
     # (Earlier versions kept a lasting yes under "download_ok". That is dropped,
     # unread: it must not stand in for a fresh answer.)
-    look_chosen = False
+    agreed_in_settings = DOWNLOAD_AGREED_ONCE     # read (and used up) at start
+    needed =not (_setup_done() or local_model_dir()) and not agreed_in_settings
+    need_ok = _config.get("responsibility_ok") is not True or replay
+    intro = None
+    answer = None
     if not _config.get("welcomed"):
-        # A first launch (or a replay of one): choose the look before anything
-        # else, so the download card and the rest already wear it.
-        try:
-            first_look_window()
-            look_chosen = True
-        except Exception as exc:
-            print("The first screen could not be shown:", exc, file=sys.stderr)
-    if _config.get("responsibility_ok") is not True or replay:
+        # A first launch (or a replay of one): one setup window. Its first
+        # pages (the download question, if needed, and "Before you start")
+        # come before anything else starts; the rest follow once it runs.
+        intro = IntroWindow(None, need_ok=need_ok, need_download=needed or replay)
+        on_main_screen(intro)
+        intro.show()
+        answer = intro.run_gate()
+        if answer == "quit":
+            print("The setup window was closed before the start; closing.")
+            leave_now(app)
+            return
+        need_ok = False                          # held on its page
+    if need_ok:
         # Once, before first use: what the application does with your words,
         # and that where they go is up to you. Not understood (Quit, or the
         # window closed): the application closes, as with the download question.
@@ -11050,20 +11029,14 @@ def main():
             leave_now(app)
             return
         save_setting("responsibility_ok", True)
-    agreed_in_settings = DOWNLOAD_AGREED_ONCE     # read (and used up) at start
-    needed =not (_setup_done() or local_model_dir()) and not agreed_in_settings
     if needed or replay:
-        size = dict((entry[0], entry[3]) for entry in MODELS).get(MODEL, "several hundred MB")
-        agreed = dialog(
-            None, "%s: one-time download" % APP_TITLE, "One-time download needed",
-            "This application will go online once, to download what %(app)s needs "
-            "to turn your speech into text on this PC: a speech model, %(model)s, "
-            "%(size)s, plus a small helper for long dictations (about 2 MB).\n\n"
-            "They come from this project's model page on github.com, a third-party "
-            "website that we do not run or control, and every file is checked before "
-            "it is used. After that, %(app)s works without an internet connection."
-            % dict(app=APP_TITLE, model=model_label(MODEL), size=size),
-            accept="Download", reject="Quit", other="Manual download")
+        if intro is not None:                    # answered on its page
+            agreed = {"download": True, "manual": "other"}.get(answer, False)
+        else:
+            agreed = dialog(
+                None, "%s: one-time download" % APP_TITLE, "One-time download needed",
+                download_question_words(),
+                accept="Download", reject="Quit", other="Manual download")
         if agreed == "other":
             # Not through this program: show how to fetch the files by hand.
             manual_download_steps()
@@ -11110,11 +11083,8 @@ def main():
         # github.com, in a separate helper, a little after start-up so that it
         # never slows the start. Says something only if there is a new version.
         QtCore.QTimer.singleShot(10000, lambda: run_app_update_check(None, manual=False))
-    intro = None
-    if dictation.intro_open:                           # first launch (or a replay of it)
-        intro = IntroWindow(dictation, look_chosen=look_chosen)   # noqa: F841 (kept alive)
-        on_main_screen(intro)
-        intro.show()
+    if intro is not None:                              # first launch: on with the setup
+        intro.attach(dictation)
     code = app.exec()                                  # runs until Quit
     leave_now(app, code)                               # and then really ends
 
