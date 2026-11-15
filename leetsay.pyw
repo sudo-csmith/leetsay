@@ -5768,8 +5768,11 @@ class Dictation(QtCore.QObject):
                 # typing it now would set off shortcuts there, so it isn't.
                 print("Typing as you speak: no text box at the end; the rest was not typed.")
                 self.remember(typed + text)      # kept only with "Missed text safety"
-                self.overlay.show_message("No text box here, so the rest wasn't typed",
-                                          ms=3000)
+                if self.overlay.box_missing:
+                    # The card already said "No text box selected": just close.
+                    self.overlay.dismiss()
+                else:                            # it had no chance to say so
+                    self.overlay.show_message("No text box, so it wasn't typed", ms=1500)
                 return
             if not text and typed:
                 text = " " if ADD_SPACE else ""
