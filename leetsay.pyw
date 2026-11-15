@@ -2317,7 +2317,7 @@ class Overlay(QtWidgets.QWidget):
 
     @staticmethod
     def _pill_font(weight):
-        font = QtGui.QFont("Segoe UI")
+        font = ui_font()
         font.setPixelSize(13)
         font.setWeight(weight)
         # Letters snapped to the pixel grid: the pill is see-through, where
@@ -2337,6 +2337,9 @@ class Overlay(QtWidgets.QWidget):
     def _pill_colours():
         """Fill, outline, key names, "+": the dark look, or the same contrast
         on the light theme."""
+        if LEET_MODE:
+            return (QtGui.QColor("#050A06"), QtGui.QColor("#1E7A3C"),
+                    QtGui.QColor("#6EFF96"), QtGui.QColor("#2FB85C"))
         if is_light(POPUP_BG):
             # A faint see-through edge (a solid grey line showed its steps
             # round the curves); a soft shadow does the rest (see _draw_pill).
@@ -2365,6 +2368,8 @@ class Overlay(QtWidgets.QWidget):
         """The mark the pill shows now: "logo", "dot" or None. With the mark
         hidden, a dot still appears while something needs you (the status
         light: amber while loading, red for a problem)."""
+        if LEET_MODE:
+            return "logo"                        # 1337 mode: the four bars, in green
         if PILL_MARK == "none":
             return "dot" if self.status != "ok" else None
         return PILL_MARK
@@ -2686,6 +2691,8 @@ class Overlay(QtWidgets.QWidget):
         if self.mode == "idle":
             # Without the hotkey text the pill is just its dot: a small round
             # button, as quiet as it can be.
+            if LEET_MODE:
+                return "1337"
             return pretty(HOTKEY) if SHOW_HOTKEY_HINT else ""
         return None
 
@@ -2715,7 +2722,7 @@ class Overlay(QtWidgets.QWidget):
         self.second_look = {}      # word number -> a change the model suggested once
 
     def _measure(self):
-        font = QtGui.QFont("Segoe UI")
+        font = ui_font()
         font.setPixelSize(TEXT_SIZE)
         return QtGui.QFontMetricsF(font).horizontalAdvance
 
@@ -2724,7 +2731,7 @@ class Overlay(QtWidgets.QWidget):
         the name in full with a decent length of wave beside it."""
         if not self.app_name:
             return base
-        font = QtGui.QFont("Segoe UI")
+        font = ui_font()
         font.setPixelSize(12)
         font.setWeight(QtGui.QFont.DemiBold)
         name_w = QtGui.QFontMetricsF(font).horizontalAdvance(self.app_name)
@@ -3544,7 +3551,7 @@ class Overlay(QtWidgets.QWidget):
             self.rows = needed
 
         if note is not None:            # small pill that grows to fit its text
-            note_font = QtGui.QFont("Segoe UI")
+            note_font = ui_font()
             note_font.setPixelSize(12)
             wanted = QtGui.QFontMetricsF(note_font).horizontalAdvance(note) + 58.0
             width = max(80.0, min(380.0, wanted))                # hugs short text
@@ -3558,10 +3565,10 @@ class Overlay(QtWidgets.QWidget):
             if self.progress is not None and self.mode == "message":
                 # The download card: just wide enough for its text, with the
                 # same margin on every side.
-                bold = QtGui.QFont("Segoe UI")
+                bold = ui_font()
                 bold.setPixelSize(12)
                 bold.setWeight(QtGui.QFont.DemiBold)
-                small = QtGui.QFont("Segoe UI")
+                small = ui_font()
                 small.setPixelSize(11)
                 title, words, _stuck = self._download_lines(note)
                 widest = max(QtGui.QFontMetricsF(bold).horizontalAdvance(title),
@@ -3576,7 +3583,7 @@ class Overlay(QtWidgets.QWidget):
                 width = float(max(self.CARD_W, min(self.WIN_W, CARD_WIDTH)))
             width = self._fit_width(width)       # room for the app's name in full
             if warning:                          # a microphone warning, never cut short
-                said = QtGui.QFont("Segoe UI")
+                said = ui_font()
                 said.setPixelSize(TEXT_SIZE)
                 width = max(width, min(float(self.WIN_W),
                                        QtGui.QFontMetricsF(said).horizontalAdvance(warning)
@@ -3585,7 +3592,7 @@ class Overlay(QtWidgets.QWidget):
             # dot), its name if wanted, the wave, the timer.
             one_row = not third                  # no words under it: a pill
             hug = one_row and not SHOW_WAVEFORM  # nothing stretchy: fit the contents
-            top_font = QtGui.QFont("Segoe UI")
+            top_font = ui_font()
             top_font.setPixelSize(12)
             top_font.setWeight(QtGui.QFont.DemiBold)
             top_metrics = QtGui.QFontMetricsF(top_font)
@@ -3881,7 +3888,7 @@ class Overlay(QtWidgets.QWidget):
                 p.fillPath(outer.subtracted(inner), QtGui.QBrush(edge))
         p.setPen(Qt.NoPen)
 
-        font = QtGui.QFont("Segoe UI")
+        font = ui_font()
         font.setPixelSize(12)
         p.setFont(font)
 
@@ -4077,7 +4084,7 @@ class PointerBadge(QtWidgets.QWidget):
         self.setAttribute(Qt.WA_ShowWithoutActivating)
         self.setAttribute(Qt.WA_TransparentForMouseEvents)
         self.text = "No text box"
-        font = QtGui.QFont("Segoe UI")
+        font = ui_font()
         font.setPixelSize(12)
         font.setWeight(QtGui.QFont.DemiBold)
         self.font_ = font
@@ -4664,6 +4671,17 @@ def is_light(colour):
 
 def popup_theme():
     """Every colour the pop-up uses, worked out from its background colour."""
+    if LEET_MODE:                                # green on black, all of it
+        return {"bg": QtGui.QColor(5, 10, 6, 250), "border": QtGui.QColor(57, 255, 106, 60),
+                "shadow": QtGui.QColor(0, 0, 0, 10),
+                "text": QtGui.QColor(110, 255, 150), "text2": QtGui.QColor(70, 230, 110),
+                "muted": QtGui.QColor(40, 170, 80), "faint": QtGui.QColor(30, 120, 60),
+                "quiet": QtGui.QColor(57, 255, 106, 60),
+                "warning": QtGui.QColor(255, 200, 70), "danger": QtGui.QColor(255, 90, 90),
+                "chip": QtGui.QColor(57, 255, 106, 18),
+                "chip_hot": QtGui.QColor(57, 255, 106, 40),
+                "chip_border": QtGui.QColor(57, 255, 106, 70),
+                "sheen": QtGui.QColor(57, 255, 106, 16)}
     bg = QtGui.QColor(POPUP_BG)
     if not bg.isValid():
         bg = QtGui.QColor("#16171B")
@@ -6782,6 +6800,40 @@ _is_hotkey = valid_hotkey                         # one rule everywhere (see the
 
 
 # key: check for its value. The ones in _PORTABLE_CAREFUL need a yes to turn on.
+# 1337 mode: a hidden look (click the title in About seven times). Green on
+# black, a typewriter font, "1337" on the pill. Looks only: the typed text is
+# never changed. Your own colours are kept: the mode only covers them while on.
+LEET_MODE = bool(_config.get("leet_mode") is True)
+_LEET_LOOK = {"ACCENT": "#39FF6A", "POPUP_BG": "#050A06", "GLOW_COLOUR": "",
+              "GLOW_FROM_APP": False, "CARD_STYLE": "glow"}
+_LEET_SAVED = {}
+
+
+def apply_leet(on):
+    """Put the 1337 look on (or take it off again), in memory only: nothing
+    of your own look is overwritten in the settings file."""
+    global LEET_MODE
+    LEET_MODE = bool(on)
+    if on:
+        for name, value in _LEET_LOOK.items():
+            _LEET_SAVED.setdefault(name, globals()[name])
+            globals()[name] = value
+    else:
+        for name, value in _LEET_SAVED.items():
+            globals()[name] = value
+        _LEET_SAVED.clear()
+
+
+if LEET_MODE:
+    apply_leet(True)
+
+
+def ui_font():
+    """The pop-up's font: Segoe UI, or Consolas (a typewriter font that comes
+    with Windows) in 1337 mode."""
+    return QtGui.QFont("Consolas" if LEET_MODE else "Segoe UI")
+
+
 _PORTABLE_CHECKS = {
     "hotkey": lambda v: _is_hotkey(v),
     "action_hotkey": lambda v: _is_hotkey(v, empty_ok=True),
@@ -7059,7 +7111,8 @@ def on_main_screen(window):
         print("Could not place a window:", exc, file=sys.stderr)
 
 
-def dialog(parent, title, headline, body, accept=None, reject="Close", other=None):
+def dialog(parent, title, headline, body, accept=None, reject="Close", other=None,
+           on_headline_clicks=None):
     """The app's own dialog: a headline, a paragraph at a comfortable width, and
     buttons on the right. Returns True if the accept button was chosen. With
     `other` there is a third button on the left; choosing it returns "other"."""
@@ -7082,6 +7135,15 @@ QPushButton#primary:hover { background: %(accent)s; border-color: #FFFFFF; }
     layout.setSpacing(10)
     top = QtWidgets.QLabel(headline)
     top.setObjectName("headline")
+    if on_headline_clicks is not None:          # a hidden switch (see show_about)
+        clicks = {"n": 0}
+
+        def pressed(_event):
+            clicks["n"] += 1
+            if clicks["n"] == 7:
+                clicks["n"] = 0
+                on_headline_clicks()
+        top.mousePressEvent = pressed
     top.setWordWrap(True)
     top.setFixedWidth(400)
     layout.addWidget(top)
@@ -7733,7 +7795,7 @@ class Sketch(QtWidgets.QWidget):
 
     @staticmethod
     def _font(size, bold=False):
-        font = QtGui.QFont("Segoe UI")
+        font = ui_font()
         font.setPixelSize(size)
         if bold:
             font.setWeight(QtGui.QFont.DemiBold)
@@ -10503,8 +10565,14 @@ def show_about(dictation):
         "where the text it types goes. The licences of everything it uses are "
         "in its licenses folder and CREDITS.md; see also the README.",
     ]
+    def toggle_leet():
+        apply_leet(not LEET_MODE)
+        save_setting("leet_mode", LEET_MODE)
+        dictation.overlay.apply_size()
+        dictation.overlay.show_message("1337 mode on" if LEET_MODE else "1337 mode off",
+                                       ms=2200, pulse=True)
     dialog(None, "About %s" % APP_TITLE, "%s %s" % (APP_TITLE, VERSION),
-           "\n".join(line for line in lines[2:]))
+           "\n".join(line for line in lines[2:]), on_headline_clicks=toggle_leet)
 
 
 def hide_console():
