@@ -117,9 +117,12 @@ Turn on **Type as you speak** (Settings, General) and your words appear in
 your program while you are still talking, about half a second behind you,
 instead of all at once when you let go. You can keep holding the hotkey.
 
-- It is a little less accurate than the normal mode: each word is typed once
-  the speech model is sure enough of it, and words already typed are not
-  changed afterwards.
+- It is less accurate than the normal mode, which is why it is off by
+  default. In the normal mode the speech model hears your whole sentence
+  before anything is typed, so small words like "and" or "on" come out right.
+  Typing as you speak, each word is typed before the rest of the sentence is
+  heard, and words already typed are not changed afterwards. Choose it if you
+  prefer to see your words straight away.
 - It only types into the window you started in. With **Text box detection**
   on (the default), it also waits until the cursor is in a text box, so that
   on a web page or a video your words are not taken as keyboard shortcuts.

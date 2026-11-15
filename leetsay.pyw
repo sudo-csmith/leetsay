@@ -8642,10 +8642,12 @@ class IntroWindow(QtWidgets.QDialog):
         choices("How should your words appear?",
                 [("All at once when I let go", "once"), ("As I speak", "live")],
                 "live" if LIVE_TYPE else "once", self._words_style,
-                {"once": "Most accurate: your words are typed when you let go of "
-                         "the hotkey. Recommended.",
-                 "live": "Live: words appear about half a second behind you. A little "
-                         "less accurate, as each word is typed before you finish."})
+                {"once": "Most accurate, recommended: your words are typed when you "
+                         "let go of the hotkey. The whole sentence is heard first, so "
+                         "small words like \"and\" or \"on\" come out right.",
+                 "live": "Live: words appear about half a second behind you. Less "
+                         "accurate: each word is typed before the rest of the "
+                         "sentence is heard, and small words are more often wrong."})
         # Live typing's note by the mouse pointer: easy to switch off here.
         self.pointer_box = QtWidgets.QCheckBox("Show \"No text box\" by the mouse pointer")
         self.pointer_box.setChecked(bool(POINTER_HINT))
@@ -9167,10 +9169,12 @@ class SettingsWindow(QtWidgets.QDialog):
                   "Words only go into the window you started in, and only into "
                   "a text box (see below). Otherwise typing waits; if you click "
                   "into a text box, it catches up.\n\n"
-                  "A little less accurate: each part is read on its own, and "
-                  "words already typed are never changed afterwards.",
-              hint="Words appear as you say them. A little less accurate than "
-                   "all at once.")
+                  "Less accurate: each part is read on its own, before the rest "
+                  "of the sentence is heard, and words already typed are never "
+                  "changed afterwards. Small words like \"and\" or \"on\" are the "
+                  "most often wrong.",
+              hint="Words appear as you say them. Less accurate than all at once "
+                   "(off is recommended).")
         check("Text box detection", TEXTBOX_ONLY, option("TEXTBOX_ONLY", "textbox_only"),
               tip="On by default. While typing as you speak, words only go in "
                   "when the cursor is in a text box: on a web page or a video, "
