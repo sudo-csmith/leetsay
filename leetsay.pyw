@@ -704,8 +704,24 @@ for _name, _key in (("SOUND_SET", "sound_set"), ("SOUND_START_FILE", "sound_star
                     ("GLOW_COLOUR", "glow_colour"), ("ACTION_KEY", "action_key")):
     if isinstance(_config.get(_key), str):
         globals()[_name] = _config[_key]
+def windows_app_mode():
+    """Windows' own "app mode" (Settings > Personalization > Colours): "light"
+    or "dark". Reads that one setting, on this PC."""
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                            r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize") as key:
+            return "light" if winreg.QueryValueEx(key, "AppsUseLightTheme")[0] else "dark"
+    except Exception:
+        return "dark"
+
+
 if _config.get("menu_theme") in ("dark", "light"):
     MENU_THEME = _config["menu_theme"]
+else:
+    # Not chosen yet (a first start): follow Windows. Not saved, so it keeps
+    # following Windows until a choice is made in the setup or in Settings.
+    MENU_THEME = windows_app_mode()
 for _name, _key in (("PASTE_HOTKEY", "paste_hotkey"), ("ACTION_HOTKEY", "action_hotkey")):
     if valid_hotkey(_config.get(_key), empty_ok=True) and _config[_key] != HOTKEY:
         globals()[_name] = _config[_key]

@@ -56,6 +56,8 @@ to see who uses it or what they do with it.
 - For the glow along the bottom of the screen, leetsay reads one Windows
   setting (whether the taskbar is see-through) to place the glow behind it.
   It changes nothing in Windows.
+- Until you choose a dark or light look for Settings, leetsay reads Windows'
+  own dark or light app mode and matches it. It changes nothing in Windows.
 - To show a red status light when no microphone is connected, leetsay asks
   Windows every few seconds how many microphones there are, while its pop-up
   is showing. This does not open or listen to any microphone.
