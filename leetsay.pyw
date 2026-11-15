@@ -8941,13 +8941,13 @@ def main():
     if needed or replay:
         size = dict((entry[0], entry[3]) for entry in MODELS).get(MODEL, "several hundred MB")
         agreed = dialog(
-            None, "%s: one-time download" % APP_TITLE, "This application will go online once",
-            "%(app)s turns your speech into text on this PC. It needs a speech "
-            "model, %(model)s, %(size)s, plus a small helper for long dictations "
-            "(about 2 MB). Neither is on this PC yet.\n\n"
-            "They are downloaded once from huggingface.co, a third-party website "
-            "that we do not run or control. After that, %(app)s works without an "
-            "internet connection."
+            None, "%s: one-time download" % APP_TITLE, "One-time download needed",
+            "This application will go online once, to download what %(app)s needs "
+            "to turn your speech into text on this PC: a speech model, %(model)s, "
+            "%(size)s, plus a small helper for long dictations (about 2 MB).\n\n"
+            "They come from huggingface.co, a third-party website that we do not "
+            "run or control. After that, %(app)s works without an internet "
+            "connection."
             % dict(app=APP_TITLE, model=model_label(MODEL), size=size),
             accept="Download", reject="Quit", other="Manual download")
         if agreed == "other":
