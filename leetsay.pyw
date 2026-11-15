@@ -4084,7 +4084,9 @@ class PointerBadge(QtWidgets.QWidget):
         width = QtGui.QFontMetricsF(font).horizontalAdvance(self.text)
         self.resize(int(width + 34), 24)
         self.timer = QtCore.QTimer(self)
-        self.timer.setInterval(30)               # follows the pointer while it shows
+        # Follows the pointer about 100 times a second while it shows (30 a
+        # second looked jerky beside the pointer itself).
+        self.timer.setInterval(10)
         self.timer.timeout.connect(self._follow)
 
     def appear(self):
@@ -4105,7 +4107,7 @@ class PointerBadge(QtWidgets.QWidget):
         shown = self.windowOpacity()
         target = getattr(self, "target", 1.0)
         if abs(shown - target) > 0.01:
-            step = 0.3 if animations_on() else 1.0
+            step = 0.1 if animations_on() else 1.0     # still about a tenth of a second
             shown = min(target, shown + step) if target > shown else max(target, shown - step)
             self.setWindowOpacity(shown)
         if target == 0.0 and shown <= 0.01:
