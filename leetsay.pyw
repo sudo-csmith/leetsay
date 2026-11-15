@@ -4772,7 +4772,6 @@ class Dictation(QtCore.QObject):
         self.fx_timer.setInterval(33)
         self.fx_timer.timeout.connect(self._fx_tick)
         self.keys_up_checks = 0
-        self.mic_silent = False                # the last dictation got no sound at all
         self.status_timer = QtCore.QTimer()    # the pill's status light, every few seconds
         self.status_timer.setInterval(3000)
         self.status_timer.timeout.connect(self.update_status)
@@ -5404,13 +5403,16 @@ class Dictation(QtCore.QObject):
 
     def update_status(self):
         """Set the pill's status light: amber while the model loads; red when
-        there is no microphone in Windows, the last dictation got no sound at
-        all, or there is no usable model; otherwise the accent colour."""
+        there is no microphone in Windows or no usable model; otherwise the
+        accent colour. Only what can be checked without listening: a muted
+        microphone is said on the card while you dictate (a light that turned
+        red after a silent dictation stayed red after unmuting, as nothing
+        listens between dictations to notice)."""
         if not self.overlay.isVisible():
             return                               # nothing shows the light: don't ask
         if self.state == "loading":
             status = "busy"
-        elif self.state == "nomodel" or not microphone_present() or self.mic_silent:
+        elif self.state == "nomodel" or not microphone_present():
             status = "problem"
         else:
             status = "ok"
@@ -6037,8 +6039,6 @@ class Dictation(QtCore.QObject):
             else:
                 self.overlay.dismiss()
             return
-        self.mic_silent = self.recorder.peak < MIC_SILENT_PEAK
-        QtCore.QTimer.singleShot(0, self.update_status)
         if self.recorder.peak < MIC_SILENT_PEAK:  # the microphone gave pure silence
             self.state = "idle"
             if getattr(self, "popup_shown", True):
