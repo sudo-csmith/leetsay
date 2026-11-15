@@ -17,9 +17,9 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
 
@@ -57,7 +57,7 @@ jobs:
           } | Set-Content Output\SHA256SUMS.txt -Encoding ascii
           Get-Content Output\SHA256SUMS.txt
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: leetsay-setup-${{ steps.version.outputs.value }}
           path: Output/*
