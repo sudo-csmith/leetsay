@@ -7933,10 +7933,15 @@ class Sketch(QtWidgets.QWidget):
         self.setFixedHeight({"look": 116, "hotkey": 60, "tips": 60}.get(kind, 96))
         if kind == "style":
             # It moves (see _style): redrawn while it is on screen only.
+            self._style_from = time.monotonic()
             self._ticker = QtCore.QTimer(self)
             self._ticker.setInterval(60)
             self._ticker.timeout.connect(lambda: self.update() if self.isVisible() else None)
             self._ticker.start()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._style_from = time.monotonic()      # the moving picture starts afresh
 
     def paintEvent(self, _event):
         p = QtGui.QPainter(self)
@@ -8099,18 +8104,27 @@ class Sketch(QtWidgets.QWidget):
         self._wave(p, w / 2 - 44, w / 2 + 104, h / 2 - 4, 15.0, ACCENT, 2.4)
 
     STYLE_WORDS = ("See", "you", "at", "noon.")
-    STYLE_CYCLE = 5.0                            # seconds for one "spoken" sentence
+    STYLE_CYCLE = 6.5                            # seconds for one "spoken" sentence
 
     def _style(self, p, w, h):
         # A sentence "spoken" over and over, both ways side by side. Left: the
         # words show on the pop-up while you speak and land in the text box
         # when you let go. Right: they are typed into the text box as spoken.
-        t = (time.monotonic() % self.STYLE_CYCLE) / self.STYLE_CYCLE
+        # From the start each time the page shows (see showEvent), never
+        # half way through (owner: that was confusing).
+        since = time.monotonic() - getattr(self, "_style_from", 0.0)
+        t = (since % self.STYLE_CYCLE) / self.STYLE_CYCLE
         words = self.STYLE_WORDS
-        speaking = t < 0.62
-        heard = min(len(words), int(t / 0.62 * (len(words) + 0.4))) if speaking else len(words)
-        if t > 0.94:
+        speak_end = 0.5
+        speaking = t < speak_end
+        heard = min(len(words), int(t / speak_end * (len(words) + 0.4))) if speaking             else len(words)
+        if t > 0.95:
             heard = 0                            # a short pause, then again
+        # What the hotkey is doing: held while speaking, then let go.
+        p.setFont(self._font(11))
+        key = pretty(HOTKEY)
+        chip_text = ("Holding %s" % key) if speaking and heard else             ("Let go" if heard else "Ready")
+        chip_w = QtGui.QFontMetricsF(p.font()).horizontalAdvance(chip_text) + 30.0
         light = light_menus()
         pop_light = is_light(POPUP_BG)
         box_w = min(190.0, (w - 30.0) / 2.0)
@@ -8136,6 +8150,20 @@ class Sketch(QtWidgets.QWidget):
                 p.setPen(Qt.NoPen)
                 p.setBrush(QtGui.QColor(ACCENT))
                 p.drawRect(QtCore.QRectF(x, box.center().y() - 6, 1.6, 12))
+            if i == 1:
+                # Right: the hotkey's state, above the box.
+                chip = QtCore.QRectF(box.center().x() - chip_w / 2.0, 10, chip_w, 22)
+                lit = speaking and heard
+                p.setPen(QtGui.QPen(QtGui.QColor(ACCENT if lit else self._edge()), 1.0))
+                p.setBrush(Qt.NoBrush)
+                p.drawRoundedRect(chip, 11, 11)
+                p.setPen(Qt.NoPen)
+                p.setBrush(QtGui.QColor(ACCENT if lit else self._quiet()))
+                p.drawEllipse(QtCore.QPointF(chip.left() + 12, chip.center().y()), 3, 3)
+                p.setPen(QtGui.QColor(self._quiet() if not lit else
+                                      ("#1B1D22" if light else "#E8E9EE")))
+                p.drawText(chip.adjusted(20, 0, -6, 0), Qt.AlignVCenter | Qt.AlignLeft,
+                           chip_text)
             # Left only: the pop-up above it, showing the words as you speak.
             if i == 0 and speaking and heard:
                 pill = QtCore.QRectF(box.left() + 18, 8, box_w - 36, 24)
@@ -10750,6 +10778,37 @@ class TrayTip(QtWidgets.QWidget):
         row.addWidget(ok, 0, Qt.AlignVCenter)
         self.pad("below")
         self.place(tray)
+        # Windows' own tray panel (the ^ by the clock) covers anything near it
+        # and nothing can go above it: while it is open the card steps aside,
+        # and comes back when it closes (owner).
+        self.stepped_aside = False
+        self.panel_watch = QtCore.QTimer(self)
+        self.panel_watch.setInterval(200)
+        self.panel_watch.timeout.connect(self._watch_panel)
+        self.panel_watch.start()
+
+    @staticmethod
+    def tray_panel_open():
+        """Is Windows' tray panel (hidden icons, the ^) open right now?"""
+        try:
+            user32 = ctypes.windll.user32
+            for name in ("TopLevelWindowForOverflowXamlIsland",     # Windows 11
+                         "NotifyIconOverflowWindow"):                # Windows 10
+                handle = user32.FindWindowW(name, None)
+                if handle and user32.IsWindowVisible(handle):
+                    return True
+        except Exception:
+            pass
+        return False
+
+    def _watch_panel(self):
+        open_now = self.tray_panel_open()
+        if open_now and self.isVisible():
+            self.stepped_aside = True
+            self.hide()
+        elif not open_now and self.stepped_aside:
+            self.stepped_aside = False
+            self.show()
 
     def pad(self, arrow):
         """Even padding round the row, plus room for the pointer on the side it
@@ -10820,6 +10879,8 @@ class TrayTip(QtWidgets.QWidget):
 
     def done_with(self, _checked=False):
         save_setting("tray_tip_seen", True)      # seen: never shown again
+        self.panel_watch.stop()
+        self.stepped_aside = False
         self.hide()
         self.deleteLater()
         if self.on_done:
