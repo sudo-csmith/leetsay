@@ -8189,6 +8189,7 @@ class HoldButton(QtWidgets.QPushButton):
     quick click should not be enough, so that the words above it get read."""
 
     completed = QtCore.Signal()
+    FILL_STYLE = "lighter"                       # how it fills while held (see paintEvent)
     FRAME_MS = 8                                 # redraw often, on a precise timer
     DRAIN = 0.25                                 # seconds to empty after letting go
 
@@ -8216,6 +8217,16 @@ class HoldButton(QtWidgets.QPushButton):
         widest = max(metrics.horizontalAdvance(text),
                      metrics.horizontalAdvance("Keep holding… 3"))
         self.setMinimumWidth(widest + 48)
+
+    def reset(self):
+        """Ready to be held again (coming back to its page)."""
+        self._timer.stop()
+        self._done = False
+        self._held_since = self._drain_since = None
+        self._fill = 0.0
+        self._shown_number = None
+        self.setText(self._label)
+        self.update()
 
     def _begin(self):
         if self._done or self._held_since is not None:
@@ -8301,26 +8312,38 @@ class HoldButton(QtWidgets.QPushButton):
         p.setPen(Qt.NoPen)
         inner = QtCore.QRectF(self.rect()).adjusted(1, 1, -1, -1)
         edge = inner.left() + inner.width() * self._fill
-        # Charging up: the part still to fill is dimmed (towards the window's
-        # own background), and the full colour fills in from the left with a
-        # soft leading edge (a hard edge looks like it jumps). The words are
-        # drawn again on top, so they stay sharp. (A white sweep looked
-        # washed out, owner.)
-        soft = 14.0
-        dim = QtGui.QColor("#FFFFFF" if light_menus() else "#16171B")
-        dim.setAlpha(120)
-        clear = QtGui.QColor(dim)
-        clear.setAlpha(0)
-        sweep = QtGui.QLinearGradient(QtCore.QPointF(edge, 0), QtCore.QPointF(edge + soft, 0))
-        sweep.setColorAt(0.0, clear)
-        sweep.setColorAt(1.0, dim)
-        p.setBrush(QtGui.QBrush(sweep))
         path = QtGui.QPainterPath()
         path.addRoundedRect(inner, 6, 6)
         p.setClipPath(path)
-        p.drawRect(QtCore.QRectF(edge, inner.top(), inner.right() - edge, inner.height()))
+        soft = 14.0
+        style = self.FILL_STYLE
+        if style in ("deeper", "lighter"):
+            # The button fills with a lighter (or deeper) shade of its own
+            # colour (owner: lighter; a white sweep looked washed out, a
+            # darker one too heavy).
+            deep = QtGui.QColor(ACCENT).lighter(122) if style == "lighter"                 else QtGui.QColor(ACCENT).darker(122)
+            clear = QtGui.QColor(deep)
+            clear.setAlpha(0)
+            sweep = QtGui.QLinearGradient(QtCore.QPointF(edge - soft, 0), QtCore.QPointF(edge, 0))
+            sweep.setColorAt(0.0, deep)
+            sweep.setColorAt(1.0, clear)
+            p.setBrush(QtGui.QBrush(sweep))
+            p.drawRect(QtCore.QRectF(inner.left(), inner.top(), edge - inner.left(),
+                                     inner.height()))
+        elif style == "bar":
+            # A slim bar along the bottom of the button fills up.
+            p.setBrush(QtGui.QColor(16, 17, 20, 150))
+            p.drawRect(QtCore.QRectF(inner.left(), inner.bottom() - 3.0, edge - inner.left(), 3.0))
+        else:
+            # The first look: a light sweep.
+            sweep = QtGui.QLinearGradient(QtCore.QPointF(edge - soft, 0), QtCore.QPointF(edge, 0))
+            sweep.setColorAt(0.0, QtGui.QColor(255, 255, 255, 85))
+            sweep.setColorAt(1.0, QtGui.QColor(255, 255, 255, 0))
+            p.setBrush(QtGui.QBrush(sweep))
+            p.drawRect(QtCore.QRectF(inner.left(), inner.top(), edge - inner.left(),
+                                     inner.height()))
         p.setClipping(False)
-        p.setPen(QtGui.QColor("#101114"))
+        p.setPen(QtGui.QColor("#101114"))        # the words stay sharp on top
         p.setFont(self.font())
         p.drawText(self.rect(), Qt.AlignCenter, self.text())
         p.end()
@@ -8489,6 +8512,7 @@ class IntroWindow(QtWidgets.QDialog):
         super().__init__()
         self.dictation = dictation
         self.gate_result = None                  # "go", "download", "manual" or "quit"
+        self.understood = False                  # "Before you start" has been held
         self._gate_loop = None
         self.ok_page = self.download_page = -1
         self.setWindowTitle("Welcome to %s" % APP_TITLE)
@@ -8738,11 +8762,8 @@ class IntroWindow(QtWidgets.QDialog):
         # Live typing's note by the mouse pointer: easy to switch off here.
         self.pointer_box = QtWidgets.QCheckBox("Show \"No text box\" by the mouse pointer")
         self.pointer_box.setChecked(bool(POINTER_HINT))
-        # Only shown with "As I speak" (it means nothing otherwise). Its space
-        # is kept while hidden, so the page doesn't jump when you switch.
-        keep = self.pointer_box.sizePolicy()
-        keep.setRetainSizeWhenHidden(True)
-        self.pointer_box.setSizePolicy(keep)
+        # Only shown with "As I speak" (it means nothing otherwise); hidden,
+        # it takes no room (a kept gap looked like wasted space, owner).
         self.pointer_box.setVisible(bool(LIVE_TYPE))
         self.pointer_box.setToolTip("While typing as you speak waits for a text box, a "
                                     "small note follows the mouse pointer. Off: only the "
@@ -8881,7 +8902,8 @@ QPlainTextEdit { font-size: 13px; background: #17181C; color: #F0F0F4;
         self._fit_page()
         QtCore.QTimer.singleShot(0, self._fit_page)  # once its page is laid out
         last = index == self.stack.count() - 1
-        own_buttons = index in (self.ok_page, self.download_page)
+        own_buttons = index == self.download_page or (
+            index == self.ok_page and not self.understood)   # held once: Next works too
         self.back.setVisible(index > (0 if early else self.gate))
         # Before the application runs there is nothing to skip to: the way on
         # is Next (or the page's own buttons), and closing the window quits.
@@ -8896,6 +8918,7 @@ QPlainTextEdit { font-size: 13px; background: #17181C; color: #F0F0F4;
         self._redraw()
         self._live(index == self.look_page)
         if index == self.ok_page:
+            self.hold.reset()                    # ready again after a Back
             self.hold.setFocus()
 
     def _live(self, on):
@@ -8925,6 +8948,7 @@ QPlainTextEdit { font-size: 13px; background: #17181C; color: #F0F0F4;
     def _understood(self):
         """ "Before you start" was held: on to the download question, or the
         application can start."""
+        self.understood = True
         save_setting("responsibility_ok", True)
         if self.download_page >= 0:
             self._go(self.download_page)
@@ -9142,6 +9166,7 @@ QPlainTextEdit { font-size: 13px; background: #17181C; color: #F0F0F4;
             set_option("TEXTBOX_ONLY", "textbox_only", True)
         if getattr(self, "pointer_box", None) is not None:   # only means something live
             self.pointer_box.setVisible(key == "live")
+            QtCore.QTimer.singleShot(0, self._fit_page)   # the window follows
 
     def _effects_style(self, key):
         """How lively it should look. Full: glow round the pop-up, the screen
