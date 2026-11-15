@@ -354,6 +354,11 @@ MIC_DEVICE = ""                      # microphone by name; "" = Windows' default
 SOUND_DEVICE = ""                    # where the sounds play; "" = Windows' default output
 ADD_SPACE = True                     # put a space after each dictation
 REMOVE_FILLERS = True                # leave out "um", "uh" and the like
+# Word replacements: what the speech model writes -> what you want instead, for
+# names and words it doesn't know (it can't learn new words). Whole words only.
+REPLACEMENTS = [["leet say", "leetsay"], ["leaked say", "leetsay"],
+                ["lit say", "leetsay"], ["leet-say", "leetsay"]]
+REPLACE_MAX, REPLACE_LEN = 50, 60            # at most 50 rules of 60 characters
 TEXTBOX_ONLY = True                  # typing as you speak: only into a text box (asks
                                      # Windows what kind of control has the focus)
 AFTER_KEY = ""                       # key pressed for you once the text is in:
@@ -630,6 +635,17 @@ for _name, _key, _low, _high in (("SCREEN_GLOW_STRENGTH", "screen_glow_strength"
     _value = _config.get(_key)
     if isinstance(_value, (int, float)) and not isinstance(_value, bool):
         globals()[_name] = int(max(_low, min(_high, _value)))
+def valid_replacements(value):
+    """A list of [heard, write] pairs of short, non-empty, one-line texts."""
+    return (isinstance(value, list) and len(value) <= REPLACE_MAX and all(
+        isinstance(pair, list) and len(pair) == 2 and all(
+            isinstance(part, str) and part.strip() and len(part) <= REPLACE_LEN
+            and "\n" not in part and "\r" not in part for part in pair)
+        for pair in value))
+
+
+if valid_replacements(_config.get("replacements")):
+    REPLACEMENTS = _config["replacements"]
 if _config.get("pill_mark") in PILL_MARKS:
     PILL_MARK = _config["pill_mark"]
 elif isinstance(_config.get("pill_logo"), bool):   # saved by an earlier 0.2.0 build
@@ -1732,6 +1748,41 @@ def drop_fillers(words):
         capital = False
         out.append(word)
     return out
+
+
+def replace_words(words):
+    """Your word replacements, applied to a list of words: a phrase the
+    speech model wrote ("leaked say") becomes what you want ("leetsay").
+    Matched as whole words, ignoring capitals and punctuation; the
+    punctuation after the last matched word is kept."""
+    rules = []
+    for heard, write in REPLACEMENTS:
+        key = [w for w in ("".join(c for c in part.lower() if c.isalnum() or c == "'")
+                           for part in heard.split()) if w]
+        if key:
+            rules.append((key, write.split()))
+    if not rules:
+        return list(words)
+    rules.sort(key=lambda rule: -len(rule[0]))  # longer phrases first
+    plain = ["".join(c for c in w.lower() if c.isalnum() or c == "'") for w in words]
+    out, i = [], 0
+    while i < len(words):
+        for key, write in rules:
+            if plain[i:i + len(key)] == key and write:
+                last = words[i + len(key) - 1]
+                end = last[len(last.rstrip(".,!?;:\u2026")):]
+                out.extend(write[:-1] + [write[-1] + end])
+                i += len(key)
+                break
+        else:
+            out.append(words[i])
+            i += 1
+    return out
+
+
+def clean_words(words):
+    """Filler words out, then your word replacements."""
+    return replace_words(drop_fillers(words))
 
 
 def holds_speech(audio, whole, rate):
@@ -5587,7 +5638,7 @@ class Dictation(QtCore.QObject):
             return
         if start != self.lt_commit:
             return                               # a reading of a piece already done
-        words = drop_fillers(text.split())
+        words = clean_words(text.split())
         plain = self._plain(words)
         begin = self._after_typed(plain)
         self.on_live_text(session, " ".join(words[begin:]) or text)   # the card
@@ -5619,7 +5670,7 @@ class Dictation(QtCore.QObject):
             return
         if start != self.lt_commit:
             return
-        words = drop_fillers(text.split())
+        words = clean_words(text.split())
         begin = self._after_typed(self._plain(words))
         self._queue_words(words[begin:], words[begin - 1] if begin else None, piece_end=True)
         self.lt_commit = max(self.lt_commit, end)
@@ -5880,7 +5931,7 @@ class Dictation(QtCore.QObject):
 
     def on_finished(self, text):
         self.state = "idle"
-        text = " ".join(drop_fillers(text.split()))   # one line: a stray Enter could
+        text = " ".join(clean_words(text.split()))   # one line: a stray Enter could
                                                # send a message
         typed = ""
         if self.lt_active:
@@ -6361,6 +6412,7 @@ for _key in ("add_space", "always_show", "accent_outline", "outline_light", "glo
 _PORTABLE_CHECKS["card_style"] = lambda v: v in [key for key, _label in CARD_STYLES]
 _PORTABLE_CHECKS["screen_glow_edges"] = lambda v: v in ("bottom", "all")
 _PORTABLE_CHECKS["pill_mark"] = lambda v: v in PILL_MARKS
+_PORTABLE_CHECKS["replacements"] = valid_replacements
 
 # Turning these on touches the clipboard, keeps text, or goes online. For
 # "type_text" it is turning it OFF that switches to pasting via the clipboard.
@@ -7113,6 +7165,85 @@ def open_feedback_page(parent, kind):
               accept="Open the page", reject="Cancel") is True:
         QtGui.QDesktopServices.openUrl(QtCore.QUrl(
             "https://github.com/%s/issues/new?template=%s" % (APP_REPO, form)))
+
+
+def replacements_window(parent):
+    """Edit the word replacements: what the speech model writes, and what you
+    want instead. Empty rows are ignored; saved when the window closes."""
+    box = QtWidgets.QDialog(parent)
+    box.setWindowTitle("Word replacements")
+    box.setWindowIcon(app_icon())
+    box.setStyleSheet(settings_style())
+    dark_title_bar(box)
+    layout = QtWidgets.QVBoxLayout(box)
+    layout.setContentsMargins(20, 18, 20, 16)
+    note = QtWidgets.QLabel(
+        "The speech model can't learn new words, so names it doesn't know come out "
+        "as something close (\"leet\" as \"leaked\"). Add what it writes on the "
+        "left and what you want on the right. Whole words only; capitals don't "
+        "matter. Kept in your settings on this PC.")
+    note.setObjectName("info")
+    note.setWordWrap(True)
+    note.setFixedWidth(440)
+    layout.addWidget(note)
+    table = QtWidgets.QTableWidget(max(12, len(REPLACEMENTS) + 4), 2)
+    table.setHorizontalHeaderLabels(["It writes", "You want"])
+    table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
+    table.verticalHeader().setVisible(False)
+    table.setFixedWidth(440)
+    table.setMinimumHeight(300)
+    for row_index, (heard, write) in enumerate(REPLACEMENTS):
+        table.setItem(row_index, 0, QtWidgets.QTableWidgetItem(heard))
+        table.setItem(row_index, 1, QtWidgets.QTableWidgetItem(write))
+    layout.addWidget(table)
+    buttons = QtWidgets.QHBoxLayout()
+    buttons.addStretch(1)
+    done = QtWidgets.QPushButton("Save")
+    done.clicked.connect(lambda _checked=False: box.accept())
+    buttons.addWidget(done)
+    layout.addLayout(buttons)
+    if box.exec() != QtWidgets.QDialog.Accepted:
+        return
+    pairs = []
+    for row_index in range(table.rowCount()):
+        cells = [table.item(row_index, col) for col in (0, 1)]
+        heard, write = [(" ".join(c.text().split()) if c else "")[:REPLACE_LEN] for c in cells]
+        if heard and write and len(pairs) < REPLACE_MAX:
+            pairs.append([heard, write])
+    globals()["REPLACEMENTS"] = pairs
+    save_setting("replacements", pairs)
+
+
+def uninstaller_path():
+    """The installed copy's own uninstaller, or None (running from Python, or
+    not found)."""
+    if not FROZEN:
+        return None
+    path = os.path.join(os.path.dirname(os.path.abspath(sys.executable)), "unins000.exe")
+    return path if os.path.isfile(path) else None
+
+
+def start_uninstall(parent):
+    """Settings > Privacy: start the real uninstaller (the same one as in
+    Windows' list of installed apps) and close, so the files can go. The
+    uninstaller asks itself whether to remove settings and the speech model."""
+    path = uninstaller_path()
+    if not path:
+        return
+    if not dialog(parent, "Uninstall", "Uninstall %s?" % APP_TITLE,
+                  "%s will close and Windows' uninstaller will start. It asks "
+                  "whether to remove your settings and the speech model as well, "
+                  "or to keep them for later." % APP_TITLE,
+                  accept="Uninstall", reject="Cancel"):
+        return
+    import subprocess
+    try:
+        subprocess.Popen([path], close_fds=True)
+    except Exception as exc:
+        print("Could not start the uninstaller:", exc, file=sys.stderr)
+        return
+    print("Uninstall started from Settings; closing.")
+    leave_now()
 
 
 def open_data_folder():
@@ -8414,6 +8545,11 @@ class SettingsWindow(QtWidgets.QDialog):
         check("Remove filler words", REMOVE_FILLERS,
               option("REMOVE_FILLERS", "remove_fillers"),
               hint="Leaves out um, uh and erm.")
+        replace_button = button("Word replacements\u2026",
+                                lambda: replacements_window(self), width=170)
+        replace_button.setToolTip("Fix words the speech model gets wrong, such as names it "
+                                  "doesn't know: what it writes, and what you want instead.")
+        row(field("Words"), replace_button, None)
         check("Add a space after each dictation", ADD_SPACE,
               option("ADD_SPACE", "add_space"),
               hint="So two dictations in a row don't run together.")
@@ -9013,6 +9149,9 @@ class SettingsWindow(QtWidgets.QDialog):
                     button("Suggest an idea", lambda: open_feedback_page(self, "idea")),
                     button("Open data folder", open_data_folder),
                     button("About %s" % APP_TITLE, lambda: show_about(dictation)))
+        if uninstaller_path():
+            button_grid(button("Uninstall %s\u2026" % APP_TITLE,
+                               lambda: start_uninstall(self)))
         end_tab()
         # Open on the tab that was showing last time (remembered only while
         # the application is running; nothing is written to disk for this).
