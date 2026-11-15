@@ -1,0 +1,50 @@
+PLEASE READ BEFORE INSTALLING LEETSAY
+
+leetsay is free software, provided "as is", without warranty of any kind.
+
+- leetsay types what you dictate into whichever window or application is
+  active. It does not check which program, chat, form or document that is, or
+  what that program does with the text. Check where your cursor is before you
+  speak.
+- Speech recognition makes mistakes. Read the text before you send or submit
+  it. Do not rely on leetsay where a wrong, missing or misplaced word could
+  cause harm or loss, such as medical, legal, financial, safety or emergency
+  use.
+- If you set leetsay to press a key for you after dictating (such as Enter),
+  that key can send a message or submit a form straight away.
+- You are responsible for how you use leetsay and for what it types on your
+  behalf, including following any laws about recording or processing speech
+  that apply where you are.
+- The speech models and libraries leetsay uses belong to others and come with
+  their own licences (see CREDITS.md). leetsay is not affiliated with,
+  endorsed or sponsored by NVIDIA, Hugging Face, Microsoft or the Python
+  Software Foundation.
+
+By installing leetsay you accept the licence below.
+
+--------------------------------------------------------------------------
+
+MIT License
+
+Copyright (c) 2026 sudo-csmith
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+The speech models leetsay downloads are not part of this licence: they are
+NVIDIA's Parakeet models under CC-BY-4.0. See CREDITS.md.

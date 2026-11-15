@@ -1,7 +1,7 @@
 # Builds leetsay.exe and the Windows installer.
 # - "Run workflow" on the Actions tab: builds, and keeps the installer as a
 #   downloadable file on that run's page (for testing).
-# - Pushing a tag such as v0.58.1: also publishes a GitHub Release with the
+# - Pushing a tag such as v0.1.0: also publishes a GitHub Release with the
 #   installer and its SHA-256 fingerprint attached.
 name: Build installer
 

@@ -108,7 +108,7 @@ from ctypes import wintypes
 
 
 
-VERSION = "0.60.5"              # shown in Settings and About
+VERSION = "0.1.0"              # shown in Settings and About
 APP_TITLE = "leetsay"                # the name shown to the user (one place)
 _HERE = os.path.dirname(_SELF)        # the program's own folder
 
@@ -2159,9 +2159,9 @@ class Overlay(QtWidgets.QWidget):
         if self.mode == "message":
             return self.message.replace("\n", " ")
         if self.mode == "idle":
-            if SHOW_HOTKEY_HINT:
-                return pretty(HOTKEY)
-            return "Ready"
+            # Without the hotkey text the pill is just its dot: a small round
+            # button, as quiet as it can be.
+            return pretty(HOTKEY) if SHOW_HOTKEY_HINT else ""
         return None
 
     def show_welcome(self, ready):
@@ -2831,6 +2831,8 @@ class Overlay(QtWidgets.QWidget):
             wanted = QtGui.QFontMetricsF(note_font).horizontalAdvance(note) + 58.0
             width = max(80.0, min(380.0, wanted))                # hugs short text
             height, radius = float(self.NOTE_H), self.NOTE_H / 2.0
+            if not note:                                          # the dot alone: round
+                width = height
             if self.progress is not None and self.mode == "message":
                 # The download card: just wide enough for its text, with the
                 # same margin on every side.
@@ -3068,6 +3070,9 @@ class Overlay(QtWidgets.QWidget):
             self._draw_download(p, card, font, accent, theme, note)
             return
 
+        if note == "":                               # just the dot, in the middle
+            breathing_dot(QtCore.QPointF(cx, cy), 4.5)
+            return
         if note is not None:
             metrics = QtGui.QFontMetricsF(font)
             text = metrics.elidedText(note, Qt.ElideRight, width - 52)
@@ -5079,6 +5084,9 @@ def read_settings_line(line):
         if check is None or not check(value):
             dropped += 1
             continue
+        if key in ("after_key", "action_hotkey") and value and not _config.get(key):
+            careful[key] = value                 # a key pressed for you: ask first
+            continue
         risky = _PORTABLE_CAREFUL.get(key)
         if risky and value == risky[0] and _config.get(key, globals().get(
                 {"type_text": "TYPE_TEXT", "keep_last": "KEEP_LAST",
@@ -5199,7 +5207,11 @@ QPushButton#primary { background: %(accent)s; color: #101114; border: 1px solid 
             return
         if careful:
             online = "check_updates" in careful or "check_app_updates" in careful
-            names = "\n".join("•  " + _PORTABLE_CAREFUL[key][1] for key in careful)
+            names = "\n".join(
+                "•  " + (_PORTABLE_CAREFUL[key][1] if key in _PORTABLE_CAREFUL
+                         else "A key pressed for you after dictating (it can send or "
+                              "submit without asking)")
+                for key in careful)
             agreed = dialog(box, "Switch these on too?",
                             "This application will go online" if online
                             else "These options are off on this PC",
@@ -6026,6 +6038,217 @@ class Sketch(QtWidgets.QWidget):
                    Qt.AlignLeft | Qt.AlignVCenter, "Right-click: Settings")
 
 
+class HoldButton(QtWidgets.QPushButton):
+    """A button that has to be held down for a few seconds: it fills up while
+    held and counts down; letting go early drains it back and starts over.
+    Holding Space or Enter works the same, for the keyboard. Used where a
+    quick click should not be enough, so that the words above it get read."""
+
+    completed = QtCore.Signal()
+    FRAME_MS = 8                                 # redraw often, on a precise timer
+    DRAIN = 0.25                                 # seconds to empty after letting go
+
+    def __init__(self, text, seconds=3.0):
+        super().__init__(text)
+        self._label = text
+        self._seconds = float(seconds)
+        self._held_since = None                  # when the current hold began
+        self._held_from = 0.0                    # the fill when it began
+        self._drain_since = None                 # when a let-go began draining
+        self._drain_from = 0.0
+        self._fill = 0.0                         # 0..1, what is drawn
+        self._done = False
+        self._shown_number = None
+        self._timer = QtCore.QTimer(self)
+        # Windows' ordinary timers tick unevenly (about every 15 ms, sometimes
+        # 31): a precise one keeps the fill moving smoothly.
+        self._timer.setTimerType(Qt.PreciseTimer)
+        self._timer.setInterval(self.FRAME_MS)
+        self._timer.timeout.connect(self._tick)
+        self.setObjectName("primary")
+        # A fixed width, so the countdown text never makes the button resize.
+        metrics = self.fontMetrics()
+        widest = max(metrics.horizontalAdvance(text),
+                     metrics.horizontalAdvance("Keep holding… 3"))
+        self.setMinimumWidth(widest + 48)
+
+    def _begin(self):
+        if self._done or self._held_since is not None:
+            return
+        self._held_since = time.monotonic()
+        self._held_from = self._fill             # carries on from where a drain got to
+        self._drain_since = None
+        self._timer.start()
+        self._tick()
+
+    def _cancel(self):
+        if self._done or self._held_since is None:
+            return
+        self._held_since = None
+        self._drain_since = time.monotonic()     # empty smoothly, not in one jump
+        self._drain_from = self._fill
+        self._shown_number = None
+        self.setText(self._label)
+        self._timer.start()
+
+    def _tick(self):
+        now = time.monotonic()
+        if self._held_since is not None:
+            self._fill = min(1.0, self._held_from + (now - self._held_since) / self._seconds)
+            left = self._seconds * (1.0 - self._fill)
+            if self._fill >= 1.0:
+                self._done = True
+                self._timer.stop()
+                self.setText(self._label)
+                self.update()
+                # A moment on the full button, then on: it feels finished.
+                QtCore.QTimer.singleShot(120, self.completed.emit)
+                return
+            number = max(1, int(math.ceil(left - 1e-6)))
+            if number != self._shown_number:     # only when it changes: no re-measuring
+                self._shown_number = number
+                self.setText("Keep holding… %d" % number)
+        elif self._drain_since is not None:
+            gone = (now - self._drain_since) / self.DRAIN
+            self._fill = max(0.0, self._drain_from * (1.0 - gone))
+            if self._fill <= 0.0:
+                self._drain_since = None
+                self._timer.stop()
+        self.update()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.setFocus()
+            self._begin()
+        event.accept()
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._cancel()
+        event.accept()
+
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key_Space, Qt.Key_Return, Qt.Key_Enter):
+            if not event.isAutoRepeat():
+                self._begin()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    def keyReleaseEvent(self, event):
+        if event.key() in (Qt.Key_Space, Qt.Key_Return, Qt.Key_Enter):
+            if not event.isAutoRepeat():
+                self._cancel()
+            event.accept()
+            return
+        super().keyReleaseEvent(event)
+
+    def focusOutEvent(self, event):
+        self._cancel()                           # clicked or tabbed away: start over
+        super().focusOutEvent(event)
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if self._fill <= 0.0:
+            return
+        p = QtGui.QPainter(self)
+        p.setRenderHint(QtGui.QPainter.Antialiasing)
+        p.setPen(Qt.NoPen)
+        inner = QtCore.QRectF(self.rect()).adjusted(1, 1, -1, -1)
+        edge = inner.left() + inner.width() * self._fill
+        # A light sweep with a soft leading edge (a hard edge looks like it jumps).
+        soft = 14.0
+        sweep = QtGui.QLinearGradient(QtCore.QPointF(edge - soft, 0), QtCore.QPointF(edge, 0))
+        sweep.setColorAt(0.0, QtGui.QColor(255, 255, 255, 85))
+        sweep.setColorAt(1.0, QtGui.QColor(255, 255, 255, 0))
+        p.setBrush(QtGui.QBrush(sweep))
+        path = QtGui.QPainterPath()
+        path.addRoundedRect(inner, 6, 6)
+        p.setClipPath(path)
+        p.drawRect(QtCore.QRectF(inner.left(), inner.top(), edge - inner.left(), inner.height()))
+        p.end()
+
+
+def hold_confirm_window(parent, title, headline, paragraphs, hold_text, cancel_text):
+    """A window whose yes has to be held down for three seconds (see
+    HoldButton), so that what it says gets read. Returns True if confirmed;
+    the other button, or closing the window, gives False."""
+    box = QtWidgets.QDialog(parent)
+    box.setWindowTitle(title)
+    box.setWindowIcon(app_icon())
+    box.setWindowFlags(Qt.Dialog | Qt.WindowTitleHint | Qt.WindowCloseButtonHint
+                       | Qt.WindowStaysOnTopHint)
+    box.setStyleSheet(settings_style() + """
+QLabel#headline { color: #FFFFFF; font-size: 17px; font-weight: 600; }
+QLabel#body { color: #C4C6CF; font-size: 13px; }
+QPushButton { padding: 7px 16px; }
+QPushButton#primary { background: %(accent)s; color: #101114; border: 1px solid %(accent)s;
+    font-weight: 600; }
+QPushButton#primary:hover { background: %(accent)s; border-color: #FFFFFF; }
+""" % {"accent": ACCENT})
+    dark_title_bar(box)
+    layout = QtWidgets.QVBoxLayout(box)
+    layout.setContentsMargins(26, 22, 26, 20)
+    layout.setSpacing(12)
+    for words, name in [(headline, "headline")] + [(text, "body") for text in paragraphs]:
+        label = QtWidgets.QLabel(words)
+        label.setObjectName(name)
+        label.setWordWrap(True)
+        label.setFixedWidth(420)
+        layout.addWidget(label)
+    layout.addSpacing(6)
+    buttons = QtWidgets.QHBoxLayout()
+    cancel = QtWidgets.QPushButton(cancel_text)
+    cancel.clicked.connect(lambda _checked=False: box.reject())
+    hold = HoldButton(hold_text)
+    hold.completed.connect(box.accept)
+    buttons.addWidget(cancel)
+    buttons.addStretch(1)
+    buttons.addWidget(hold)
+    layout.addLayout(buttons)
+    hint = QtWidgets.QLabel("Press and hold the button for 3 seconds (or hold Space).")
+    hint.setObjectName("info")
+    hint.setAlignment(Qt.AlignRight)
+    layout.addWidget(hint)
+    hold.setFocus()
+    return box.exec() == QtWidgets.QDialog.Accepted
+
+
+def responsibility_notice():
+    """Shown once before first use (and after Reset all settings): what the
+    application does and does not do, and that where the text goes is up to
+    the user. Quit, or closing the window, quits. Returns True if understood."""
+    app = {"app": APP_TITLE}
+    return hold_confirm_window(
+        None, "%s: before you start" % APP_TITLE, "Before you start",
+        ["%(app)s types what you dictate into whichever window or application is "
+         "active: the one that has your keyboard input. For example, if you click "
+         "into a text box, your words go there. %(app)s does not check which "
+         "program, chat or document is active; that is for you to control." % app,
+         "\u2022  Check where your cursor is before you speak.\n"
+         "\u2022  Speech recognition makes mistakes: read the text before you send it.\n"
+         "\u2022  Do not dictate passwords, or anything you would not want typed "
+         "into the wrong place.",
+         "You are responsible for what %(app)s types for you and where it goes. "
+         "%(app)s is free software, provided as is, without any warranty." % app],
+        "Hold to confirm: I understand", "Quit")
+
+
+def auto_key_warning(parent, key):
+    """Before a key is pressed automatically after dictating (the second
+    hotkey, or "After dictating"): what that can do. Returns True if confirmed."""
+    app = {"app": APP_TITLE, "key": key}
+    return hold_confirm_window(
+        parent, "%s: pressing a key for you" % APP_TITLE, "Pressing a key for you",
+        ["With this on, %(app)s presses %(key)s for you right after typing your "
+         "words. In many applications that sends a message, submits a form or "
+         "confirms an action straight away, with no chance to read or correct the "
+         "text first, and it can skip confirmation steps those applications would "
+         "normally give you." % app,
+         "You are responsible for where it is used and what it sends."],
+        "Hold to confirm: turn it on", "Cancel")
+
+
 def first_look_window():
     """The very first thing a new user sees: pick a colour, dark or light, and
     whether the screen glows. It comes before the download question, so the
@@ -6829,8 +7052,17 @@ class SettingsWindow(QtWidgets.QDialog):
         for key, label in AFTER_CHOICES:
             self.after.addItem(label, key)
         self.after.setCurrentIndex(max(0, self.after.findData(AFTER_KEY)))
-        self.after.currentIndexChanged.connect(
-            lambda index: set_option("AFTER_KEY", "after_key", self.after.itemData(index)))
+        def after_key_chosen(index):
+            key = self.after.itemData(index)
+            if key and not AFTER_KEY and not auto_key_warning(self, pretty(key)):
+                self.after.blockSignals(True)    # not confirmed: back to "do nothing"
+                self.after.setCurrentIndex(max(0, self.after.findData("")))
+                self.after.blockSignals(False)
+                self.after_delay.setEnabled(False)
+                return
+            set_option("AFTER_KEY", "after_key", key)
+
+        self.after.currentIndexChanged.connect(after_key_chosen)
         self.after_delay = QtWidgets.QComboBox()
         for seconds, label in AFTER_DELAYS:
             self.after_delay.addItem(label, seconds)
@@ -6877,6 +7109,10 @@ class SettingsWindow(QtWidgets.QDialog):
             self.action_record.setText(self.RECORD_LABEL)
             self.action_record.setEnabled(True)
             if hotkey and hotkey not in (HOTKEY, PASTE_HOTKEY):
+                if not ACTION_HOTKEY and not auto_key_warning(
+                        self, pretty(ACTION_KEY or "enter")):
+                    show_action()                # not confirmed: stays unset
+                    return
                 set_option("ACTION_HOTKEY", "action_hotkey", hotkey)
                 dictation.apply_hotkey()
             show_action()
@@ -8196,6 +8432,10 @@ def show_about(dictation):
         "Tip:  tap the hotkey to paste your last dictation again." if KEEP_LAST else "",
         "Settings file:  %s" % _CONFIG_FILE,
         "Log file:  %s" % os.path.join(_DATA, "dictate.log"),
+        "",
+        "Free software under the MIT licence, provided as is, without any "
+        "warranty. You are responsible for where the text it types goes. "
+        "See the licence and the README.",
     ]
     dialog(None, "About %s" % APP_TITLE, "%s %s" % (APP_TITLE, VERSION),
            "\n".join(line for line in lines[2:]))
@@ -8606,6 +8846,15 @@ def main():
             look_chosen = True
         except Exception as exc:
             print("The first screen could not be shown:", exc, file=sys.stderr)
+    if _config.get("responsibility_ok") is not True or replay:
+        # Once, before first use: what the application does with your words,
+        # and that where they go is up to you. Not understood (Quit, or the
+        # window closed): the application closes, as with the download question.
+        if not responsibility_notice():
+            print("The 'Before you start' notice was not confirmed; closing.")
+            leave_now(app)
+            return
+        save_setting("responsibility_ok", True)
     agreed_in_settings = DOWNLOAD_AGREED_ONCE     # read (and used up) at start
     needed =not (_setup_done() or local_model_dir()) and not agreed_in_settings
     if needed or replay:

@@ -1,6 +1,6 @@
 ; Inno Setup script for the leetsay installer.
 ; Build (after PyInstaller has made dist\leetsay):
-;   iscc /DAppVersion=0.58.0 installer\leetsay.iss
+;   iscc /DAppVersion=0.1.0 installer\leetsay.iss
 ; Installs for the current Windows user only: no administrator rights needed.
 
 #define AppName "leetsay"
@@ -27,7 +27,8 @@ OutputBaseFilename={#AppName}-setup-{#AppVersion}
 SetupIconFile=..\leetsay.ico
 UninstallDisplayIcon={app}\{#AppName}.exe
 UninstallDisplayName={#AppName}
-LicenseFile=..\LICENSE
+; The disclaimer and the MIT licence: installing needs "I accept" on this page.
+LicenseFile=terms.txt
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
