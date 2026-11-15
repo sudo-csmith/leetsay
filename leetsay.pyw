@@ -8301,16 +8301,28 @@ class HoldButton(QtWidgets.QPushButton):
         p.setPen(Qt.NoPen)
         inner = QtCore.QRectF(self.rect()).adjusted(1, 1, -1, -1)
         edge = inner.left() + inner.width() * self._fill
-        # A light sweep with a soft leading edge (a hard edge looks like it jumps).
+        # Charging up: the part still to fill is dimmed (towards the window's
+        # own background), and the full colour fills in from the left with a
+        # soft leading edge (a hard edge looks like it jumps). The words are
+        # drawn again on top, so they stay sharp. (A white sweep looked
+        # washed out, owner.)
         soft = 14.0
-        sweep = QtGui.QLinearGradient(QtCore.QPointF(edge - soft, 0), QtCore.QPointF(edge, 0))
-        sweep.setColorAt(0.0, QtGui.QColor(255, 255, 255, 85))
-        sweep.setColorAt(1.0, QtGui.QColor(255, 255, 255, 0))
+        dim = QtGui.QColor("#FFFFFF" if light_menus() else "#16171B")
+        dim.setAlpha(120)
+        clear = QtGui.QColor(dim)
+        clear.setAlpha(0)
+        sweep = QtGui.QLinearGradient(QtCore.QPointF(edge, 0), QtCore.QPointF(edge + soft, 0))
+        sweep.setColorAt(0.0, clear)
+        sweep.setColorAt(1.0, dim)
         p.setBrush(QtGui.QBrush(sweep))
         path = QtGui.QPainterPath()
         path.addRoundedRect(inner, 6, 6)
         p.setClipPath(path)
-        p.drawRect(QtCore.QRectF(inner.left(), inner.top(), edge - inner.left(), inner.height()))
+        p.drawRect(QtCore.QRectF(edge, inner.top(), inner.right() - edge, inner.height()))
+        p.setClipping(False)
+        p.setPen(QtGui.QColor("#101114"))
+        p.setFont(self.font())
+        p.drawText(self.rect(), Qt.AlignCenter, self.text())
         p.end()
 
 
