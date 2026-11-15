@@ -1,24 +1,25 @@
 """
-dictate.pyw - bare-bones offline dictation for Windows using NVIDIA Parakeet.
+leetsay.pyw - local dictation for Windows, using NVIDIA's Parakeet model.
 
-No stats, no history, no account. Just:
-  1. Hold the hotkey   -> a small capsule appears at the bottom of the screen
+No statistics, no history, no account. Just:
+  1. Hold the hotkey   -> a small pop-up appears at the bottom of the screen
                           with a live waveform and a timer.
-  2. Let go            -> the capsule fades away, the speech is transcribed
-                          locally and pasted into whatever app you were in.
-  3. Hover the capsule and click it to cancel. Drag it to move it.
+  2. Let go            -> the speech is turned into text on this PC and typed
+                          into whatever program you were in.
+  3. Hover the pop-up and click it to cancel. Drag it to move it.
 
-Setup (once):
-    pip install PySide6 sounddevice numpy keyboard "onnx-asr[cpu,hub]"
+Setup (once), with Python 3.13:
+    py -3.13 -m pip install -r requirements.txt
 
-Run: double-click dictate.pyw (the .pyw ending means "no console window").
+Run: double-click leetsay.pyw (the .pyw ending means "no console window"), or
+install it with the Windows installer (see README.md).
 
-The first run downloads the Parakeet model (several hundred MB). After that the
-program cuts itself off from the network and works fully offline.
+The first start asks before downloading the speech model (several hundred MB)
+from huggingface.co. While it runs, the program blocks its own network access;
+it opens it only for a download the user has just agreed to.
 
-Right-click the tray icon for settings (accent colour, sounds, start with
-Windows, model info) and to quit. Settings and the log (dictate.json,
-dictate.log) are kept in %LOCALAPPDATA%\\leetsay, not next to this file.
+Click the tray icon for Settings; right-click it to quit. Settings and the log
+(dictate.json, dictate.log) are kept in %LOCALAPPDATA%\\leetsay.
 """
 
 import os
@@ -72,7 +73,7 @@ from ctypes import wintypes
 
 
 
-VERSION = "0.58.3"              # shown in Settings and About
+VERSION = "0.58.4"              # shown in Settings and About
 APP_TITLE = "leetsay"                # the name shown to the user (one place)
 _HERE = os.path.dirname(_SELF)        # the program's own folder
 
@@ -5488,8 +5489,8 @@ QPushButton#primary:hover { background: %(accent)s; border-color: #FFFFFF; }
          % ({4: "four", 5: "five"}.get(len(MODEL_FILES), str(len(MODEL_FILES))),
             "\n".join("     " + name for name in MODEL_FILES)))
     text("3.  Put them in this folder:\n%s" % folder)
-    text("4.  Start %s again. It finds the files, stays offline, and goes straight "
-         "to the introduction." % APP_TITLE)
+    text("4.  Start %s again. It finds the files, downloads nothing, and goes "
+         "straight to the introduction." % APP_TITLE)
     layout.addSpacing(8)
     buttons = QtWidgets.QHBoxLayout()
     buttons.addStretch(1)
@@ -5969,8 +5970,9 @@ class IntroWindow(QtWidgets.QDialog):
         first = page("welcome", ("How %s works" if look_chosen else "Welcome to %s")
                      % APP_TITLE, controls=False, body=
                      "Hold a hotkey, speak, and your words are typed into whatever "
-                     "application you are using.\n\nEverything happens on this PC. "
-                     "Nothing you say is saved, and nothing leaves this PC.")
+                     "application you are using.\n\nYour speech is turned into text "
+                     "on this PC. %s does not save it or send it anywhere; where the "
+                     "text goes is up to the program you type into." % APP_TITLE)
         first.addStretch(1)
 
         # 2. The hotkey and the microphone, on one page, as short labelled rows.
@@ -6956,8 +6958,8 @@ class SettingsWindow(QtWidgets.QDialog):
                                  "of the speech model is available, so you always "
                                  "have the most up-to-date one. A newer version is "
                                  "downloaded automatically.\n\nLeft unticked, the "
-                                 "application stays fully offline and keeps using "
-                                 "the model already on this PC.")
+                                 "application does not go online for updates and "
+                                 "keeps using the model already on this PC.")
         self.update_note = QtWidgets.QLabel("")
         self.update_note.setObjectName("info")
         self.update_note.setWordWrap(True)
@@ -8120,13 +8122,13 @@ def main():
             "(Silero, about 2 MB).\n\n"
             "If you continue, %(app)s connects to huggingface.co once to download "
             "them. That is a third-party website that we do not run or control. "
-            "After that %(app)s works offline and does not connect to the Internet "
-            "again unless you turn on an option that says it will.\n\n"
-            "Each downloaded file's fingerprint is recorded, and checked on this PC "
-            "(without going online) every time %(app)s starts, so a changed or damaged "
-            "file is caught.\n\n"
-            "Your voice is turned into text by the model on this PC. Your voice "
-            "and your words never leave this PC."
+            "After that %(app)s works without an internet connection, and does not "
+            "connect again unless you agree to something that says it will.\n\n"
+            "The downloaded files are checked against their known fingerprints "
+            "before they are used, and again on this PC every time %(app)s starts, "
+            "so a changed or damaged file is caught.\n\n"
+            "Your voice is turned into text by the model on this PC. %(app)s does "
+            "not send your voice or your words anywhere."
             % dict(app=APP_TITLE, model=model_label(MODEL), size=size),
             accept="Download", reject="Quit", other="Manual download")
         if agreed == "other":
