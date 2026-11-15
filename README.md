@@ -57,10 +57,22 @@ the [Disclaimer](#disclaimer) before using it.
 
 **"Windows protected your PC".** The installer is not signed with a paid
 code-signing certificate yet, so Windows SmartScreen may show this warning for
-a new download. To continue, choose **More info**, then **Run anyway**. If you
-prefer to check the file first, compare its SHA-256 fingerprint with the one
-listed on the release page: in PowerShell, run
-`Get-FileHash .\leetsay-setup-<version>.exe` in the folder you saved it to.
+a new download. To continue, choose **More info**, then **Run anyway**.
+
+**Checking the download (optional).** Each release lists a long code called
+a SHA-256 fingerprint. It is worked out from every byte of the installer, so if
+the file were changed or damaged in any way, even by one letter, the code would
+come out completely different. You don't have to check it; it is there for
+anyone who wants to be extra sure they have the real, untouched file:
+
+1. Open the folder you saved the installer to (usually **Downloads**).
+2. Right-click an empty spot in the folder and choose **Open in Terminal**.
+3. Type `Get-FileHash .\leetsay-setup-<version>.exe` (with the real version
+   number) and press Enter.
+4. Compare the long code after **Hash** with the one on the release page. If
+   they are the same, the file is exactly the one that was published (capital
+   or small letters don't matter). If they differ, don't run it: download it
+   again from the Releases page.
 
 ### With Python
 

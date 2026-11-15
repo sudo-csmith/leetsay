@@ -8682,6 +8682,8 @@ QPlainTextEdit { font-size: 13px; }
         self.record.setEnabled(True)
         self.hotkey_label.setText(pretty(HOTKEY))
         self.stack.setCurrentIndex(index)
+        self._fit_page()
+        QtCore.QTimer.singleShot(0, self._fit_page)  # once its page is laid out
         last = index == self.stack.count() - 1
         own_buttons = index in (self.ok_page, self.download_page)
         self.back.setVisible(index > (0 if early else self.gate))
@@ -8858,9 +8860,49 @@ QPlainTextEdit { font-size: 13px; }
         self._show_note(now < self._note_until)
 
     def _show_note(self, on):
-        if self.mic_note.isVisible() != bool(on):
+        if self.mic_note.isHidden() == bool(on):
             self.mic_note.setVisible(bool(on))
             self.mic_help.setVisible(bool(on))
+            QtCore.QTimer.singleShot(0, self._fit_page)   # the note needs its room
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        # After any resize on opening (placing it on a screen can resize it a
+        # moment later, so once more after that).
+        QtCore.QTimer.singleShot(0, self._fit_page)
+        QtCore.QTimer.singleShot(150, self._fit_page)
+
+    def _fit_page(self):
+        """The window as tall as the page showing (like Settings), not as tall
+        as the longest page: no empty space under a short one. The top stays
+        where it is; only the bottom moves."""
+        try:
+            for i in range(self.stack.count()):
+                shown = i == self.stack.currentIndex()
+                policy = QtWidgets.QSizePolicy.Preferred if shown else \
+                    QtWidgets.QSizePolicy.Ignored
+                self.stack.widget(i).setSizePolicy(policy, policy)
+            # Measured by hand: Qt's page stack counts every page's wrapped
+            # text, so it would still be as tall as the longest page.
+            outer = self.layout()
+            outer.setSizeConstraint(QtWidgets.QLayout.SetNoConstraint)
+            holder = self.stack.currentWidget()
+            holder.ensurePolished()              # its fonts set, or it measures wrong
+            for child in holder.findChildren(QtWidgets.QWidget):
+                child.ensurePolished()
+            page = holder.layout()
+            width =self.width() - outer.contentsMargins().left() - outer.contentsMargins().right()
+            page.invalidate()
+            page_h = (page.totalHeightForWidth(width) if page.hasHeightForWidth()
+                      else page.totalSizeHint().height())
+            footer = outer.itemAt(outer.count() - 1)
+            height = (outer.contentsMargins().top() + outer.contentsMargins().bottom()
+                      + page_h + outer.spacing() + footer.sizeHint().height())
+            if page_h > 0 and height != self.height():
+                self.setMinimumHeight(0)
+                self.resize(self.width(), height)
+        except Exception as exc:
+            print("The setup window could not fit its page:", exc, file=sys.stderr)
 
     def _colour(self, colour):
         set_accent(colour)
