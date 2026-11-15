@@ -375,6 +375,7 @@ TECH_TERMS = [["kilobytes", "KB"], ["kilobyte", "KB"], ["megabytes", "MB"],
               ["node js", "Node.js"], ["vs code", "VS Code"]]
 TEXTBOX_ONLY = True                  # typing as you speak: only into a text box (asks
                                      # Windows what kind of control has the focus)
+POINTER_HINT = True                  # ... and say "No text box" by the mouse pointer too
 AFTER_KEY = ""                       # key pressed for you once the text is in:
                                      # "" (nothing), "enter", "ctrl+enter" or "tab"
 PASTE_HOTKEY = ""                    # optional extra hotkey for "missed text safety"
@@ -638,6 +639,7 @@ for _name, _key in (("SHOW_APP_ICON", "show_app_icon"), ("SHOW_APP_NAME", "show_
                     ("SHOW_HOTKEY_HINT", "hotkey_hint"), ("KEEP_LAST", "keep_last"),
                     ("LIVE_TYPE", "live_type"),
                     ("REMOVE_FILLERS", "remove_fillers"), ("TEXTBOX_ONLY", "textbox_only"),
+                    ("POINTER_HINT", "pointer_hint"),
                     ("SCREEN_GLOW_FLOW", "screen_glow_flow"),
                     ("RETURN_FOCUS", "return_focus")):
     if isinstance(_config.get(_key), bool):
@@ -4026,6 +4028,74 @@ class Overlay(QtWidgets.QWidget):
 
 BACKGROUND_CHOICES = [("Dark", "#16171B"), ("Light", "#F8F8FA")]
 
+class PointerBadge(QtWidgets.QWidget):
+    """A small "No text box" tag that follows the mouse pointer while typing
+    as you speak waits for a text box (your eyes are often where the pointer
+    is, not on the pop-up). Clicks pass straight through it, it never takes
+    the keyboard, and the real pointer is left alone."""
+
+    OFFSET = QtCore.QPoint(18, 22)               # below and to the right of the tip
+
+    def __init__(self):
+        super().__init__(None)
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
+                            | Qt.WindowDoesNotAcceptFocus | Qt.WindowTransparentForInput)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setAttribute(Qt.WA_ShowWithoutActivating)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self.text = "No text box"
+        font = QtGui.QFont("Segoe UI")
+        font.setPixelSize(12)
+        font.setWeight(QtGui.QFont.DemiBold)
+        self.font_ = font
+        width = QtGui.QFontMetricsF(font).horizontalAdvance(self.text)
+        self.resize(int(width + 34), 24)
+        self.timer = QtCore.QTimer(self)
+        self.timer.setInterval(30)               # follows the pointer while it shows
+        self.timer.timeout.connect(self._follow)
+
+    def appear(self):
+        if not self.isVisible():
+            self._follow()
+            self.show()
+            self.timer.start()
+
+    def vanish(self):
+        self.timer.stop()
+        self.hide()
+
+    def _follow(self):
+        spot = QtGui.QCursor.pos() + self.OFFSET
+        screen = QtGui.QGuiApplication.screenAt(QtGui.QCursor.pos())
+        if screen is not None:                   # never off the screen's edge
+            room = screen.availableGeometry()
+            spot.setX(min(spot.x(), room.right() - self.width()))
+            spot.setY(min(spot.y(), room.bottom() - self.height()))
+        if spot != self.pos():
+            self.move(spot)
+
+    def paintEvent(self, _event):
+        theme = popup_theme()
+        p = QtGui.QPainter(self)
+        try:
+            p.setRenderHint(QtGui.QPainter.Antialiasing)
+            box = QtCore.QRectF(0.5, 0.5, self.width() - 1.0, self.height() - 1.0)
+            fill = QtGui.QColor(theme["bg"])
+            fill.setAlpha(240)
+            p.setPen(QtGui.QPen(QtGui.QColor(theme["warning"]), 1.0))
+            p.setBrush(fill)
+            p.drawRoundedRect(box, box.height() / 2.0, box.height() / 2.0)
+            p.setPen(Qt.NoPen)
+            p.setBrush(QtGui.QColor(theme["warning"]))
+            p.drawEllipse(QtCore.QPointF(13.0, box.center().y()), 3.5, 3.5)
+            p.setFont(self.font_)
+            p.setPen(theme["text"])
+            p.drawText(QtCore.QRectF(22, 0, self.width() - 26, self.height()),
+                       Qt.AlignLeft | Qt.AlignVCenter, self.text)
+        finally:
+            p.end()
+
+
 class EdgeStrip(QtWidgets.QWidget):
     """One edge of the screen glow: a thin see-through window along a screen
     edge. Clicks pass straight through it, and it can never take the
@@ -4781,6 +4851,7 @@ class Dictation(QtCore.QObject):
         self.fx_timer = QtCore.QTimer()        # runs only while an effect is showing
         self.fx_timer.setInterval(33)
         self.fx_timer.timeout.connect(self._fx_tick)
+        self.pointer_badge = None              # the "No text box" tag by the pointer
         self.keys_up_checks = 0
         self.status_timer = QtCore.QTimer()    # the pill's status light, every few seconds
         self.status_timer.setInterval(3000)
@@ -5651,6 +5722,7 @@ class Dictation(QtCore.QObject):
             else:
                 self.lt_missing = 0
                 self.overlay.box_missing = False
+            self._pointer_hint(self.overlay.box_missing)
         if self.live_busy:
             return                               # previous pass still running
         if time.monotonic() < self._live_rest_until:
@@ -6050,6 +6122,7 @@ class Dictation(QtCore.QObject):
             self.overlay.dismiss(force=True)
 
     def on_cancel(self):
+        self._pointer_hint(False)
         if self.state != "recording":
             return
         self.live_timer.stop()
@@ -6065,8 +6138,18 @@ class Dictation(QtCore.QObject):
         self.lt_pending = ""
         self.overlay.dismiss()
 
+    def _pointer_hint(self, show):
+        """The "No text box" tag by the mouse pointer (Settings: on by default)."""
+        if show and POINTER_HINT:
+            if self.pointer_badge is None:
+                self.pointer_badge = PointerBadge()
+            self.pointer_badge.appear()
+        elif self.pointer_badge is not None:
+            self.pointer_badge.vanish()
+
     def _finish(self):
         self._finishing = False
+        self._pointer_hint(False)
         if self.state != "recording":
             return                               # already finished (or cancelled)
         if self.lt_active:
@@ -6656,7 +6739,7 @@ for _key in ("add_space", "always_show", "accent_outline", "outline_light", "glo
              "show_popup", "show_timer", "show_waveform", "sounds", "tray_live", "wide_card",
              "hold_to_talk", "live_preview", "type_text", "keep_last",
              "check_app_updates", "live_type", "remove_fillers",
-             "textbox_only", "screen_glow_flow"):
+             "textbox_only", "screen_glow_flow", "pointer_hint"):
     _PORTABLE_CHECKS[_key] = lambda v: isinstance(v, bool)
 _PORTABLE_CHECKS["card_style"] = lambda v: v in [key for key, _label in CARD_STYLES]
 _PORTABLE_CHECKS["screen_glow_edges"] = lambda v: v in ("bottom", "top", "left", "right", "all")
@@ -8665,8 +8748,12 @@ QPlainTextEdit { font-size: 13px; }
         self._show_look()
 
     def _words_style(self, key):
-        """How your words should appear: all at once (most accurate) or live."""
+        """How your words should appear: all at once (most accurate) or live.
+        Live comes with its helpers: the text box check and the pointer tag."""
         set_option("LIVE_TYPE", "live_type", key == "live")
+        if key == "live":
+            set_option("TEXTBOX_ONLY", "textbox_only", True)
+            set_option("POINTER_HINT", "pointer_hint", True)
 
     def _effects_style(self, key):
         """How lively it should look. Full: glow round the pop-up, the screen
@@ -8914,6 +9001,10 @@ class SettingsWindow(QtWidgets.QDialog):
               hint="Typing as you speak waits for a text box, and the pop-up says "
                    "when there isn't one. Asks Windows only what kind of control "
                    "has the focus.")
+        check("Show it at the mouse pointer", POINTER_HINT,
+              option("POINTER_HINT", "pointer_hint"),
+              hint="A small \"No text box\" tag follows the pointer while typing "
+                   "as you speak waits for one.")
         check("Remove filler words", REMOVE_FILLERS,
               option("REMOVE_FILLERS", "remove_fillers"),
               hint="Leaves out um, uh and erm.")
