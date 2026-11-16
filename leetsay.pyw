@@ -10997,17 +10997,38 @@ class SettingsWindow(QtWidgets.QDialog):
             self._test_level = float(np.sqrt(np.mean(block * block))) if len(block) else 0.0
             self._test_audio.append(block.copy())
 
+        def open_test():
+            stream = sd.InputStream(samplerate=SAMPLE_RATE, channels=1,
+                                    dtype="float32", callback=heard,
+                                    device=chosen_input())
+            try:
+                stream.start()
+            except Exception:
+                try:
+                    stream.close()
+                except Exception:
+                    pass
+                raise
+            return stream
+
         refresh_audio_devices()                  # a microphone plugged in since start-up
         try:
-            self._test_stream = sd.InputStream(samplerate=SAMPLE_RATE, channels=1,
-                                               dtype="float32", callback=heard,
-                                               device=chosen_input())
-            self._test_stream.start()
+            try:
+                self._test_stream = open_test()
+            except Exception:
+                if not refresh_audio_devices(force=True):
+                    raise
+                self._test_stream = open_test()  # once more, with a fresh device list
         except Exception as exc:
             print("Microphone test failed:", exc, file=sys.stderr)
             self._test_stream = None
-            self.mic_note.setText("couldn't open it")
+            self.mic_note.setText("No microphone found" if not _windows_input_count()
+                                  else "Can't use this microphone")
+            self.mic_note.setToolTip(
+                "Plug one in and press Refresh, or check that Windows lets desktop "
+                "apps use the microphone (Microphone privacy settings, below).")
             return
+        self.mic_note.setToolTip("")
         self._test_level = 0.0
         self._test_until = time.monotonic() + 12.0
         self._test_ticket += 1
