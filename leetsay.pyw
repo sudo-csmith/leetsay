@@ -603,7 +603,11 @@ def valid_hotkey(value, empty_ok=False):
     if last in _MODIFIER_NAMES:
         if len(parts) < 2:
             return False
-    elif not mods and last not in ["f%d" % n for n in range(1, 25)]:
+    elif last not in ["f%d" % n for n in range(1, 25)] and \
+            not any("shift" not in m for m in mods):
+        # An ordinary key needs Ctrl, Alt or Windows with it: alone, or with
+        # only Shift ("shift+a" is just a capital A), it would be taken from
+        # every program and switch the microphone on.
         return False
     try:
         keyboard.parse_hotkey(value)
@@ -705,6 +709,9 @@ for _name, _key in (("SOUND_SET", "sound_set"), ("SOUND_START_FILE", "sound_star
                     ("GLOW_COLOUR", "glow_colour"), ("ACTION_KEY", "action_key")):
     if isinstance(_config.get(_key), str):
         globals()[_name] = _config[_key]
+_REPLAYING = False                   # the first-start setup shown again on request
+
+
 def windows_app_mode():
     """Windows' own "app mode" (Settings > Personalization > Colours): "light"
     or "dark". Reads that one setting, on this PC."""
@@ -827,11 +834,20 @@ def fetch_latest_release():
             pass
     if not result.get("ok"):
         return None, None, None, result.get("error") or "github.com could not be reached"
+    def safe_link(link, start):
+        """Only a plain link under this repository: no tricks such as "..",
+        an encoded dot or slash, a user name, a port or odd characters."""
+        from urllib.parse import urlsplit
+        if not link.startswith(start) or any(c in link for c in "\\%@?#<>\"' "):
+            return False
+        parts = urlsplit(link)
+        return (parts.scheme == "https" and parts.netloc == "github.com"
+                and ".." not in parts.path.split("/"))
     page = str(result.get("url") or "")
-    if not page.startswith("https://github.com/%s/" % APP_REPO):
+    if not safe_link(page, "https://github.com/%s/" % APP_REPO):
         page = APP_RELEASES_PAGE                 # only ever this repository's page
     installer = str(result.get("installer") or "")
-    if not installer.startswith("https://github.com/%s/releases/download/" % APP_REPO):
+    if not safe_link(installer, "https://github.com/%s/releases/download/" % APP_REPO):
         installer = ""                           # not this repository's: not offered
     # A release can say that older versions should no longer be used, with a
     # line "Minimum safe version: x.y.z" in its notes.
@@ -1557,7 +1573,34 @@ _NOT_TYPABLE = frozenset((
 _focus_seen = {"last": None}       # for tests only: the kinds last seen, never text
 
 
-def focused_text_box():
+def focused_password_box():
+    """Is the keyboard focus in a password box? Asked before any finished text
+    is typed, whatever the text box setting says: dictated words never go into
+    a password box. Only that one yes/no is asked. Waits at most half a second;
+    no answer counts as no."""
+    try:
+        # One of our own windows (the setup's try box): no password boxes
+        # there, and asking would wait on ourselves for the full half second.
+        owner = wintypes.DWORD()
+        ctypes.windll.user32.GetWindowThreadProcessId(foreground_window(), ctypes.byref(owner))
+        if owner.value == os.getpid():
+            return False
+    except Exception:
+        pass
+    answer = {}
+
+    def ask():
+        try:
+            answer["v"] = focused_text_box(password_only=True)
+        except Exception:
+            answer["v"] = None
+    asking = threading.Thread(target=ask, daemon=True)
+    asking.start()
+    asking.join(0.5)
+    return answer.get("v") is True
+
+
+def focused_text_box(password_only=False):
     """Is the keyboard focus in something you can type into? Asks Windows'
     accessibility service (what screen readers use) about the focused
     control. True: a text box. False: clearly not one (a web page, a video,
@@ -1596,7 +1639,10 @@ def focused_text_box():
                 return None
             finally:
                 ctypes.windll.oleaut32.VariantClear(ctypes.byref(value))
-        if prop(30019):                          # IsPassword: never type into it live
+        password = prop(30019)                   # IsPassword
+        if password_only:
+            return bool(password)
+        if password:                             # never type into it live
             return False
         kind = prop(30003)                       # ControlType
         has_value = prop(30043)                  # IsValuePatternAvailable
@@ -6481,6 +6527,15 @@ class Dictation(QtCore.QObject):
                 print("Focus moved to another window during dictation; %s." % (
                     "returned to the window you started in" if back
                     else "could not return to the starting window"))
+                if not back:
+                    # Typing anyway would put your words (and an Enter, if one
+                    # is set) into whatever took over: a chat could send them.
+                    # Kept only with "Missed text safety", as always.
+                    if self.overlay.mode == "message" and self.overlay.message == self.TYPING:
+                        self.overlay.dismiss()
+                    self.overlay.show_message("Couldn't get back to your window, so it "
+                                              "wasn't typed", ms=4500)
+                    return
                 delay = 200                    # give the window a moment to wake up
         QtCore.QTimer.singleShot(
             delay, lambda: self._deliver(text, 30, finish=True, after_key=after_key))
@@ -6537,6 +6592,13 @@ class Dictation(QtCore.QObject):
             if self.overlay.mode == "message" and self.overlay.message == self.TYPING:
                 self.overlay.dismiss()
             self.overlay.show_message("Can't type into an admin window", ms=5000)
+            return
+        if focused_password_box():
+            # Never into a password box (for passwords, type them yourself).
+            print("A password box has the focus; the text was not typed.")
+            if self.overlay.mode == "message" and self.overlay.message == self.TYPING:
+                self.overlay.dismiss()
+            self.overlay.show_message("Not typed into a password box", ms=4000)
             return
         # While these keystrokes go out, the hotkey listener stands aside, so
         # nothing sent here can be mistaken for a hotkey.
@@ -6970,8 +7032,11 @@ def apply_leet(on):
             _LEET_SAVED.setdefault(name, globals()[name])
             globals()[name] = value
     else:
+        keys = {"ACCENT": "accent", "POPUP_BG": "popup_bg", "GLOW_COLOUR": "glow_colour",
+                "GLOW_FROM_APP": "glow_from_app", "CARD_STYLE": "card_style"}
         for name, value in _LEET_SAVED.items():
-            globals()[name] = value
+            # Changed in Settings while the mode was on? Then that, as saved.
+            globals()[name] = _config.get(keys.get(name, ""), value)
         _LEET_SAVED.clear()
 
 
@@ -8165,6 +8230,53 @@ class ChoiceButton(QtWidgets.QPushButton):
         p.end()
 
 
+class _KeySwallowFilter(QtCore.QObject):
+    """After a hold button completes with a key still held down: that key's
+    presses and releases go nowhere until it is really let go (or 5 s pass)."""
+
+    def __init__(self):
+        super().__init__()
+        self.key = None
+        self.until = 0.0
+
+    def start(self, key):
+        app = QtWidgets.QApplication.instance()
+        if app is None:
+            return
+        self.key, self.until = key, time.monotonic() + 5.0
+        app.removeEventFilter(self)
+        app.installEventFilter(self)
+
+    def stop(self):
+        self.key = None
+        app = QtWidgets.QApplication.instance()
+        if app is not None:
+            app.removeEventFilter(self)
+
+    def eventFilter(self, _obj, event):
+        kind = event.type()
+        if self.key is None or kind not in (QtCore.QEvent.KeyPress, QtCore.QEvent.KeyRelease):
+            return False
+        if time.monotonic() > self.until:
+            self.stop()
+            return False
+        if event.key() not in (Qt.Key_Space, Qt.Key_Return, Qt.Key_Enter):
+            return False
+        if (kind == QtCore.QEvent.KeyRelease and not event.isAutoRepeat()
+                and event.key() == self.key):
+            self.stop()                          # really let go: back to normal
+        return True
+
+
+_key_swallow = []                                # the one filter, made when first needed
+
+
+def swallow_held_key(key):
+    if not _key_swallow:
+        _key_swallow.append(_KeySwallowFilter())
+    _key_swallow[0].start(key)
+
+
 class HoldButton(QtWidgets.QPushButton):
     """A button that has to be held down for a few seconds: it fills up while
     held and counts down; letting go early drains it back and starts over.
@@ -8187,6 +8299,7 @@ class HoldButton(QtWidgets.QPushButton):
         self._fill = 0.0                         # 0..1, what is drawn
         self._done = False
         self._shown_number = None
+        self._held_key = None                    # Space/Enter, if held by keyboard
         self._timer = QtCore.QTimer(self)
         # Windows' ordinary timers tick unevenly (about every 15 ms, sometimes
         # 31): a precise one keeps the fill moving smoothly.
@@ -8240,6 +8353,11 @@ class HoldButton(QtWidgets.QPushButton):
                 self._timer.stop()
                 self.setText(self._label)
                 self.update()
+                # A held key (Space/Enter) stays down after this: until it is
+                # really let go, its repeats are swallowed, or they would press
+                # whatever button comes next (Quit, or even Download).
+                if self._held_key is not None:
+                    swallow_held_key(self._held_key)
                 # A moment on the full button, then on: it feels finished.
                 QtCore.QTimer.singleShot(120, self.completed.emit)
                 return
@@ -8257,6 +8375,7 @@ class HoldButton(QtWidgets.QPushButton):
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
+            self._held_key = None                # held with the mouse, not a key
             self.setFocus()
             self._begin()
         event.accept()
@@ -8269,6 +8388,7 @@ class HoldButton(QtWidgets.QPushButton):
     def keyPressEvent(self, event):
         if event.key() in (Qt.Key_Space, Qt.Key_Return, Qt.Key_Enter):
             if not event.isAutoRepeat():
+                self._held_key = event.key()
                 self._begin()
             event.accept()
             return
@@ -8395,8 +8515,8 @@ def responsibility_paragraphs():
     # Short lines, one point each (long ones left a word or two hanging on a
     # line of their own). The bullets are one paragraph, one line per point.
     return ["%(app)s types your words into whichever window has your keyboard "
-            "input, usually the text box you last clicked. It does not check which "
-            "program that is; that is up to you." % app,
+            "input, usually the text box you last clicked. It does not decide or "
+            "control where the text goes; that is up to you." % app,
             "•  Check where your cursor is before you speak.\n"
             "•  Speech recognition makes mistakes: read before you send.\n"
             # A general rule, not a list (a list could read as "anything else
@@ -8404,7 +8524,8 @@ def responsibility_paragraphs():
             "•  Don't rely on it where a wrong word could cause harm.\n"
             "•  Don't dictate passwords or anything private.",
             "You are responsible for what %(app)s types and where it goes. It is "
-            "free software, provided as is, without any warranty." % app]
+            "free software, provided as is, without any warranty. Full terms: the "
+            "Disclaimer in the README and the LICENSE." % app]
 
 
 def download_question_words():
@@ -8456,7 +8577,8 @@ def set_menu_theme(theme):
             elif isinstance(widget, IntroWindow):
                 widget._restyle()
                 widget._paint_swatches()
-                widget._go(widget.stack.currentIndex())
+                if widget.isVisible():           # a finished one stays asleep
+                    widget._go(widget.stack.currentIndex())
             if widget.isVisible() and isinstance(widget, QtWidgets.QDialog):
                 dark_title_bar(widget)
             for child in widget.findChildren(QtWidgets.QWidget):
@@ -8496,6 +8618,7 @@ class IntroWindow(QtWidgets.QDialog):
         self.dictation = dictation
         self.gate_result = None                  # "go", "download", "manual" or "quit"
         self.understood = False                  # "Before you start" has been held
+        self.saw_last_page = False               # Skip before it: startup unchanged
         self._gate_loop = None
         self.ok_page = self.download_page = -1
         self.setWindowTitle("Welcome to %s" % APP_TITLE)
@@ -8702,7 +8825,8 @@ class IntroWindow(QtWidgets.QDialog):
         self.try_box.setStyleSheet("QPlainTextEdit { border-radius: 6px; padding: 5px; }")
         second.addWidget(self.try_box)
         QtWidgets.QApplication.instance().focusChanged.connect(
-            lambda _old, _new: self._refresh_try() if self.dictation is not None else None)
+            lambda _old, _new: self._refresh_try()
+            if self.dictation is not None and self.isVisible() else None)
         # Shown for a few seconds when the hotkey is held and nothing is heard.
         self.mic_note = QtWidgets.QLabel(self.CANT_HEAR)
         self.mic_note.setWordWrap(True)
@@ -8726,7 +8850,8 @@ class IntroWindow(QtWidgets.QDialog):
         self.startup = QtWidgets.QCheckBox("Start with Windows")
         # Ticked for a new user: applied when the introduction is finished (a
         # choice they can see and untick, never one made on its own).
-        self.startup.setChecked(starts_with_windows() or not _config.get("welcomed"))
+        self.startup.setChecked(starts_with_windows() or (
+            not _config.get("welcomed") and not _REPLAYING))
         self.startup.toggled.connect(lambda on: set_startup(bool(on)))
         fourth.addWidget(self.startup)
         fourth.addSpacing(6)
@@ -8843,6 +8968,8 @@ QPlainTextEdit { font-size: 13px; background: #17181C; color: #F0F0F4;
         self.record.setEnabled(True)
         self.hotkey_label.setText(pretty(HOTKEY))
         self.stack.setCurrentIndex(index)
+        if index == self.stack.count() - 1:
+            self.saw_last_page = True            # "Start with Windows" was in view
         self._fit_page()
         QtCore.QTimer.singleShot(0, self._fit_page)  # once its page is laid out
         last = index == self.stack.count() - 1
@@ -8906,6 +9033,7 @@ QPlainTextEdit { font-size: 13px; background: #17181C; color: #F0F0F4;
             return
         self.gate_result = result
         self._live(False)
+        self.stack.currentWidget().setEnabled(False)   # its buttons are done
         self.next.setEnabled(False)              # until the application is running
         self.back.setEnabled(False)
         if self._gate_loop is not None:
@@ -8923,6 +9051,8 @@ QPlainTextEdit { font-size: 13px; background: #17181C; color: #F0F0F4;
     def attach(self, dictation):
         """The application is running now: on to the rest of the pages."""
         self.dictation = dictation
+        for i in range(self.stack.count()):
+            self.stack.widget(i).setEnabled(True)
         self.next.setEnabled(True)
         self.back.setEnabled(True)
         if not self.isVisible():                 # closed while it was starting
@@ -9144,11 +9274,13 @@ QPlainTextEdit { font-size: 13px; background: #17181C; color: #F0F0F4;
             return
         # Finishing and closing the window are the same thing: nothing here
         # has to be completed, and every choice made so far is already saved.
+        self._live(False)                        # the Welcome page's glow goes too
         try:
             self.hear.stop()
             if not self.finished_up:
                 self.finished_up = True
-                if self.startup.isChecked() and not starts_with_windows():
+                if (self.saw_last_page and self.startup.isChecked()
+                        and not starts_with_windows()):
                     set_startup(True)            # the ticked choice, now finished
                 self.watch.stop()
                 self.dictation.cancel_capture()
@@ -10456,9 +10588,10 @@ class SettingsWindow(QtWidgets.QDialog):
                   "Your last dictation will be kept for %d minutes" % minutes,
                   "This is so a quick tap of the hotkey can paste it again if it missed "
                   "the text box.\n\nThe words are held in this program's memory only. "
-                  "leetsay does not write them to disk or leave them on the clipboard, and "
+                  "%s does not write them to disk or leave them on the clipboard, and "
                   "they are dropped after %d minutes, at your next dictation, or when "
-                  "the program closes." % minutes, accept="Turn on", reject="Keep off"):
+                  "the program closes." % (APP_TITLE, minutes), accept="Turn on",
+                  reject="Keep off"):
             set_option("KEEP_LAST", "keep_last", True)
         else:
             self.keep_last.blockSignals(True)
@@ -10677,8 +10810,8 @@ def show_about(dictation):
         "%s %s" % (APP_TITLE, VERSION),
         "",
         "Local dictation for Windows. Speech is recognised on this PC by",
-        "NVIDIA's Parakeet model; leetsay does not save your audio or send it",
-        "anywhere.",
+        "NVIDIA's Parakeet model; %s is designed not to save your audio or" % APP_TITLE,
+        "send it anywhere.",
         "",
         "Model:  %s%s, release %s" % (model_label(MODEL), quant,
                                       (current_release() or {}).get("tag", "unknown")),
@@ -10722,6 +10855,9 @@ def toggle_leet(dictation):
     "Exit 1337 mode" button at the top of Settings, shown only while it's on)."""
     apply_leet(not LEET_MODE)
     save_setting("leet_mode", LEET_MODE)
+    app = QtWidgets.QApplication.instance()
+    if app is not None:
+        app.setPalette(menu_palette())           # light menus come back with it
     dictation.overlay.apply_size()
     # The icon is drawn in the accent colour: green while the mode is on.
     if dictation.tray is not None:
@@ -11126,6 +11262,7 @@ def main():
     if replay:
         save_setting("replay_first_run", False)        # once only
         _config["welcomed"] = False                    # in memory: the welcome card shows
+        globals()["_REPLAYING"] = True                 # not a new user: keep their startup
     # A yes given in Settings (when switching models) covers the one restart
     # that follows it, and no more. If the model is still not here on a later
     # start, because the download was interrupted or blocked, ask again:

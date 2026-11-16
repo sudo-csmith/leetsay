@@ -168,7 +168,8 @@ Good to know:
   Activity**. It should not appear there.
 
 leetsay goes online only after you agree in a window that says "This
-application will go online", and only to download the speech model.
+application will go online": to download the speech model, or, if you turned it
+on, to check for a newer version of leetsay.
 
 ## Uninstalling
 

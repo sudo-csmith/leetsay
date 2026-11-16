@@ -50,4 +50,11 @@ problem publicly. There is no bug bounty.
   presses are not stored or sent.
 - Windows does not allow leetsay to type into programs running as administrator
   (unless leetsay also runs as administrator). leetsay says so instead.
+- The speech model's files are checked against their SHA-256 fingerprints
+  when they arrive and whenever their size or date changes; unchanged files
+  are not hashed again at every start. Someone who can already change files
+  in your user account could get round this, as they could change leetsay
+  itself.
+- While the network is open for a download, a proxy server set on your PC is
+  allowed too, so the download can go through it.
 - No software is free of bugs. Use leetsay at your own risk.

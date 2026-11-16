@@ -18,6 +18,10 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          # The write key is not left on disk for the build steps (installers,
+          # packages); only the publish step below gets it, as GH_TOKEN.
+          persist-credentials: false
 
       - uses: actions/setup-python@v6
         with:
@@ -47,11 +51,13 @@ jobs:
         run: |
           $lic = "dist\leetsay\licenses"
           Get-ChildItem $lic | Select-Object -ExpandProperty Name
-          foreach ($need in "LGPL-3.0.txt", "GPL-3.0.txt", "Apache-2.0.txt", "PortAudio-LICENSE.txt", "leetsay-LICENSE.txt", "CREDITS.md") {
+          foreach ($need in "LGPL-3.0.txt", "GPL-3.0.txt", "Apache-2.0.txt", "PortAudio-LICENSE.txt", "Silero-VAD-LICENSE.txt", "Qt-third-party.txt", "Python-LICENSE.txt", "leetsay-LICENSE.txt", "CREDITS.md") {
             if (-not (Test-Path "$lic\$need")) { throw "Missing licence file: $need" }
           }
           $asio = Get-ChildItem dist\leetsay -Recurse -Filter "*asio*"
           if ($asio) { throw "ASIO files must not be bundled: $($asio.Name -join ', ')" }
+          $commercial = Get-ChildItem $lic -Filter "*Commercial*"
+          if ($commercial) { throw "Qt's commercial licence text must not be bundled: $($commercial.Name -join ', ')" }
 
       - name: Install Inno Setup
         run: choco install innosetup --no-progress -y

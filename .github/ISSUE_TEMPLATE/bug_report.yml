@@ -40,7 +40,7 @@ body:
     attributes:
       label: leetsay version
       description: Shown in the title of the Settings window.
-      placeholder: "0.1.0"
+      placeholder: "0.2.0"
     validations:
       required: true
   - type: dropdown

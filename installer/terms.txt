@@ -3,8 +3,8 @@ PLEASE READ BEFORE INSTALLING LEETSAY
 leetsay is free software, provided "as is", without warranty of any kind.
 
 - leetsay types what you dictate into whichever window or application is
-  active. It does not check which program, chat, form or document that is, or
-  what that program does with the text. Check where your cursor is before you
+  active. It does not decide or control which program, chat, form or document
+  that is, or what that program does with the text. Check where your cursor is before you
   speak.
 - The text comes from a speech recognition model made by others. It can
   mishear, leave out or add words, including words that were never said. The

@@ -96,6 +96,11 @@ for dist in ("PySide6", "PySide6_Essentials", "shiboken6", "onnxruntime", "onnx-
         name = os.path.basename(path).upper()
         if name.endswith((".PY", ".PYC", ".DLL", ".PYD")):
             continue
+        # PySide6's packages carry only Qt's commercial licence text, which
+        # does not apply here (leetsay uses Qt under the LGPL, see README.txt):
+        # left out so nobody takes it for the terms that apply.
+        if "COMMERCIAL" in name:
+            continue
         if ("/licenses/" in path.lower() or "LICENSE" in name or "LICENCE" in name
                 or name.startswith(("COPYING", "NOTICE", "AUTHORS", "THIRDPARTY"))):
             source = f.locate()

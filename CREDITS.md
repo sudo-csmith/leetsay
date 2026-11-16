@@ -42,7 +42,11 @@ official release v6.2.3, with its licence.
   [pyside-setup](https://code.qt.io/cgit/pyside/pyside-setup.git)) and
   [download.qt.io](https://download.qt.io/official_releases/qt/). The
   installed program is a folder of files, not one packed file, so the Qt
-  libraries in it can be replaced with other versions.
+  libraries in it can be replaced with other versions. Qt itself contains
+  code from other projects (FreeType, HarfBuzz, libpng, libjpeg-turbo, PCRE2,
+  zlib and others) under their own licences; they are listed in
+  `licenses\Qt-third-party.txt` in the installed program and on the Qt
+  Project's [licences page](https://doc.qt.io/qt-6/licenses-used-in-qt.html).
 - [onnx-asr](https://github.com/istupakov/onnx-asr) (MIT): runs the speech models.
 - [ONNX Runtime](https://github.com/microsoft/onnxruntime) (MIT, with the
   third-party notices it ships): the speech engine. It uses
