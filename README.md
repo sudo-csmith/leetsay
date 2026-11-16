@@ -178,9 +178,9 @@ on, to check for a newer version of leetsay.
 Open Windows **Settings → Apps → Installed apps**, find **leetsay**, and
 choose **Uninstall**, or click **Uninstall leetsay…** in leetsay's own Settings
 (Privacy tab). A running leetsay is closed for you. The uninstaller removes
-the program and its start-up entry, then asks what to do with your settings and
-the downloaded speech model: keep both (the default), keep your settings but
-remove the model, or remove both.
+the program and its start-up entry, then asks whether to keep your settings
+(the default, ready for a reinstall) or remove everything, including the
+downloaded speech model.
 
 ### If you used Python
 

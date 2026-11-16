@@ -97,14 +97,14 @@ begin
   Result := True;
 end;
 
-{ After uninstalling: keep everything (the default), keep the settings but
-  remove the speech model, or remove both. 0, 1 or 2. Closing the window
-  keeps everything. }
+{ After uninstalling: keep the settings (and with them the downloaded speech
+  model; the default), or remove everything. 0 or 2. Closing the window keeps
+  everything. }
 function AskWhatToRemove(): Integer;
 var
   Form: TSetupForm;
   Info: TNewStaticText;
-  KeepAll, ModelOnly, Everything: TNewRadioButton;
+  KeepAll, Everything: TNewRadioButton;
   OkButton: TNewButton;
 begin
   Result := 0;
@@ -112,7 +112,7 @@ begin
   try
     Form.Caption := 'Uninstall';
     Form.ClientWidth := ScaleX(420);
-    Form.ClientHeight := ScaleY(190);
+    Form.ClientHeight := ScaleY(160);
 
     Info := TNewStaticText.Create(Form);
     Info.Parent := Form;
@@ -122,30 +122,22 @@ begin
     Info.AutoSize := False;
     Info.WordWrap := True;
     Info.Height := ScaleY(34);
-    Info.Caption := '{#AppName} has been removed. What should happen to your settings '
-                    + 'and the downloaded speech model (about 630 MB)?';
+    Info.Caption := '{#AppName} has been removed. What should happen to your settings?';
 
     KeepAll := TNewRadioButton.Create(Form);
     KeepAll.Parent := Form;
     KeepAll.Left := ScaleX(18);
     KeepAll.Top := ScaleY(60);
     KeepAll.Width := Form.ClientWidth - ScaleX(36);
-    KeepAll.Caption := 'Keep both (for example, if you will install {#AppName} again)';
+    KeepAll.Caption := 'Keep my settings';
     KeepAll.Checked := True;
-
-    ModelOnly := TNewRadioButton.Create(Form);
-    ModelOnly.Parent := Form;
-    ModelOnly.Left := ScaleX(18);
-    ModelOnly.Top := ScaleY(86);
-    ModelOnly.Width := Form.ClientWidth - ScaleX(36);
-    ModelOnly.Caption := 'Keep my settings, remove the speech model';
 
     Everything := TNewRadioButton.Create(Form);
     Everything.Parent := Form;
     Everything.Left := ScaleX(18);
-    Everything.Top := ScaleY(112);
+    Everything.Top := ScaleY(86);
     Everything.Width := Form.ClientWidth - ScaleX(36);
-    Everything.Caption := 'Remove both';
+    Everything.Caption := 'Remove everything';
 
     OkButton := TNewButton.Create(Form);
     OkButton.Parent := Form;
@@ -160,9 +152,7 @@ begin
     Form.ActiveControl := KeepAll;
     if Form.ShowModal() = mrOk then
     begin
-      if ModelOnly.Checked then
-        Result := 1
-      else if Everything.Checked then
+      if Everything.Checked then
         Result := 2;
     end;
   finally
@@ -186,9 +176,7 @@ begin
     if UninstallSilent() then
       Exit;                     { silent: keep settings and the model }
     Choice := AskWhatToRemove();
-    if Choice = 1 then          { only the speech models }
-      DelTree(ExpandConstant('{localappdata}\{#AppName}\models'), True, True, True)
-    else if Choice = 2 then     { settings, log and the speech models }
+    if Choice = 2 then          { settings, log and the downloaded speech models }
       DelTree(ExpandConstant('{localappdata}\{#AppName}'), True, True, True);
   end;
 end;

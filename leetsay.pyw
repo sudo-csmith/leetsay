@@ -8121,8 +8121,8 @@ def start_uninstall(parent):
         return
     if not dialog(parent, "Uninstall", "Uninstall %s?" % APP_TITLE,
                   "%s will close and Windows' uninstaller will start. Afterwards "
-                  "it asks what to do with your settings and the speech model: "
-                  "keep both, keep only your settings, or remove both." % APP_TITLE,
+                  "it asks whether to keep your settings or remove everything."
+                  % APP_TITLE,
                   accept="Uninstall", reject="Cancel"):
         return
     import subprocess
