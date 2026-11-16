@@ -59,6 +59,19 @@ the [Disclaimer](#disclaimer) before using it.
 code-signing certificate yet, so Windows SmartScreen may show this warning for
 a new download. To continue, choose **More info**, then **Run anyway**.
 
+**"Smart App Control blocked an app that may be unsafe".** Some Windows 11
+PCs have Smart App Control switched on (often new PCs, or after a fresh
+install of Windows). It blocks every app that is not signed, with no way to
+allow a single one, so until leetsay is signed it cannot be installed while
+Smart App Control is on. Signing is being worked on. Your options meanwhile:
+
+- wait for a signed version of leetsay; or
+- switch Smart App Control off, in **Windows Security → App & browser control
+  → Smart App Control**. That is your decision: it lowers a protection for all
+  apps, not only for leetsay. On recent versions of Windows 11 it can be
+  switched back on later in the same place; on older versions, switching it
+  off cannot be undone without resetting Windows.
+
 **Checking the download (optional).** Each release lists a long code called
 a SHA-256 fingerprint. It is worked out from every byte of the installer, so if
 the file were changed or damaged in any way, even by one letter, the code would
