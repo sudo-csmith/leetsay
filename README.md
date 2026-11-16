@@ -176,7 +176,7 @@ on, to check for a newer version of leetsay.
 ### If you used the installer
 
 Open Windows **Settings → Apps → Installed apps**, find **leetsay**, and
-choose **Uninstall**, or click **Uninstall leetsay…** in leetsay's own Settings
+choose **Uninstall**, or click **Uninstall leetsay** in leetsay's own Settings
 (Privacy tab). A running leetsay is closed for you. The uninstaller removes
 the program and its start-up entry, then asks whether to keep your settings
 (the default, ready for a reinstall) or remove everything, including the

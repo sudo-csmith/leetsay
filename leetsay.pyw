@@ -10402,12 +10402,15 @@ class SettingsWindow(QtWidgets.QDialog):
                            "that the block works each time it starts. It only opens for "
                            "a download you agree to." % APP_TITLE)
         row(field("Internet"), network)
-        button_grid(button("Report a problem", lambda: open_feedback_page(self, "bug")),
-                    button("Suggest an idea", lambda: open_feedback_page(self, "idea")),
+        # About this copy, then feedback; Uninstall set apart on its own
+        # (owner: a lone button next to everyday ones looked untidy).
+        button_grid(button("About %s" % APP_TITLE, lambda: show_about(dictation)),
                     button("Open data folder", open_data_folder),
-                    button("About %s" % APP_TITLE, lambda: show_about(dictation)))
+                    button("Report a problem", lambda: open_feedback_page(self, "bug")),
+                    button("Suggest an idea", lambda: open_feedback_page(self, "idea")))
         if uninstaller_path():
-            button_grid(button("Uninstall %s\u2026" % APP_TITLE,
+            page["layout"].addSpacing(10)
+            button_grid(button("Uninstall %s" % APP_TITLE,
                                lambda: start_uninstall(self)))
         end_tab()
         # Open on the tab that was showing last time (remembered only while
