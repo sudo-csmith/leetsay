@@ -16,6 +16,14 @@ AppVerName={#AppName} {#AppVersion}
 AppPublisher=sudo-csmith
 AppPublisherURL=https://github.com/sudo-csmith/leetsay
 AppSupportURL=https://github.com/sudo-csmith/leetsay
+; Name and version written into the installer itself (needed for code signing).
+VersionInfoVersion={#AppVersion}
+VersionInfoProductName={#AppName}
+VersionInfoProductVersion={#AppVersion}
+VersionInfoProductTextVersion={#AppVersion}
+VersionInfoCompany=sudo-csmith
+VersionInfoDescription={#AppName} setup
+VersionInfoCopyright=Copyright (c) 2026 sudo-csmith. MIT licence.
 DefaultDirName={localappdata}\Programs\{#AppName}
 DisableProgramGroupPage=yes
 DisableDirPage=auto

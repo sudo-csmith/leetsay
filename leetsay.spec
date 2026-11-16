@@ -63,6 +63,30 @@ _found = sorted({os.path.basename(str(entry[0])) for entry in a.binaries + a.dat
 if _found:
     raise SystemExit("GPL-only Qt modules would be bundled: %s" % ", ".join(_found))
 
+# Name, version and publisher written into leetsay.exe (Properties > Details),
+# read from VERSION in leetsay.pyw. Code signing requires them (the product
+# name must be the project's, the version the same in every file).
+import re
+from PyInstaller.utils.win32.versioninfo import (
+    VSVersionInfo, FixedFileInfo, StringFileInfo, StringTable, StringStruct,
+    VarFileInfo, VarStruct)
+with open("leetsay.pyw", encoding="utf-8") as _fh:
+    _VERSION = re.search(r'^VERSION = "([0-9.]+)"', _fh.read(), re.M).group(1)
+_v4 = tuple((list(map(int, _VERSION.split("."))) + [0, 0, 0, 0])[:4])
+_version_info = VSVersionInfo(
+    ffi=FixedFileInfo(filevers=_v4, prodvers=_v4, mask=0x3F, flags=0x0, OS=0x40004,
+                      fileType=0x1, subtype=0x0, date=(0, 0)),
+    kids=[StringFileInfo([StringTable("040904B0", [
+              StringStruct("CompanyName", "sudo-csmith"),
+              StringStruct("FileDescription", "leetsay - local dictation"),
+              StringStruct("FileVersion", _VERSION),
+              StringStruct("InternalName", APP),
+              StringStruct("LegalCopyright", "Copyright (c) 2026 sudo-csmith. MIT licence."),
+              StringStruct("OriginalFilename", APP + ".exe"),
+              StringStruct("ProductName", APP),
+              StringStruct("ProductVersion", _VERSION)])]),
+          VarFileInfo([VarStruct("Translation", [0x0409, 1200])])])
+
 pyz = PYZ(a.pure)
 exe = EXE(
     pyz,
@@ -73,6 +97,7 @@ exe = EXE(
     icon="leetsay.ico",
     console=False,            # a windowed program: no console window
     upx=False,
+    version=_version_info,
 )
 coll = COLLECT(exe, a.binaries, a.datas, name=APP, upx=False)
 
