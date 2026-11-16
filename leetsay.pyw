@@ -1797,6 +1797,48 @@ def type_while_held(text, really_held=None, repress=True, lift_only=False):
         return False
 
 
+class _GUITHREADINFO(ctypes.Structure):
+    _fields_ = [("cbSize", wintypes.DWORD), ("flags", wintypes.DWORD),
+                ("hwndActive", wintypes.HWND), ("hwndFocus", wintypes.HWND),
+                ("hwndCapture", wintypes.HWND), ("hwndMenuOwner", wintypes.HWND),
+                ("hwndMoveSize", wintypes.HWND), ("hwndCaret", wintypes.HWND),
+                ("rcCaret", wintypes.RECT)]
+
+
+def focused_control(window):
+    """The control that has the keyboard focus in a window (or None)."""
+    try:
+        user32 = ctypes.windll.user32
+        info = _GUITHREADINFO()
+        info.cbSize = ctypes.sizeof(info)
+        thread = user32.GetWindowThreadProcessId(window, None)
+        if thread and user32.GetGUIThreadInfo(thread, ctypes.byref(info)):
+            return info.hwndFocus or None
+    except Exception:
+        pass
+    return None
+
+
+def insert_text(control, text):
+    """Put text into an edit control at its cursor, as one change (Ctrl+Z
+    undoes it in one step), without any keystrokes. Only for the plain
+    Windows text controls (Edit, RichEdit). True if it was taken."""
+    try:
+        user32 = ctypes.windll.user32
+        name = ctypes.create_unicode_buffer(64)
+        user32.GetClassNameW(control, name, 64)
+        if "RichEdit" not in name.value and name.value != "Edit":
+            return False
+        result = ctypes.c_size_t()
+        user32.SendMessageTimeoutW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM,
+                                               ctypes.c_wchar_p, wintypes.UINT, wintypes.UINT,
+                                               ctypes.POINTER(ctypes.c_size_t)]
+        return bool(user32.SendMessageTimeoutW(control, 0x00C2, 1, text,   # EM_REPLACESEL
+                                               0x0002, 2000, ctypes.byref(result)))
+    except Exception:
+        return False
+
+
 def repress_modifiers(really_held):
     """Press again the modifier keys that are physically held but that typing
     let go of. Done only once typing has paused: some programs (the new
@@ -6312,7 +6354,11 @@ class Dictation(QtCore.QObject):
         part = self.lt_pending[:count]
         self._typing_until = time.monotonic() + 5.0          # our own keystrokes
         try:
-            typed = type_while_held(part, set(self._phys), repress=False)
+            control = focused_control(target) if getattr(self, "lt_gentle", False) else None
+            if control and insert_text(control, part):
+                typed = True                     # Notepad: straight into its text area
+            else:
+                typed = type_while_held(part, set(self._phys), repress=False)
         finally:
             self._typing_until = time.monotonic() + 0.3
             self._last_batch = time.monotonic()
@@ -6653,6 +6699,16 @@ class Dictation(QtCore.QObject):
         # nothing sent here can be mistaken for a hotkey.
         self._typing_until = time.monotonic() + 1.5 + len(text) * 0.004
         if TYPE_TEXT and self._needs_gentle_typing():
+            # Notepad: the text goes straight into its text area, in one go
+            # (keystrokes get lost there, see GENTLE_TYPING); a few letters at
+            # a time only if that is refused.
+            control = focused_control(foreground_window())
+            if control and insert_text(control, text):
+                if self.overlay.mode == "message" and self.overlay.message == self.TYPING:
+                    self.overlay.dismiss()
+                if after:
+                    self._press_after(after, 180)
+                return
             self._type_gently(text, after)
             return
         if TYPE_TEXT:
