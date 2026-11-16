@@ -125,7 +125,7 @@ sight.
 
 ### Type as you speak
 
-Turn on **Type as you speak** (Settings, General) and your words appear in
+Turn on **Type as you speak** (Settings, Typing) and your words appear in
 your program while you are still talking, about half a second behind you,
 instead of all at once when you let go. You can keep holding the hotkey.
 
@@ -139,7 +139,7 @@ instead of all at once when you let go. You can keep holding the hotkey.
   on (the default), it also waits until the cursor is in a text box, so that
   on a web page or a video your words are not taken as keyboard shortcuts.
   The pop-up says **No text box selected** while it waits.
-- **Word replacements** (Settings, General) fix names and words the speech
+- **Word replacements** (Settings, Typing) fix names and words the speech
   model doesn't know, such as "leaked say" written for "leetsay": you list what
   it writes and what you want instead. The list stays on this PC.
 - **Remove filler words** (on by default) leaves out "um", "uh" and "erm", in
@@ -182,8 +182,8 @@ model as well.
 
 ### If you used Python
 
-1. In Settings, on the **General** tab, choose **Remove the model from this
-   PC**. This deletes the speech model (about 630 MB).
+1. In Settings, on the **Model** tab, click **Remove model**. This deletes the
+   speech model (about 630 MB).
 2. Untick **Start with Windows** (General tab), then quit leetsay (right-click
    the icon by the clock, **Quit**).
 3. Delete the folder `%LOCALAPPDATA%\leetsay` (paste that into the File

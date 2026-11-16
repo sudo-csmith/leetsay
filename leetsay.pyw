@@ -6914,7 +6914,7 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
 QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: none; }
 QTabBar { qproperty-drawBase: 0; }
 QTabBar::tab { background: transparent; color: #9A9CA6; font-size: 13px;
-    padding: 7px 14px; border: none; border-bottom: 2px solid transparent; }
+    padding: 7px 9px; border: none; border-bottom: 2px solid transparent; }
 QTabBar::tab:hover { color: #E6E7EC; }
 QToolTip { background: #24262C; color: #E6E7EC; border: 1px solid #3A3D46; padding: 6px; }
 """
@@ -9226,6 +9226,7 @@ class SettingsWindow(QtWidgets.QDialog):
         outer.addWidget(self.leet_bar)
         tabs = QtWidgets.QTabWidget()
         tabs.setDocumentMode(False)
+        tabs.setUsesScrollButtons(False)         # all seven tabs in view, never arrows
         outer.addWidget(tabs)
         self.swatches = []
         page = {"layout": None}          # the tab currently being filled
@@ -9359,51 +9360,7 @@ class SettingsWindow(QtWidgets.QDialog):
         self.hotkey_note = note("")
         self._refresh_hotkey_note()
 
-        heading("Text")
-        check("Type as you speak", LIVE_TYPE, option("LIVE_TYPE", "live_type"),
-              tip="Off by default. Your words are typed into your app while you "
-                  "speak, about half a second behind you, instead of all at once "
-                  "when you finish. The hotkey can stay held: it doesn't get in "
-                  "the way of the typing.\n\n"
-                  "Words only go into the window you started in, and only into "
-                  "a text box (see below). Otherwise typing waits; if you click "
-                  "into a text box, it catches up.\n\n"
-                  "Less accurate: each part is read on its own, before the rest "
-                  "of the sentence is heard, and words already typed are never "
-                  "changed afterwards. Small words like \"and\" or \"on\" are the "
-                  "most often wrong.",
-              hint="Words appear as you say them. Less accurate than all at once "
-                   "(off is recommended).")
-        check("Text box detection", TEXTBOX_ONLY, option("TEXTBOX_ONLY", "textbox_only"),
-              tip="On by default. While typing as you speak, words only go in "
-                  "when the cursor is in a text box: on a web page or a video, "
-                  "typed letters would work as shortcuts and Space would scroll. "
-                  "If there is no text box, the pop-up says \"No text box "
-                  "selected\" and nothing is typed until you click into one.\n\n"
-                  "To tell, the app asks Windows' accessibility service (the one "
-                  "screen readers use) what kind of control has the focus: a text "
-                  "box, a button, a page. Only that: never the text in it, the "
-                  "page or the program. Nothing is kept or written down.\n\n"
-                  "Off: Windows isn't asked, and words are typed wherever the "
-                  "focus is.",
-              hint="Typing as you speak waits for a text box, and the pop-up says "
-                   "when there isn't one. Asks Windows only what kind of control "
-                   "has the focus.")
-        check("Show it at the mouse pointer", POINTER_HINT,
-              option("POINTER_HINT", "pointer_hint"),
-              hint="A small \"No text box\" tag follows the pointer while typing "
-                   "as you speak waits for one.")
-        check("Remove filler words", REMOVE_FILLERS,
-              option("REMOVE_FILLERS", "remove_fillers"),
-              hint="Leaves out um, uh and erm.")
-        check("Add a space after each dictation", ADD_SPACE,
-              option("ADD_SPACE", "add_space"),
-              hint="So two dictations in a row don't run together.")
-        replace_button = button("Word replacements\u2026",
-                                lambda: replacements_window(self), width=170)
-        replace_button.setToolTip("Fix words the speech model gets wrong, such as names it "
-                                  "doesn't know: what it writes, and what you want instead.")
-        row(field("Words"), replace_button, None)
+        heading("Pressing a key for you")
         self.after = QtWidgets.QComboBox()
         for key, label in AFTER_CHOICES:
             self.after.addItem(label, key)
@@ -9492,14 +9449,65 @@ class SettingsWindow(QtWidgets.QDialog):
         note("A second hotkey that dictates like the first and then presses a key. "
              "Your usual hotkey stays as it is. It can be keys like Ctrl+Shift on "
              "their own, though those will also set it off inside longer shortcuts.")
+
+        heading("Startup")
+        check("Start with Windows", starts_with_windows(), set_startup)
+
+        end_tab()
+
+        # ================= Typing =================
+        # What gets typed and where (split from General: it was too long, owner).
+        tab("Typing")
+        heading("Text", first=True)
+        check("Type as you speak", LIVE_TYPE, option("LIVE_TYPE", "live_type"),
+              tip="Off by default. Your words are typed into your app while you "
+                  "speak, about half a second behind you, instead of all at once "
+                  "when you finish. The hotkey can stay held: it doesn't get in "
+                  "the way of the typing.\n\n"
+                  "Words only go into the window you started in, and only into "
+                  "a text box (see below). Otherwise typing waits; if you click "
+                  "into a text box, it catches up.\n\n"
+                  "Less accurate: each part is read on its own, before the rest "
+                  "of the sentence is heard, and words already typed are never "
+                  "changed afterwards. Small words like \"and\" or \"on\" are the "
+                  "most often wrong.",
+              hint="Words appear as you say them. Less accurate than all at once "
+                   "(off is recommended).")
+        check("Text box detection", TEXTBOX_ONLY, option("TEXTBOX_ONLY", "textbox_only"),
+              tip="On by default. While typing as you speak, words only go in "
+                  "when the cursor is in a text box: on a web page or a video, "
+                  "typed letters would work as shortcuts and Space would scroll. "
+                  "If there is no text box, the pop-up says \"No text box "
+                  "selected\" and nothing is typed until you click into one.\n\n"
+                  "To tell, the app asks Windows' accessibility service (the one "
+                  "screen readers use) what kind of control has the focus: a text "
+                  "box, a button, a page. Only that: never the text in it, the "
+                  "page or the program. Nothing is kept or written down.\n\n"
+                  "Off: Windows isn't asked, and words are typed wherever the "
+                  "focus is.",
+              hint="Typing as you speak waits for a text box, and the pop-up says "
+                   "when there isn't one. Asks Windows only what kind of control "
+                   "has the focus.")
+        check("Show it at the mouse pointer", POINTER_HINT,
+              option("POINTER_HINT", "pointer_hint"),
+              hint="A small \"No text box\" tag follows the pointer while typing "
+                   "as you speak waits for one.")
+        check("Remove filler words", REMOVE_FILLERS,
+              option("REMOVE_FILLERS", "remove_fillers"),
+              hint="Leaves out um, uh and erm.")
+        check("Add a space after each dictation", ADD_SPACE,
+              option("ADD_SPACE", "add_space"),
+              hint="So two dictations in a row don't run together.")
+        replace_button = button("Word replacements\u2026",
+                                lambda: replacements_window(self), width=170)
+        replace_button.setToolTip("Fix words the speech model gets wrong, such as names it "
+                                  "doesn't know: what it writes, and what you want instead.")
+        row(field("Words"), replace_button, None)
         check("Stay in the window I started in", RETURN_FOCUS,
               option("RETURN_FOCUS", "return_focus"),
               hint="If another program pops up and takes over while you are speaking, "
                    "your words still go to the window you were in when you pressed "
                    "the hotkey.")
-
-        heading("Startup")
-        check("Start with Windows", starts_with_windows(), set_startup)
 
         end_tab()
 
@@ -11167,7 +11175,7 @@ def main():
                           "You can look around and change settings, but dictation will "
                           "not work until the model's files are in place.\n\n%s looks "
                           "for them each time it starts. You can also download the model "
-                          "later from Settings, on the General tab."
+                          "later from Settings, on the Model tab."
                           % APP_TITLE, accept="Continue without it", reject="Quit") is not True:
                     sys.exit(0)
                 globals()["START_WITHOUT_MODEL"] = True
