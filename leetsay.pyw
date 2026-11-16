@@ -329,7 +329,7 @@ TRAY_LIVE = False                    # the tray icon's bars move with your voice
 SHOW_HOTKEY_HINT = True              # show the hotkey on that pill and at startup
 PILL_MARK = "logo"                   # the pill's mark: "logo" (leetsay's), "dot" or "none"
 PILL_MARKS = ("logo", "dot", "none")
-LIVE_LINES = 1                       # lines of live words in the pop-up (1-6)
+LIVE_LINES = 2                       # lines of live words in the pop-up (1-6; 2 looks cleanest, owner)
 LIVE_ALIGN = "left"                  # rows of live words: "left" (words never move
                                      # once shown) or "center" (rows re-centre)
 CARD_WIDTH = 0                       # your own pop-up width, set by dragging its left
@@ -9816,16 +9816,17 @@ class SettingsWindow(QtWidgets.QDialog):
         check("Add a space after each dictation", ADD_SPACE,
               option("ADD_SPACE", "add_space"),
               hint="So two dictations in a row don't run together.")
-        replace_button = button("Word replacements\u2026",
-                                lambda: replacements_window(self), width=170)
-        replace_button.setToolTip("Fix words the speech model gets wrong, such as names it "
-                                  "doesn't know: what it writes, and what you want instead.")
-        row(field("Words"), replace_button, None)
         check("Stay in the window I started in", RETURN_FOCUS,
               option("RETURN_FOCUS", "return_focus"),
               hint="If another program pops up and takes over while you are speaking, "
                    "your words still go to the window you were in when you pressed "
                    "the hotkey.")
+        # The button after the tick boxes, so they line up together (owner).
+        replace_button = button("Word replacements\u2026",
+                                lambda: replacements_window(self), width=170)
+        replace_button.setToolTip("Fix words the speech model gets wrong, such as names it "
+                                  "doesn't know: what it writes, and what you want instead.")
+        row(field("Words"), replace_button, None)
 
         end_tab()
 
