@@ -5116,8 +5116,7 @@ class Dictation(QtCore.QObject):
         self.lt_repress = QtCore.QTimer()
         self.lt_repress.setSingleShot(True)
         self.lt_repress.setInterval(250)
-        self.lt_repress.timeout.connect(
-            lambda: repress_modifiers(set(self._phys)) if self.state == "recording" else None)
+        self.lt_repress.timeout.connect(self._repress_now)
         self.live_timer = QtCore.QTimer()
         self.live_timer.setInterval(LIVE_EVERY_MS)
         self.live_timer.timeout.connect(self._live_tick)
@@ -5975,9 +5974,13 @@ class Dictation(QtCore.QObject):
         if HOLD_TO_TALK and self._held_modifiers and not self.overlay.click_started:
             # Hold-to-talk: if the hotkey's modifier keys are no longer down but
             # the release was somehow missed (screen lock, a crash elsewhere),
-            # stop anyway. (Not judged right after typing as you speak: it lets
-            # go of the keys for the app for a moment.)
-            if time.monotonic() - getattr(self, "_last_batch", 0.0) < 0.15:
+            # stop anyway. (Not judged while typing as you speak has let go of
+            # the keys for the app: they are pressed again only once typing
+            # pauses, 250 ms later. Judging in that gap once took the hotkey
+            # for let go while it was held, and the held Space then repeated
+            # into the text box.)
+            if self.lt_repress.isActive() \
+                    or time.monotonic() - getattr(self, "_last_batch", 0.0) < 0.15:
                 return
             try:
                 state = ctypes.windll.user32.GetAsyncKeyState
@@ -5988,8 +5991,35 @@ class Dictation(QtCore.QObject):
             self.keys_up_checks = 0 if held else self.keys_up_checks + 1
             if self.keys_up_checks >= 2:
                 print("Hotkey was released without the app noticing; recording stopped.")
-                self._held = False
+                # A key still physically down (Space of Ctrl+Space) stays
+                # "held", so its repeats are still swallowed until it goes up.
+                self._held = self._trigger_down()
                 self._finish()
+
+    def _repress_now(self):
+        """Typing as you speak paused: press the held modifier keys again."""
+        if self.state == "recording":
+            repress_modifiers(set(self._phys))
+            self._last_batch = time.monotonic()   # let it settle before judging
+
+    def _trigger_down(self):
+        """True if the held hotkey's own key (not a modifier) is physically
+        down right now. Our own typing never presses it (letters go as
+        Unicode characters)."""
+        name = getattr(self, "_held_trigger", "") or ""
+        if not name or name in self._MODIFIER_VKS:
+            return False
+        try:
+            user32 = ctypes.windll.user32
+            vk = self._FKEY_VKS.get(name) or {
+                "space": 0x20, "enter": 0x0D, "tab": 0x09, "backspace": 0x08,
+                "esc": 0x1B, "escape": 0x1B}.get(name)
+            if vk is None and len(name) == 1:
+                vk = user32.VkKeyScanW(ord(name)) & 0xFF
+                vk = None if vk == 0xFF else vk
+            return bool(vk) and bool(user32.GetAsyncKeyState(vk) & 0x8000)
+        except Exception:
+            return False
 
     # -- live preview: re-read the recent audio every so often ---------------
     def _live_tick(self):
