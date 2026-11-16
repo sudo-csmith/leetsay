@@ -61,11 +61,12 @@ const
   RunningMutex = 'dictate_py_single_instance';
   EVENT_MODIFY_STATE = $0002;
 
-function OpenEventW(Access: Cardinal; Inherit: Boolean; Name: String): THandle;
+{ Plain numbers for Windows' BOOL (0 = no), the safest for these calls. }
+function OpenEventW(Access: Cardinal; Inherit: Cardinal; Name: String): THandle;
   external 'OpenEventW@kernel32.dll stdcall';
-function SetEvent(Handle: THandle): Boolean;
+function SetEvent(Handle: THandle): Cardinal;
   external 'SetEvent@kernel32.dll stdcall';
-function CloseHandle(Handle: THandle): Boolean;
+function CloseHandle(Handle: THandle): Cardinal;
   external 'CloseHandle@kernel32.dll stdcall';
 
 { A running leetsay is asked to close (the same signal a newer copy sends),
@@ -77,7 +78,7 @@ var
 begin
   if not CheckForMutexes(RunningMutex) then
     Exit;
-  Handle := OpenEventW(EVENT_MODIFY_STATE, False, QuitEvent);
+  Handle := OpenEventW(EVENT_MODIFY_STATE, 0, QuitEvent);
   if Handle <> 0 then
   begin
     SetEvent(Handle);
@@ -108,11 +109,10 @@ var
   OkButton: TNewButton;
 begin
   Result := 0;
-  Form := CreateCustomForm();
+  { Inno Setup 6.6+: the size is given here (scaled by it), and fixed. }
+  Form := CreateCustomForm(420, 160, True, True);
   try
     Form.Caption := 'Uninstall';
-    Form.ClientWidth := ScaleX(420);
-    Form.ClientHeight := ScaleY(160);
 
     Info := TNewStaticText.Create(Form);
     Info.Parent := Form;
