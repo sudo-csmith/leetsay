@@ -5088,6 +5088,12 @@ class Dictation(QtCore.QObject):
         self.lt_pacer.timeout.connect(self._pace_tick)
         # Held modifier keys are pressed again only once typing pauses (see
         # repress_modifiers), and only while you are still dictating.
+        # The text box warning in the normal mode (see _update_box_warning).
+        self.box_timer = QtCore.QTimer()
+        self.box_timer.setInterval(250)
+        self.box_timer.timeout.connect(
+            lambda: self._update_box_warning() if self.state == "recording"
+            else self.box_timer.stop())
         self.lt_repress = QtCore.QTimer()
         self.lt_repress.setSingleShot(True)
         self.lt_repress.setInterval(250)
@@ -5839,6 +5845,10 @@ class Dictation(QtCore.QObject):
         self.live_seen = 0
         self.lt_active = LIVE_TYPE
         self.lt_gentle = LIVE_TYPE and self._needs_gentle_typing()   # small pieces only
+        self.lt_missing = 0
+        self.overlay.box_missing = False
+        if TEXTBOX_ONLY and not LIVE_TYPE:
+            self.box_timer.start()                 # the warning in the normal mode too
         self.lt_commit, self.lt_index = 0, (0, 0)
         self.lt_done = self.lt_pending = ""
         self.lt_counts = [0, 0, 0]
@@ -5900,7 +5910,7 @@ class Dictation(QtCore.QObject):
             else:
                 # Nothing can be typed right now ("No text box selected"): the
                 # glow holds still, so it doesn't look as if you are typing.
-                still = bool(active and self.lt_active and self.overlay.box_missing)
+                still = bool(active and self.overlay.box_missing)
                 alive = self.screen_glow.step(level, active, still)
             if active and TRAY_LIVE and self.tray is not None:
                 alive = True
@@ -5972,34 +5982,7 @@ class Dictation(QtCore.QObject):
             return
         if self.lt_active:
             self._flush_live()                   # back in the right window: catch up
-            if TEXTBOX_ONLY and self.target_window \
-                    and foreground_window() == self.target_window:
-                # Said on the card as it happens: "No text box selected". Only
-                # after two checks in a row, so a quick change of focus doesn't
-                # make it flicker on and off.
-                missing = not self._in_text_box(self.target_window)
-                fresh = self.lt_box.get("at", 0.0) != getattr(self, "lt_missing_at", None)
-                if getattr(self, "lt_box_waiting", False):
-                    # The focus has just moved: Windows is being asked about
-                    # the new spot. Drop the old warning at once; if this
-                    # spot isn't a text box either, it comes back when Windows
-                    # says so. (Typing still waits for the answer.)
-                    self.lt_missing = 0
-                elif not missing:
-                    self.lt_missing = 0
-                elif fresh:                      # count each new answer once
-                    self.lt_missing = getattr(self, "lt_missing", 0) + 1
-                    self.lt_missing_at = self.lt_box.get("at", 0.0)
-                was = self.overlay.box_missing
-                self.overlay.box_missing = getattr(self, "lt_missing", 0) >= 2
-                if was and not self.overlay.box_missing:
-                    # Back in a text box: the card's words line comes back
-                    # with the text as it is now, not as it was before.
-                    self._show_typed(self.session, [])
-            else:
-                self.lt_missing = 0
-                self.overlay.box_missing = False
-            self._pointer_hint(self.overlay.box_missing)
+            self._update_box_warning(live=True)
         if self.live_busy:
             return                               # previous pass still running
         if time.monotonic() < self._live_rest_until:
@@ -6423,8 +6406,46 @@ class Dictation(QtCore.QObject):
         self.lt_pending = ""
         self.overlay.dismiss()
 
+    def _update_box_warning(self, live=False):
+        """ "No text box selected" on the card (and the tag by the mouse
+        pointer) while the cursor isn't in a text box. With typing as you
+        speak it also holds the typing back; in the normal mode it is only a
+        warning: the text is still typed where the cursor is when you let go
+        (owner). Off with Text box detection off (Windows isn't asked)."""
+        if TEXTBOX_ONLY and self.target_window \
+                and foreground_window() == self.target_window:
+            # Said on the card as it happens: "No text box selected". Only
+            # after two checks in a row, so a quick change of focus doesn't
+            # make it flicker on and off.
+            missing = not self._in_text_box(self.target_window)
+            fresh = self.lt_box.get("at", 0.0) != getattr(self, "lt_missing_at", None)
+            if getattr(self, "lt_box_waiting", False):
+                # The focus has just moved: Windows is being asked about
+                # the new spot. Drop the old warning at once; if this
+                # spot isn't a text box either, it comes back when Windows
+                # says so. (Typing still waits for the answer.)
+                self.lt_missing = 0
+            elif not missing:
+                self.lt_missing = 0
+            elif fresh:                      # count each new answer once
+                self.lt_missing = getattr(self, "lt_missing", 0) + 1
+                self.lt_missing_at = self.lt_box.get("at", 0.0)
+            was = self.overlay.box_missing
+            self.overlay.box_missing = getattr(self, "lt_missing", 0) >= 2
+            if was and not self.overlay.box_missing:
+                # Back in a text box: the card's words line comes back
+                # with the text as it is now, not as it was before.
+                if live:
+                    self._show_typed(self.session, [])
+        else:
+            self.lt_missing = 0
+            self.overlay.box_missing = False
+        self._pointer_hint(self.overlay.box_missing)
+
     def _pointer_hint(self, show):
         """The "No text box" tag by the mouse pointer (Settings: on by default)."""
+        if not show and self.state != "recording":
+            self.box_timer.stop()
         if show and POINTER_HINT:
             if self.pointer_badge is None:
                 self.pointer_badge = PointerBadge()
@@ -9595,7 +9616,10 @@ class SettingsWindow(QtWidgets.QDialog):
             for i, made in enumerate(buttons):
                 made.setSizePolicy(QtWidgets.QSizePolicy.Expanding,
                                    QtWidgets.QSizePolicy.Fixed)
-                grid.addWidget(made, i // 2, i % 2)
+                if i == len(buttons) - 1 and i % 2 == 0 and i > 0:
+                    grid.addWidget(made, i // 2, 0, 1, 2)   # a last odd one: full width
+                else:
+                    grid.addWidget(made, i // 2, i % 2)
             grid.setColumnStretch(0, 1)
             grid.setColumnStretch(1, 1)
             page["layout"].addLayout(grid)
@@ -9795,24 +9819,25 @@ class SettingsWindow(QtWidgets.QDialog):
               hint="Words appear as you say them. Less accurate than all at once "
                    "(off is recommended).")
         check("Text box detection", TEXTBOX_ONLY, option("TEXTBOX_ONLY", "textbox_only"),
-              tip="On by default. While typing as you speak, words only go in "
-                  "when the cursor is in a text box: on a web page or a video, "
-                  "typed letters would work as shortcuts and Space would scroll. "
-                  "If there is no text box, the pop-up says \"No text box "
-                  "selected\" and nothing is typed until you click into one.\n\n"
+              tip="On by default. While you dictate, the pop-up says \"No text "
+                  "box selected\" when the cursor isn't in one, so you notice in "
+                  "time. In the normal mode your words are still typed where the "
+                  "cursor is when you let go. While typing as you speak, words "
+                  "only go in when the cursor is in a text box (on a web page or a "
+                  "video, typed letters would work as shortcuts and Space would "
+                  "scroll); until you click into one, nothing is typed.\n\n"
                   "To tell, the app asks Windows' accessibility service (the one "
                   "screen readers use) what kind of control has the focus: a text "
                   "box, a button, a page. Only that: never the text in it, the "
                   "page or the program. Nothing is kept or written down.\n\n"
                   "Off: Windows isn't asked, and words are typed wherever the "
                   "focus is.",
-              hint="Typing as you speak waits for a text box, and the pop-up says "
-                   "when there isn't one. Asks Windows only what kind of control "
-                   "has the focus.")
+              hint="The pop-up says when the cursor isn't in a text box. Asks "
+                   "Windows only what kind of control has the focus.")
         check("Show it at the mouse pointer", POINTER_HINT,
               option("POINTER_HINT", "pointer_hint"),
-              hint="A small \"No text box\" tag follows the pointer while typing "
-                   "as you speak waits for one.")
+              hint="A small \"No text box\" tag follows the pointer while the "
+                   "cursor isn't in a text box.")
         check("Remove filler words", REMOVE_FILLERS,
               option("REMOVE_FILLERS", "remove_fillers"),
               hint="Leaves out um, uh and erm.")
@@ -10402,16 +10427,16 @@ class SettingsWindow(QtWidgets.QDialog):
                            "that the block works each time it starts. It only opens for "
                            "a download you agree to." % APP_TITLE)
         row(field("Internet"), network)
-        # About this copy, then feedback; Uninstall set apart on its own
-        # (owner: a lone button next to everyday ones looked untidy).
-        button_grid(button("About %s" % APP_TITLE, lambda: show_about(dictation)),
-                    button("Open data folder", open_data_folder),
-                    button("Report a problem", lambda: open_feedback_page(self, "bug")),
-                    button("Suggest an idea", lambda: open_feedback_page(self, "idea")))
+        # About this copy, then feedback, then Uninstall as one full-width row
+        # with the same spacing (owner: a lone half button, or an extra gap,
+        # looked uneven).
+        helpers = [button("About %s" % APP_TITLE, lambda: show_about(dictation)),
+                   button("Open data folder", open_data_folder),
+                   button("Report a problem", lambda: open_feedback_page(self, "bug")),
+                   button("Suggest an idea", lambda: open_feedback_page(self, "idea"))]
         if uninstaller_path():
-            page["layout"].addSpacing(10)
-            button_grid(button("Uninstall %s" % APP_TITLE,
-                               lambda: start_uninstall(self)))
+            helpers.append(button("Uninstall %s" % APP_TITLE, lambda: start_uninstall(self)))
+        button_grid(*helpers)
         end_tab()
         # Open on the tab that was showing last time (remembered only while
         # the application is running; nothing is written to disk for this).

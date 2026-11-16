@@ -43,8 +43,9 @@ to see who uses it or what they do with it.
   typed into the window you started in while you are still speaking. They are
   kept in memory only until the dictation ends (longer only if **Missed text
   safety** is on).
-- **Text box detection** (on by default, used only by Type as you speak): to
-  type only into a text box, leetsay asks Windows' accessibility service (the
+- **Text box detection** (on by default): while you dictate, to say "No text
+  box selected" when the cursor isn't in one (and, with Type as you speak, to
+  type only into a text box), leetsay asks Windows' accessibility service (the
   one screen readers use) what kind of control has the keyboard focus: a text
   box, a password box, a button or a page, and whether it can be typed into.
   It does not read the text in it, the page or the window's title. The answer is used on the spot and is not stored, logged or
