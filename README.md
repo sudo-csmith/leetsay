@@ -55,6 +55,11 @@ the [Disclaimer](#disclaimer) before using it.
    password is needed. It adds leetsay to the Start menu; whether it starts
    with Windows is chosen in its introduction (and can be changed in Settings).
 
+**"isn't commonly downloaded" (Microsoft Edge).** Edge may hold the download
+back because the file is new. To keep it: click **Keep** (if Edge asks again:
+**Show more**, then **Keep anyway**). Other browsers may show a similar
+message.
+
 **"Windows protected your PC".** The installer is not signed with a paid
 code-signing certificate yet, so Windows SmartScreen may show this warning for
 a new download. To continue, choose **More info**, then **Run anyway**.
