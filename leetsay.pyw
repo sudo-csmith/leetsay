@@ -2364,6 +2364,39 @@ def play_sound(name):
 # ----------------------------------------------------------------------------
 # Microphone
 # ----------------------------------------------------------------------------
+def _windows_input_count():
+    try:
+        return ctypes.windll.winmm.waveInGetNumDevs()
+    except Exception:
+        return None
+
+
+# Windows' microphone count when the sound library last read its list (it does
+# so when it is imported, just before this line runs).
+_known_inputs = [_windows_input_count()]
+
+
+def refresh_audio_devices(force=False):
+    """The sound library reads the list of devices once, when it starts, so a
+    microphone plugged in later was unknown to it ("Microphone not
+    detected" with the mic working in Windows). Read the list afresh when
+    Windows' own count of microphones has changed since (asking Windows is
+    instant), or when forced. Never while a stream is open (it would be cut
+    off): only called with the microphone closed. True if it was read."""
+    count = _windows_input_count()
+    if not force and count == _known_inputs[0]:
+        return False
+    try:
+        sd._terminate()
+        sd._initialize()
+        _known_inputs[0] = count
+        print("Sound devices read afresh (a device was plugged in or out).")
+        return True
+    except Exception as exc:
+        print("Could not read the sound devices afresh:", exc, file=sys.stderr)
+        return False
+
+
 def input_devices():
     """Names of the microphones Windows offers (one entry each)."""
     names = []
@@ -2419,6 +2452,17 @@ class Recorder:
         self.chunks = []
         self.level = 0.0
         self.peak = 0.0
+        refresh_audio_devices()
+        try:
+            self.stream = self._open()
+        except Exception:
+            # Perhaps a device list from before a microphone was plugged in or
+            # swapped: read it afresh once and try again.
+            if not refresh_audio_devices(force=True):
+                raise
+            self.stream = self._open()
+
+    def _open(self):
         stream = sd.InputStream(samplerate=SAMPLE_RATE, channels=1,
                                 dtype="float32", callback=self._callback,
                                 device=chosen_input())
@@ -2430,7 +2474,7 @@ class Recorder:
             except Exception:
                 pass
             raise
-        self.stream = stream
+        return stream
 
     def close(self):
         """Close the microphone, whatever state it is in."""
@@ -6945,7 +6989,7 @@ class Dictation(QtCore.QObject):
             return                               # a click on the download card does nothing
         if "microphone" in (getattr(self.overlay, "message", "") or "").lower():
             self.overlay.dismiss()
-            open_mic_settings()
+            open_settings(self, "Audio")          # pick the microphone, test it
             return
         self.after_ticket += 1
         self.overlay.dismiss()
@@ -10262,7 +10306,7 @@ class SettingsWindow(QtWidgets.QDialog):
         line.setSpacing(8)
         line.addWidget(field("Input"))
         line.addWidget(self.mic, 1)
-        line.addWidget(button("Refresh", self._fill_microphones))
+        line.addWidget(button("Refresh", lambda: self._fill_microphones(True)))
         page["layout"].addLayout(line)
         self.mic_test = button("Test", self._test_mic, width=84)
         self.mic_bar = QtWidgets.QProgressBar()
@@ -10286,6 +10330,9 @@ class SettingsWindow(QtWidgets.QDialog):
         page["layout"].addWidget(self.mic_heard)
         note("Test shows the level and the words it hears, for about 12 seconds. "
              "Nothing is typed anywhere and nothing is kept.")
+        row(field("Windows"), button("Microphone privacy settings", open_mic_settings), None)
+        note("No sound from any microphone? Windows may be blocking desktop apps: "
+             "turn on \"Let desktop apps access your microphone\" there.")
         self._test_audio = []                    # the test's sound, in memory only
         self._test_text = ""
         self._test_busy = False
@@ -10913,7 +10960,12 @@ class SettingsWindow(QtWidgets.QDialog):
         self.volume_label.setEnabled(not own)
 
     # -- microphone ---------------------------------------------------------------
-    def _fill_microphones(self):
+    def _fill_microphones(self, force=False):
+        # A microphone plugged in since start-up: read the list afresh first
+        # (Refresh always does), but never with a microphone open.
+        if getattr(self, "_test_stream", None) is None \
+                and self.dictation.recorder.stream is None:
+            refresh_audio_devices(force=force)
         self.mic.blockSignals(True)
         self.mic.clear()
         self.mic.addItem("Windows default", "")
@@ -10945,6 +10997,7 @@ class SettingsWindow(QtWidgets.QDialog):
             self._test_level = float(np.sqrt(np.mean(block * block))) if len(block) else 0.0
             self._test_audio.append(block.copy())
 
+        refresh_audio_devices()                  # a microphone plugged in since start-up
         try:
             self._test_stream = sd.InputStream(samplerate=SAMPLE_RATE, channels=1,
                                                dtype="float32", callback=heard,
@@ -11065,12 +11118,18 @@ _settings_open = {"window": None, "tab": 0}      # keeps the window alive, and
                                                  # which tab was last open
 
 
-def open_settings(dictation):
-    """Show Settings (from the tray icon, or a right-click on the pill)."""
+def open_settings(dictation, tab=None):
+    """Show Settings (from the tray icon, or a right-click on the pill), on
+    the tab named, if one is."""
     window = _settings_open["window"]
     if window is None or not window.isVisible():
         window = SettingsWindow(dictation, getattr(dictation, "tray", None))
         _settings_open["window"] = window            # rebuilt so it is current
+    tabs = getattr(window, "_tabs", None)
+    if tab and tabs is not None:
+        for index in range(tabs.count()):
+            if tabs.tabText(index) == tab:
+                tabs.setCurrentIndex(index)
     window.show()
     window.raise_()
     window.activateWindow()

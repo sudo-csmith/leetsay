@@ -71,7 +71,9 @@ to see who uses it or what they do with it.
   own dark or light app mode and matches it. It changes nothing in Windows.
 - To show a red status light when no microphone is connected, leetsay asks
   Windows every few seconds how many microphones there are, while its pop-up
-  is showing. This does not open or listen to any microphone.
+  is showing, and again when a dictation or microphone test starts (so a
+  microphone plugged in meanwhile is found). This does not open or listen to
+  any microphone.
 
 ## The network
 
