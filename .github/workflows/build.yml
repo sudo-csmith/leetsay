@@ -91,17 +91,9 @@ jobs:
           $notes = @"
           leetsay ${{ steps.version.outputs.value }}: free, local dictation for Windows.
 
-          Download **leetsay-setup-${{ steps.version.outputs.value }}.exe** below and run it.
-          The installer is not yet signed, so Windows may show "Windows protected your PC":
-          choose **More info**, then **Run anyway**. See the README for details.
+          Download **leetsay-setup-${{ steps.version.outputs.value }}.exe** below and run it. The installer is not yet signed, so Windows may show "Windows protected your PC": choose **More info**, then **Run anyway**. See the README for details.
 
-          **Optional check: the SHA-256 fingerprint.** The code below is worked out
-          from every byte of the installer. If the file were changed or damaged in
-          any way, the code would be completely different. To compare: open your
-          Downloads folder, right-click an empty spot, choose **Open in Terminal**, type
-          ``Get-FileHash .\leetsay-setup-${{ steps.version.outputs.value }}.exe`` and press
-          Enter. The code after **Hash** should match this one (capital or small letters
-          don't matter). If it doesn't, don't run the file; download it again.
+          **Optional check: the SHA-256 fingerprint.** The code below is worked out from every byte of the installer. If the file were changed or damaged in any way, the code would be completely different. To compare: open your Downloads folder, right-click an empty spot, choose **Open in Terminal**, type ``Get-FileHash .\leetsay-setup-${{ steps.version.outputs.value }}.exe`` and press Enter. The code after **Hash** should match this one (capital or small letters don't matter). If it doesn't, don't run the file; download it again.
           ``````
           $sum
           ``````
