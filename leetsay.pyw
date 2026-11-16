@@ -19,7 +19,7 @@ from this project's model releases on github.com. While it runs, the program
 blocks its own network access; it opens it only for a download the user has
 just agreed to.
 
-Click the tray icon for Settings; right-click it to quit. Settings and the log
+Click the tray icon (left or right) for Settings; Quit is there. Settings and the log
 (dictate.json, dictate.log) are kept in %LOCALAPPDATA%\\leetsay.
 """
 
@@ -7698,7 +7698,7 @@ def show_app_update_result(parent, tag, page, why, manual, installer=""):
         offer_update(parent, latest, page, installer)    # asked for: answer straight away
         return
     # At startup: a notification by the clock (once per new version) and an
-    # "Update available" line in the tray menu (for as long as it is newer),
+    # "is available" line at the top of Settings (for as long as it is newer),
     # instead of a window popping up in the middle of whatever you are doing.
     announce_update(latest, page, installer,
                     notify=_config.get("app_update_seen") != latest)
@@ -7710,7 +7710,7 @@ _update_offer = {"connected": False, "action": None, "args": None}
 
 def announce_update(latest, page, installer, notify=True):
     """Tell about a newer version without interrupting: a Windows notification
-    (clicking it opens the update window) and a line in the tray menu. Without
+    (clicking it opens the update window) and a line at the top of Settings. Without
     a tray icon, the window itself is shown."""
     app = QtWidgets.QApplication.instance()
     tray = getattr(app, "_tray_icon", None)
@@ -7726,16 +7726,7 @@ def announce_update(latest, page, installer, notify=True):
     if not _update_offer["connected"]:
         tray.messageClicked.connect(open_offer)
         _update_offer["connected"] = True
-    menu = tray.contextMenu()
-    if menu is not None:
-        if _update_offer["action"] is None:
-            action = QtGui.QAction(menu)
-            action.triggered.connect(open_offer)
-            first = menu.actions()[0] if menu.actions() else None
-            menu.insertAction(first, action)
-            menu.insertSeparator(first)
-            _update_offer["action"] = action
-        _update_offer["action"].setText("Update available (%s)…" % latest)
+    # (Settings shows it too, at the top, while it is newer: see SettingsWindow.)
     if notify:
         tray.showMessage("%s update available" % APP_TITLE,
                          "Version %s is ready to download. Click for details." % latest,
@@ -9210,6 +9201,19 @@ class SettingsWindow(QtWidgets.QDialog):
         outer = QtWidgets.QVBoxLayout(self)
         outer.setContentsMargins(14, 10, 14, 14)
         outer.setSpacing(12)
+        # A newer version found at startup: said at the top of Settings (the
+        # tray icon has no menu to say it in).
+        if _update_offer.get("args"):
+            latest = _update_offer["args"][0]
+            update_bar = QtWidgets.QHBoxLayout()
+            update_text = QtWidgets.QLabel("%s %s is available" % (APP_TITLE, latest))
+            update_text.setObjectName("heading")
+            update_bar.addWidget(update_text)
+            update_bar.addStretch(1)
+            details = QtWidgets.QPushButton("Details…")
+            details.clicked.connect(lambda: offer_update(self, *_update_offer["args"]))
+            update_bar.addWidget(details)
+            outer.addLayout(update_bar)
         # Only while 1337 mode is on: a bar at the top with the way back out.
         self.leet_bar = QtWidgets.QWidget()
         bar = QtWidgets.QHBoxLayout(self.leet_bar)
@@ -10647,21 +10651,20 @@ def open_settings(dictation):
 def make_tray(app, dictation):
     tray = QtWidgets.QSystemTrayIcon(app_icon(), app)
     tray.setToolTip("%s  \u00b7  %s" % (APP_TITLE, pretty(HOTKEY)))
-    menu = QtWidgets.QMenu()
-    keep = {"menu": menu}                       # keep Qt objects alive
+    keep = {}
     dictation.tray = tray
 
     def open_settings():
         globals()["open_settings"](dictation)
 
     def clicked(reason):
+        # Any click, left or right, opens Settings: no menu (Quit is in
+        # Settings, and a new version shows at the top of Settings; owner).
         if reason in (QtWidgets.QSystemTrayIcon.Trigger,
-                      QtWidgets.QSystemTrayIcon.DoubleClick):
+                      QtWidgets.QSystemTrayIcon.DoubleClick,
+                      QtWidgets.QSystemTrayIcon.Context):
             open_settings()
 
-    menu.addAction("Settings").triggered.connect(lambda _checked=False: open_settings())
-    menu.addAction("Quit").triggered.connect(lambda _checked=False: app.quit())
-    tray.setContextMenu(menu)
     tray.activated.connect(clicked)
     tray.show()
     return tray, keep

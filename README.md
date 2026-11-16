@@ -117,7 +117,7 @@ sight.
 - **Settings:** click the leetsay icon by the clock. Starting leetsay again
   while it is running also opens Settings.
 - **Cancel** a dictation: hover over the pop-up and click it.
-- **Quit:** right-click the icon by the clock and choose **Quit**.
+- **Quit:** click the icon by the clock to open Settings, then **Quit leetsay**.
 - **The dot on the pop-up is a status light:** your colour when leetsay is
   ready, amber while the speech model is loading, red when something needs you
   (no microphone, no sound from it, or no speech model). Click the pop-up to
@@ -184,8 +184,8 @@ model as well.
 
 1. In Settings, on the **Model** tab, click **Remove model**. This deletes the
    speech model (about 630 MB).
-2. Untick **Start with Windows** (General tab), then quit leetsay (right-click
-   the icon by the clock, **Quit**).
+2. Untick **Start with Windows** (General tab), then click **Quit leetsay**
+   at the bottom of Settings.
 3. Delete the folder `%LOCALAPPDATA%\leetsay` (paste that into the File
    Explorer address bar to open it). It holds your settings, the log and the
    speech model.
