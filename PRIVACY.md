@@ -55,10 +55,11 @@ to see who uses it or what they do with it.
   Windows which program has the window in front (its file and display name),
   to show that program's icon on the pop-up (on by default), to tint the glow
   with the icon's colour (on by default), to show its name (off by default),
-  and to warn you if it runs as administrator (then leetsay can't type into
-  it). This is used on the spot; it is not stored, logged or sent anywhere.
-  With the icon, glow-colour and name options off, only the administrator
-  check remains.
+  to warn you if it runs as administrator (then leetsay can't type into it),
+  and to type more gently into programs that drop fast typing (the Windows 11
+  Notepad). This is used on the spot; it is not stored, logged or sent
+  anywhere. With the icon, glow-colour and name options off, only the
+  administrator and gentle-typing checks remain.
 - **Word replacements** (the ones you add in Settings) are kept in your
   settings file on this PC. They are not included when you export your
   settings, and are never sent anywhere.

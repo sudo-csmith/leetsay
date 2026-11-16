@@ -1741,7 +1741,7 @@ _FAMILY = {0xA2: "ctrl", 0xA3: "ctrl", 0xA0: "shift", 0xA1: "shift",
            0xA4: "alt", 0xA5: "alt", 0x5B: "windows", 0x5C: "windows"}
 
 
-def type_while_held(text, really_held=None, repress=True):
+def type_while_held(text, really_held=None, repress=True, lift_only=False):
     """Type text into the focused window while the hotkey may still be held
     down (typing as you speak). Ctrl held down turns typed letters into
     shortcuts (Ctrl+A would select everything), so for the app the held
@@ -1755,11 +1755,13 @@ def type_while_held(text, really_held=None, repress=True):
     really_held: the modifier keys (by name) that are physically down, as
     the keyboard hook saw them. Only those are pressed again afterwards, so
     a key let go a split second earlier is never left stuck down."""
-    if not text:
+    if not text and not lift_only:
         return True
     try:
         user32 = ctypes.windll.user32
         down = [vk for vk in _LIFT_VKS if user32.GetAsyncKeyState(vk) & 0x8000]
+        if lift_only and not down:
+            return True
         held = [vk for vk in down if really_held is None or _FAMILY[vk] in really_held]
         quiet = any(vk in (0xA4, 0xA5, 0x5B, 0x5C) for vk in held)
         events = []
@@ -5036,6 +5038,7 @@ class Dictation(QtCore.QObject):
         self.lt_seg_words = []               # words of this piece typed so far
         self.lt_all = []                     # every word typed, this dictation
         self.lt_held = None                  # punctuation held back at a piece's end
+        self._gentle = None                  # gentle typing in progress (see _type_gently)
         self.lt_pacer = QtCore.QTimer()      # types the waiting words a little at a time
         self.lt_credit = 0.0                 # letters it may type now (the pace)
         self.lt_box = {"key": None, "verdict": None, "busy": False}   # is it a text box?
@@ -5793,6 +5796,7 @@ class Dictation(QtCore.QObject):
         self.session += 1
         self.live_seen = 0
         self.lt_active = LIVE_TYPE
+        self.lt_gentle = LIVE_TYPE and self._needs_gentle_typing()   # small pieces only
         self.lt_commit, self.lt_index = 0, (0, 0)
         self.lt_done = self.lt_pending = ""
         self.lt_counts = [0, 0, 0]
@@ -6300,6 +6304,8 @@ class Dictation(QtCore.QObject):
         # quarter of a second to catch up), never stopping and starting in jumps.
         self.lt_credit += max(len(self.lt_pending) / 6.0, 2.0)
         count = min(len(self.lt_pending), int(self.lt_credit))
+        if getattr(self, "lt_gentle", False):
+            count = min(count, self.GENTLE_LETTERS)   # a program that drops fast keys
         if count < 1:
             return
         self.lt_credit -= count
@@ -6646,10 +6652,31 @@ class Dictation(QtCore.QObject):
         # While these keystrokes go out, the hotkey listener stands aside, so
         # nothing sent here can be mistaken for a hotkey.
         self._typing_until = time.monotonic() + 1.5 + len(text) * 0.004
+        if TYPE_TEXT and self._needs_gentle_typing():
+            self._type_gently(text, after)
+            return
         if TYPE_TEXT:
             try:
                 self._typing_until = time.monotonic() + 120.0     # for as long as it takes
-                keyboard.write(text, delay=0)   # typed out; clipboard untouched
+                user32 = ctypes.windll.user32
+                if any(user32.GetAsyncKeyState(vk) & 0x8000 for vk in _LIFT_VKS):
+                    # A modifier key is still down (Ctrl still held after the
+                    # hotkey, or one Windows thinks is down): let go of it for
+                    # the app and type the text as characters, and don't press
+                    # it again. Typing with it down turned the letters into
+                    # shortcuts in some programs (the new Notepad: Ctrl+M a new
+                    # line, Ctrl+B bold), and pressing it again straight after
+                    # did the same to the last letters, which those programs
+                    # handle a moment later.
+                    # Let go first, and give the program a moment to see it,
+                    # or its first letter or two can still be read as
+                    # shortcuts (measured in Notepad).
+                    type_while_held("", set(), repress=False, lift_only=True)
+                    time.sleep(0.1)
+                    if not type_while_held(text, set(), repress=False):
+                        keyboard.write(text, delay=0)
+                else:
+                    keyboard.write(text, delay=0)   # typed out; clipboard untouched
             finally:
                 # Done: hand the hotkey back almost at once, so the next
                 # dictation can start straight after this one lands.
@@ -6667,6 +6694,62 @@ class Dictation(QtCore.QObject):
             self._press_after(after, 260)
         QtCore.QTimer.singleShot(40 + CLIPBOARD_RESTORE_MS,
                                  lambda: self._restore_clipboard(before, text))
+
+    # Programs that drop keys when a whole text arrives at once (measured: the
+    # new Windows 11 Notepad loses about one dictation in two, even with no
+    # other program running). Text goes into them a few letters at a time.
+    GENTLE_TYPING = ("notepad.exe",)
+    GENTLE_LETTERS, GENTLE_MS = 3, 20            # 8 of 8 correct in Notepad (0.6 s a sentence)
+
+    def _needs_gentle_typing(self):
+        try:
+            _name, exe = foreground_app()
+            return os.path.basename(exe or "").lower() in self.GENTLE_TYPING
+        except Exception:
+            return False
+
+    def _type_gently(self, text, after):
+        """Type text a few letters at a time (see GENTLE_TYPING), into the
+        window in front now; stops if another window comes to the front."""
+        target = foreground_window()
+        self._typing_until = time.monotonic() + 120.0          # our own keystrokes
+        if self._gentle is not None:
+            self._gentle.stop()
+        timer = QtCore.QTimer(self)
+        timer.setInterval(self.GENTLE_MS)
+        position = {"at": 0}
+
+        def done():
+            timer.stop()
+            self._gentle = None
+            self._typing_until = time.monotonic() + 0.25
+            if self.overlay.mode == "message" and self.overlay.message == self.TYPING:
+                self.overlay.dismiss()
+
+        def tick():
+            if foreground_window() != target:
+                print("Another window came to the front while typing; stopped.")
+                done()
+                return
+            at = position["at"]
+            piece = text[at:at + self.GENTLE_LETTERS]
+            if piece:
+                # Any modifier still down is let go first (and not pressed
+                # again), as in _deliver.
+                type_while_held(piece, set(), repress=False)
+                position["at"] = at + len(piece)
+            if position["at"] >= len(text):
+                done()
+                if after:
+                    self._press_after(after, 180)
+
+        timer.timeout.connect(tick)
+        self._gentle = timer
+        if any(ctypes.windll.user32.GetAsyncKeyState(vk) & 0x8000 for vk in _LIFT_VKS):
+            type_while_held("", set(), repress=False, lift_only=True)
+            QtCore.QTimer.singleShot(100, timer.start)          # let it see that first
+        else:
+            timer.start()
 
     def _press_after(self, key, settle_ms):
         """Press the "after each dictation" key, once the chosen wait is over.
