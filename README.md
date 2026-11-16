@@ -250,6 +250,10 @@ The Python packages can be removed with
 - **Official downloads only.** Only releases published on this repository's
   [Releases](https://github.com/sudo-csmith/leetsay/releases) page are
   official. Copies offered anywhere else may have been changed.
+- **Name and icon.** The MIT licence covers the code. It gives no right to use
+  the name "leetsay" or its icon as the name or logo of another version or
+  product. Modified copies must use a different name, and must not suggest
+  that they are official or endorsed by this project.
 - **No support obligation.** Help, fixes and updates are offered when possible,
   with no promise of any, and no promise that leetsay or its speech model
   downloads stay available. Any version may be withdrawn, for example if a
