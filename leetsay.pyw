@@ -6837,7 +6837,7 @@ class Dictation(QtCore.QObject):
         """A click on a notice. On the waiting notice: don't press the key after
         all. On a microphone problem: open Windows' microphone settings."""
         if getattr(self.overlay, "message", "") in (self.STUCK, self.BLOCKED):
-            download_help()                      # the notice stays; the download goes on
+            download_help(self.retry_download)   # the notice stays; the download goes on
             return
         if (getattr(self.overlay, "message", "") or "").startswith(self.DOWNLOADING):
             return                               # a click on the download card does nothing
@@ -7728,36 +7728,39 @@ QPushButton#primary { background: %(accent)s; color: #101114; border: 1px solid 
 
 STUCK_HELP = ("Some of the speech model has arrived, but the rest is not coming through. "
               "The model comes from this project's model page on github.com, and GitHub "
-              "sends the files themselves from release-assets.githubusercontent.com. "
+              "sends the files themselves from release-assets.githubusercontent.com "
+              "(or objects.githubusercontent.com). "
               "When nothing more arrives, something between this PC and those addresses "
               "is usually blocking them: a firewall, an ad blocker, or a DNS filter (a "
               "Pi-hole, for example).\n\n"
               "What you can do:\n\n"
-              "1.  Allow github.com and release-assets.githubusercontent.com in whatever "
-              "is filtering your network, then start %s again. It carries on from where "
-              "it stopped.\n\n"
+              "1.  Allow github.com, release-assets.githubusercontent.com and "
+              "objects.githubusercontent.com in whatever is filtering your network, then "
+              "click \"Try again\". It carries on from where it stopped.\n\n"
               "2.  Or download the model yourself with your web browser, on this PC or "
               "another one. Click \"Manual download\" for the steps.\n\n"
-              "%s tries again by itself every 15 seconds or so. To make it try "
-              "right now, for instance after changing a setting on your network, "
-              "right-click the download card. If you have just switched a filter off, "
-              "Windows may remember the old answer for a while: restarting the PC, or "
-              "running \"ipconfig /flushdns\" in a command window, clears that.\n\n"
-              "To stop it and close the application, click \"Quit %s\".")
+              "%s tries again by itself every 15 seconds or so; \"Try again\" (or a "
+              "right-click on the download card) makes it try right now. If you have just "
+              "switched a filter off, Windows may remember the old answer for a while: "
+              "restarting the PC, or running \"ipconfig /flushdns\" in a command window, "
+              "clears that.\n\n"
+              "To stop it and close the application, open Settings (click the %s icon by "
+              "the clock) and click \"Quit %s\".")
 
 
-def download_help():
-    """What to do when the model's download has stopped moving."""
+def download_help(retry=None):
+    """What to do when the model's download has stopped moving. "Try again"
+    is here too: this window holds everything else up while it is open, so a
+    right-click on the download card only worked after closing it (owner)."""
     choice = dialog(None, "%s: download not moving" % APP_TITLE,
-                    "The download has stopped moving", STUCK_HELP % (APP_TITLE, APP_TITLE, APP_TITLE),
-                    accept="Manual download", reject="Close", other="Quit %s" % APP_TITLE)
-    if choice is True:
-        manual_download_steps()
+                    "The download has stopped moving",
+                    STUCK_HELP % (APP_TITLE, APP_TITLE, APP_TITLE),
+                    accept="Try again" if retry else None, reject="Close",
+                    other="Manual download")
+    if choice is True and retry is not None:
+        retry()
     elif choice == "other":
-        # Stop trying and close the application. What has arrived so far is
-        # kept, so a later start carries on from there (after asking first).
-        print("Quit from the download help window.")
-        leave_now(QtWidgets.QApplication.instance())
+        manual_download_steps()
 
 
 def manual_download_steps():
