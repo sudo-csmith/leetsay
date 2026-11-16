@@ -89,7 +89,7 @@ from ctypes import wintypes
 
 
 
-VERSION = "0.2.1"              # shown in Settings and About
+VERSION = "0.2.2"              # shown in Settings and About
 APP_TITLE = "leetsay"                # the name shown to the user (one place)
 _HERE = os.path.dirname(_SELF)        # the program's own folder
 

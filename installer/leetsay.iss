@@ -103,10 +103,65 @@ begin
   end;
 end;
 
-function InitializeSetup(): Boolean;
+{ The version already installed (as Windows records it), or '' if none. }
+function InstalledVersion(): String;
+var
+  Key: String;
 begin
-  AskLeetsayToClose();          { installing a new version over a running one }
+  Result := '';
+  Key := 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{6F1C2A44-7E1B-4C57-9E43-1337C0FFEE01}_is1';
+  if not RegQueryStringValue(HKCU, Key, 'DisplayVersion', Result) then
+    if not RegQueryStringValue(HKLM, Key, 'DisplayVersion', Result) then
+      Result := '';
+end;
+
+{ "0.2.10" as one comparable number: up to three parts, each below 10000.
+  Anything that is not a number counts as 0. }
+function VersionNumber(Version: String): Int64;
+var
+  Part, I, Dot: Integer;
+  Piece: String;
+begin
+  Result := 0;
+  for I := 1 to 3 do
+  begin
+    Dot := Pos('.', Version);
+    if Dot > 0 then
+    begin
+      Piece := Copy(Version, 1, Dot - 1);
+      Delete(Version, 1, Dot);
+    end
+    else
+    begin
+      Piece := Version;
+      Version := '';
+    end;
+    Part := StrToIntDef(Piece, 0);
+    if (Part < 0) or (Part > 9999) then
+      Part := 0;
+    Result := Result * 10000 + Part;
+  end;
+end;
+
+function InitializeSetup(): Boolean;
+var
+  Installed: String;
+begin
   Result := True;
+  { An older installer run over a newer leetsay: ask first (No is the default),
+    before anything is closed or changed. }
+  Installed := InstalledVersion();
+  if (Installed <> '') and (VersionNumber(Installed) > VersionNumber('{#AppVersion}')) then
+    if SuppressibleMsgBox('A newer version of {#AppName} (' + Installed + ') is already installed.' +
+         #13#10#13#10 + 'This installer has an older version ({#AppVersion}). Installing it ' +
+         'would replace the newer one. Your settings are kept either way.' +
+         #13#10#13#10 + 'Install the older version anyway?',
+         mbConfirmation, MB_YESNO or MB_DEFBUTTON2, IDNO) <> IDYES then
+    begin
+      Result := False;
+      Exit;
+    end;
+  AskLeetsayToClose();          { installing a new version over a running one }
 end;
 
 { Asked as uninstalling starts (owner: asked at the end, it looked as if it
