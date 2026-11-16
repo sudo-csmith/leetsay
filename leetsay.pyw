@@ -89,7 +89,7 @@ from ctypes import wintypes
 
 
 
-VERSION = "0.2.0"              # shown in Settings and About
+VERSION = "0.2.1"              # shown in Settings and About
 APP_TITLE = "leetsay"                # the name shown to the user (one place)
 _HERE = os.path.dirname(_SELF)        # the program's own folder
 
@@ -2072,6 +2072,41 @@ def taskbar_see_through():
             return bool(winreg.QueryValueEx(key, "EnableTransparency")[0])
     except Exception:
         return False
+
+
+def keep_on_top(widget):
+    """Windows sometimes mixes up its window order and puts ordinary windows
+    above "always on top" ones (seen on Windows 11 with leetsay's pill and
+    another program's always-on-top window at the same time). If any ordinary
+    visible window now sits above this one, put it back on top, without
+    taking the focus. Only reads the order otherwise; cheap (a few dozen calls,
+    every few seconds while the pill shows)."""
+    try:
+        user32 = ctypes.windll.user32
+        user32.GetTopWindow.restype = wintypes.HWND
+        user32.GetWindow.restype = wintypes.HWND
+        user32.GetWindowLongPtrW.restype = ctypes.c_ssize_t
+        own = int(widget.winId())
+        h = user32.GetTopWindow(None)
+        checked = 0
+        while h and checked < 400:
+            checked += 1
+            if int(h) == own:
+                return                           # reached it: nothing ordinary above
+            if user32.IsWindowVisible(h) and not (
+                    user32.GetWindowLongPtrW(h, -20) & 0x8):      # not WS_EX_TOPMOST
+                rect = wintypes.RECT()
+                user32.GetWindowRect(h, ctypes.byref(rect))
+                if rect.right - rect.left > 1 and rect.left > -30000:   # a real window
+                    user32.SetWindowPos.argtypes = [wintypes.HWND, wintypes.HWND, ctypes.c_int,
+                                                    ctypes.c_int, ctypes.c_int, ctypes.c_int,
+                                                    wintypes.UINT]
+                    user32.SetWindowPos(own, wintypes.HWND(-1), 0, 0, 0, 0,   # HWND_TOPMOST
+                                        0x0001 | 0x0002 | 0x0010)  # keep size/place, no focus
+                    return
+            h = user32.GetWindow(h, 2)                            # GW_HWNDNEXT
+    except Exception:
+        pass
 
 
 def tuck_behind_taskbar(widget):
@@ -5824,6 +5859,7 @@ class Dictation(QtCore.QObject):
         listens between dictations to notice)."""
         if not self.overlay.isVisible():
             return                               # nothing shows the light: don't ask
+        keep_on_top(self.overlay)
         if self.state == "loading":
             status = "busy"
         elif self.state == "nomodel" or not microphone_present():
