@@ -215,6 +215,25 @@ the program and its start-up entry.
 The Python packages can be removed with
 `py -3.13 -m pip uninstall -r requirements.txt`.
 
+## Code signing policy
+
+Windows releases of leetsay are to be signed through the SignPath Foundation
+(application in progress; until then releases are unsigned, see
+[Installing](#installing)). Once in place: free code signing provided by
+[SignPath.io](https://signpath.io), certificate by
+[SignPath Foundation](https://signpath.org) (third-party websites that we do
+not run or control).
+
+- **Team:** [sudo-csmith](https://github.com/sudo-csmith) is the author,
+  reviewer and approver.
+- **What is signed:** only `leetsay.exe` and its installer, built by GitHub
+  Actions from this repository on each release tag. Every release is approved
+  by hand before it is signed.
+- **Privacy:** leetsay does not send information to other networked systems
+  unless the user asks for it (the speech model download and the optional
+  update check, each after a "This application will go online" question).
+  See [PRIVACY.md](PRIVACY.md).
+
 ## Disclaimer
 
 - **No warranty.** leetsay is free, open-source software, provided "as is",
