@@ -1741,7 +1741,7 @@ _FAMILY = {0xA2: "ctrl", 0xA3: "ctrl", 0xA0: "shift", 0xA1: "shift",
            0xA4: "alt", 0xA5: "alt", 0x5B: "windows", 0x5C: "windows"}
 
 
-def type_while_held(text, really_held=None):
+def type_while_held(text, really_held=None, repress=True):
     """Type text into the focused window while the hotkey may still be held
     down (typing as you speak). Ctrl held down turns typed letters into
     shortcuts (Ctrl+A would select everything), so for the app the held
@@ -1778,6 +1778,8 @@ def type_while_held(text, really_held=None):
         for i in range(0, len(units), 2):
             unit = units[i] | (units[i + 1] << 8)
             key(scan=unit, unicode=True); key(scan=unit, up=True, unicode=True)
+        if not repress:
+            held = []                            # pressed again later (repress_modifiers)
         for vk in held:                          # ...but only real ones pressed again
             key(vk)
         if held:
@@ -1791,6 +1793,39 @@ def type_while_held(text, really_held=None):
         return user32.SendInput(len(events), batch, ctypes.sizeof(_INPUT)) == len(events)
     except Exception:
         return False
+
+
+def repress_modifiers(really_held):
+    """Press again the modifier keys that are physically held but that typing
+    let go of. Done only once typing has paused: some programs (the new
+    Notepad) look at the keyboard when they handle each letter, not when it was
+    sent, so Ctrl pressed again straight after the letters turned them into
+    shortcuts there (Ctrl+T opened a new tab and the words went into it)."""
+    try:
+        user32 = ctypes.windll.user32
+        missing = [vk for vk in _LIFT_VKS if _FAMILY[vk] in really_held
+                   and not user32.GetAsyncKeyState(vk) & 0x8000]
+        # Only one key per kind (left or right), the left one.
+        seen, keys = set(), []
+        for vk in missing:
+            if _FAMILY[vk] not in seen and not any(
+                    user32.GetAsyncKeyState(other) & 0x8000
+                    for other in _LIFT_VKS if _FAMILY[other] == _FAMILY[vk]):
+                seen.add(_FAMILY[vk])
+                keys.append(vk)
+        if not keys:
+            return
+        events = []
+        for vk in keys:
+            flags = 0x0001 if vk in _EXTENDED_VKS else 0
+            events.append(_INPUT(1, _INPUTUNION(ki=_KEYBDINPUT(vk, 0, flags, 0, 0))))
+        for vk, up in ((_QUIET_VK, False), (_QUIET_VK, True)):
+            events.append(_INPUT(1, _INPUTUNION(ki=_KEYBDINPUT(vk, 0, 2 if up else 0, 0, 0))))
+        batch = (_INPUT * len(events))(*events)
+        user32.SendInput.argtypes = [wintypes.UINT, ctypes.POINTER(_INPUT), ctypes.c_int]
+        user32.SendInput(len(events), batch, ctypes.sizeof(_INPUT))
+    except Exception:
+        pass
 
 
 def release_stuck(really_held):
@@ -5006,6 +5041,13 @@ class Dictation(QtCore.QObject):
         self.lt_box = {"key": None, "verdict": None, "busy": False}   # is it a text box?
         self.lt_pacer.setInterval(30)
         self.lt_pacer.timeout.connect(self._pace_tick)
+        # Held modifier keys are pressed again only once typing pauses (see
+        # repress_modifiers), and only while you are still dictating.
+        self.lt_repress = QtCore.QTimer()
+        self.lt_repress.setSingleShot(True)
+        self.lt_repress.setInterval(250)
+        self.lt_repress.timeout.connect(
+            lambda: repress_modifiers(set(self._phys)) if self.state == "recording" else None)
         self.live_timer = QtCore.QTimer()
         self.live_timer.setInterval(LIVE_EVERY_MS)
         self.live_timer.timeout.connect(self._live_tick)
@@ -6264,10 +6306,11 @@ class Dictation(QtCore.QObject):
         part = self.lt_pending[:count]
         self._typing_until = time.monotonic() + 5.0          # our own keystrokes
         try:
-            typed = type_while_held(part, set(self._phys))
+            typed = type_while_held(part, set(self._phys), repress=False)
         finally:
             self._typing_until = time.monotonic() + 0.3
             self._last_batch = time.monotonic()
+            self.lt_repress.start()              # once typing pauses
         if typed:
             self.lt_done += part
             self.lt_pending = self.lt_pending[count:]
