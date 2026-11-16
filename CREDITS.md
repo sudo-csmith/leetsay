@@ -38,9 +38,10 @@ official release v6.2.3, with its licence.
   (PySide6 and shiboken6), by The Qt Company and contributors, under the
   GNU Lesser General Public License v3 (LGPL-3.0): windows, the pop-up and
   the tray icon. leetsay uses only the modules QtCore, QtGui and QtWidgets,
-  unchanged. Source code: [code.qt.io](https://code.qt.io) (Qt for Python:
-  [pyside-setup](https://code.qt.io/cgit/pyside/pyside-setup.git)) and
-  [download.qt.io](https://download.qt.io/official_releases/qt/). The
+  unchanged. The installer includes Qt and PySide6 6.12.0 (the exact version is
+  also in `licenses\README.txt` in the installed program). Source code of that
+  version: [Qt 6.12.0](https://download.qt.io/archive/qt/6.12/6.12.0/) and
+  [Qt for Python v6.12.0](https://code.qt.io/cgit/pyside/pyside-setup.git/tag/?h=v6.12.0). The
   installed program is a folder of files, not one packed file, so the Qt
   libraries in it can be replaced with other versions. Qt itself contains
   code from other projects (FreeType, HarfBuzz, libpng, libjpeg-turbo, PCRE2,
@@ -71,8 +72,8 @@ program includes the full text of every one of these licences, in its
 ## Trademarks and affiliation
 
 leetsay is an independent project. It is not affiliated with, endorsed or
-sponsored by NVIDIA, GitHub, Microsoft, the Qt Company or the Python
-Software Foundation. All product names and trademarks belong to their
+sponsored by NVIDIA, GitHub, Microsoft, the Qt Company, the Silero Team or
+the Python Software Foundation. All product names and trademarks belong to their
 respective owners and are used only to describe what leetsay works with.
 
 ## leetsay itself

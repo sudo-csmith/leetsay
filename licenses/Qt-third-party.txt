@@ -5,8 +5,9 @@ leetsay uses Qt 6.12 (through PySide6) for its windows: the modules Qt Core,
 Qt GUI and Qt Widgets, with their Windows platform and image plugins. Qt itself
 is used under the GNU Lesser General Public License v3 (see LGPL-3.0.txt and
 README.txt in this folder). Qt contains code from other projects, under their
-own licences. The full list, with every copyright notice and licence text, is
-published by the Qt Project at
+own licences. Their full copyright notices and licence texts are in
+Qt-third-party-full.txt in this folder. The full list is also published by the
+Qt Project at
 
     https://doc.qt.io/qt-6/licenses-used-in-qt.html
 

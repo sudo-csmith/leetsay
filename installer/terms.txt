@@ -25,8 +25,8 @@ leetsay is free software, provided "as is", without warranty of any kind.
   be picked up, and following the rules of your employer or school.
 - The speech models and libraries leetsay uses belong to others and come with
   their own licences (see CREDITS.md). leetsay is not affiliated with,
-  endorsed or sponsored by NVIDIA, GitHub, Microsoft or the Python
-  Software Foundation.
+  endorsed or sponsored by NVIDIA, GitHub, Microsoft, the Qt Company, the
+  Silero Team or the Python Software Foundation.
 - Only releases published at github.com/sudo-csmith/leetsay are official.
   Copies from anywhere else may have been changed.
 - There is no promise of support, fixes, updates, or that leetsay or its

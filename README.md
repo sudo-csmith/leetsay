@@ -93,19 +93,25 @@ anyone who wants to be extra sure they have the real, untouched file:
 
 ## The first time
 
-1. Choose a colour and a look.
+One setup window walks you through it:
+
+1. **Before you start:** a short note on using leetsay responsibly, confirmed
+   by holding a button for a few seconds.
 2. leetsay asks before it downloads the speech model (about 660 MB) from this
    project's model page on github.com, a third-party website that we do not run
    or control. Choose
    **Download**, or **Manual download** to fetch the files yourself with your
    web browser (the steps are shown), or **Quit**.
-3. A short introduction shows the hotkey and lets you try it, and asks two
-   things: whether your words should appear all at once when you let go (most
-   accurate, the default) or as you speak, and whether it should look lively
-   or calm.
+3. **Welcome:** choose a colour and a dark or light look, and whether to show
+   the screen glow and a small status pill.
+4. **Hotkey and microphone:** see the hotkey, choose a microphone, and try it.
+5. **Good to know:** where Settings are, and a **Start with Windows** tick box.
 
-After that, leetsay starts in the background (with Windows, if you like) and
-shows a small icon by the clock. Windows may hide new icons behind the **^**
+Your words appear all at once when you let go of the hotkey (the most accurate
+way). Typing as you speak can be turned on later in Settings.
+
+After that, leetsay runs in the background and shows a small icon by the
+clock. Windows may hide new icons behind the **^**
 arrow by the clock; you can drag the icon out next to the clock to keep it in
 sight.
 
@@ -177,10 +183,10 @@ on, to check for a newer version of leetsay.
 
 Open Windows **Settings → Apps → Installed apps**, find **leetsay**, and
 choose **Uninstall**, or click **Uninstall leetsay** in leetsay's own Settings
-(Privacy tab). A running leetsay is closed for you. The uninstaller removes
-the program and its start-up entry, then asks whether to keep your settings
-(the default, ready for a reinstall) or remove everything, including the
-downloaded speech model.
+(Privacy tab). A running leetsay is closed for you. The uninstaller first
+asks whether to keep your settings (the default, ready for a reinstall) or
+remove everything, including the downloaded speech model, and then removes
+the program and its start-up entry.
 
 ### If you used Python
 
@@ -236,8 +242,9 @@ The Python packages can be removed with
   [CREDITS.md](CREDITS.md)). Websites mentioned here are third-party websites
   that we do not run or control.
 - **No affiliation.** leetsay is an independent project. It is not affiliated
-  with, endorsed or sponsored by NVIDIA, GitHub, Microsoft or the Python
-  Software Foundation. NVIDIA, Parakeet, GitHub, Windows and Python are
+  with, endorsed or sponsored by NVIDIA, GitHub, Microsoft, the Qt Company, the
+  Silero Team or the Python Software Foundation. NVIDIA, Parakeet, GitHub,
+  Windows, Qt and Python are
   trademarks of their respective owners, used here only to describe what
   leetsay works with.
 - **Official downloads only.** Only releases published on this repository's

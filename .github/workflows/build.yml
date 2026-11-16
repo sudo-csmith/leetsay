@@ -51,7 +51,7 @@ jobs:
         run: |
           $lic = "dist\leetsay\licenses"
           Get-ChildItem $lic | Select-Object -ExpandProperty Name
-          foreach ($need in "LGPL-3.0.txt", "GPL-3.0.txt", "Apache-2.0.txt", "PortAudio-LICENSE.txt", "Silero-VAD-LICENSE.txt", "Qt-third-party.txt", "Python-LICENSE.txt", "leetsay-LICENSE.txt", "CREDITS.md") {
+          foreach ($need in "LGPL-3.0.txt", "GPL-3.0.txt", "Apache-2.0.txt", "PortAudio-LICENSE.txt", "Silero-VAD-LICENSE.txt", "Qt-third-party.txt", "Qt-third-party-full.txt", "onnxruntime-onnxruntime-ThirdPartyNotices.txt", "numpy-licenses-LICENSE.txt", "Python-LICENSE.txt", "leetsay-LICENSE.txt", "CREDITS.md") {
             if (-not (Test-Path "$lic\$need")) { throw "Missing licence file: $need" }
           }
           $asio = Get-ChildItem dist\leetsay -Recurse -Filter "*asio*"

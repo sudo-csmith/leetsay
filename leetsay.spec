@@ -112,16 +112,22 @@ for dist in ("PySide6", "PySide6_Essentials", "shiboken6", "onnxruntime", "onnx-
 # 2.0) and PortAudio (inside sounddevice).
 for name in os.listdir("licenses"):
     shutil.copy(os.path.join("licenses", name), os.path.join(out, name))
+import PySide6
+from PySide6 import QtCore as _QtCore
+_pyside = PySide6.__version__                    # the exact versions bundled
+_qt = _QtCore.qVersion()
+_qt_minor = ".".join(_qt.split(".")[:2])
 with open(os.path.join(out, "README.txt"), "w", encoding="utf-8") as fh:
     fh.write(
         "leetsay bundles the libraries listed in CREDITS.md. Their licence texts\n"
         "are in this folder.\n\n"
-        "Qt and Qt for Python (PySide6, shiboken6) are used under the GNU Lesser\n"
-        "General Public License v3 (LGPL-3.0.txt, which refers to GPL-3.0.txt).\n"
-        "leetsay uses only the Qt modules QtCore, QtGui and QtWidgets, unchanged.\n"
-        "Their source code is available from https://code.qt.io (Qt for Python:\n"
-        "https://code.qt.io/cgit/pyside/pyside-setup.git) and\n"
-        "https://download.qt.io/official_releases/qt/ (third-party websites that\n"
-        "we do not run or control). The program is a folder of files, not one\n"
-        "packed file, so the Qt libraries in it can be replaced with other\n"
-        "versions.\n")
+        "Qt %s and Qt for Python (PySide6 and shiboken6 %s) are used under the\n"
+        "GNU Lesser General Public License v3 (LGPL-3.0.txt, which refers to\n"
+        "GPL-3.0.txt). leetsay uses only the Qt modules QtCore, QtGui and\n"
+        "QtWidgets, unchanged. The source code of exactly these versions is\n"
+        "available from https://download.qt.io/archive/qt/%s/%s/ (Qt) and\n"
+        "https://code.qt.io/cgit/pyside/pyside-setup.git/tag/?h=v%s\n"
+        "(Qt for Python), third-party websites that we do not run or control.\n"
+        "The program is a folder of files, not one packed file, so the Qt\n"
+        "libraries in it can be replaced with other versions.\n"
+        % (_qt, _pyside, _qt_minor, _qt, _pyside))

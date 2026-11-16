@@ -6346,9 +6346,8 @@ class Dictation(QtCore.QObject):
         """Typing as you speak only goes into a text box. Asked again whenever
         the focus moves (and every second), in the background; until the
         answer is in, it waits. "Can't tell" counts as yes, so programs that
-        don't answer still get their words."""
-        if not TEXTBOX_ONLY:
-            return True                          # switched off: Windows isn't asked
+        don't answer still get their words. With text box detection off, only
+        one thing is asked: is it a password box (never typed into)."""
         if is_terminal(target):
             return True                          # a terminal: always somewhere to type
         focus, _caret = focus_details(target)
@@ -6363,7 +6362,10 @@ class Dictation(QtCore.QObject):
 
             def ask():
                 try:
-                    verdict = focused_text_box()
+                    if TEXTBOX_ONLY:
+                        verdict = focused_text_box()
+                    else:                        # detection off: the password question only
+                        verdict = False if focused_text_box(password_only=True) else None
                 except Exception:
                     verdict = None
                 box.update(key=key, verdict=verdict, at=time.monotonic(), busy=False)
@@ -6424,6 +6426,12 @@ class Dictation(QtCore.QObject):
             # the card, and go in if you click into a text box.
             self.lt_counts[1] += 1
             self.lt_pacer.stop()
+            return
+        if self.lt_box["busy"]:
+            # Windows is being asked again (every quarter of a second): wait
+            # for its answer rather than type on an old one. In a browser the
+            # page is one window, so a move from a name field to a password
+            # field changes nothing else that could be seen.
             return
         # A steady flow: the more is waiting, the faster it goes (about a
         # quarter of a second to catch up), never stopping and starting in jumps.
@@ -7426,6 +7434,11 @@ _PORTABLE_CAREFUL = {
     "check_app_updates": (True, "Check for app updates at startup (this application will "
                                 "go online, to github.com, a third-party website that we "
                                 "do not run or control)"),
+    # Safety checks: switching these OFF needs a yes too.
+    "textbox_only": (False, "Text box detection OFF (words are typed wherever the "
+                            "cursor is, even outside a text box)"),
+    "return_focus": (False, "Stay in the window I started in OFF (words go to "
+                            "whatever window is in front when they are typed)"),
 }
 
 
@@ -7472,8 +7485,9 @@ def read_settings_line(line):
         risky = _PORTABLE_CAREFUL.get(key)
         if risky and value == risky[0] and _config.get(key, globals().get(
                 {"type_text": "TYPE_TEXT", "keep_last": "KEEP_LAST",
-                 "check_app_updates": "CHECK_APP_UPDATES"}[key])) != value:
-            careful[key] = value                 # would switch it on here: ask first
+                 "check_app_updates": "CHECK_APP_UPDATES", "textbox_only": "TEXTBOX_ONLY",
+                 "return_focus": "RETURN_FOCUS"}[key])) != value:
+            careful[key] = value                 # would change it here: ask first
         else:
             good[key] = value
     # Two hotkeys must not be the same keys.
@@ -7593,15 +7607,23 @@ QPushButton#primary { background: %(accent)s; color: #101114; border: 1px solid 
                          else "A key pressed for you after dictating (it can send or "
                               "submit without asking)")
                 for key in careful)
-            agreed = dialog(box, "Switch these on too?",
+            agreed = dialog(box, "Change these too?",
                             "This application will go online" if online
-                            else "These options are off on this PC",
-                            "The line would also switch on:\n\n%s\n\nThey are off by default "
-                            "because they use the clipboard, keep text in memory or go "
-                            "online. Leave them off unless you want them on this PC too."
+                            else "These are set the careful way on this PC",
+                            "The line would also change:\n\n%s\n\nOn this PC they are set "
+                            "the careful way: they use the clipboard, keep text in memory, "
+                            "go online or switch off a safety check. Leave them as they are "
+                            "unless you want this on this PC too."
                             % names,
-                            accept="Switch them on", reject="Leave them off")
+                            accept="Change them", reject="Leave them as they are")
             if agreed is True:
+                # A key pressed for you gets the same hold-to-confirm warning
+                # as in Settings; without it, that key is left out.
+                for key in [k for k in careful if k not in _PORTABLE_CAREFUL]:
+                    pressed = (careful[key] if key == "after_key"     # the key itself
+                               else good.get("action_key", ACTION_KEY))   # the second hotkey's
+                    if not auto_key_warning(box, pretty(str(pressed or "Enter"))):
+                        careful.pop(key)
                 good.update(careful)
         _config.update(good)
         write_config()
@@ -11187,9 +11209,9 @@ def show_about(dictation):
     lines = [
         "%s %s" % (APP_TITLE, VERSION),
         "",
-        "Local dictation for Windows. Speech is recognised on this PC by",
-        "NVIDIA's Parakeet model; %s is designed not to save your audio or" % APP_TITLE,
-        "send it anywhere.",
+        "Local dictation for Windows. Speech is recognised on this PC by "
+        "NVIDIA's Parakeet model; %s is designed not to save your audio or "
+        "send it anywhere." % APP_TITLE,
         "",
         "Model:  %s%s, release %s" % (model_label(MODEL), quant,
                                       (current_release() or {}).get("tag", "unknown")),
@@ -11213,7 +11235,8 @@ def show_about(dictation):
         "Speech model: Parakeet TDT 0.6B %s by NVIDIA Corporation, under the "
         "CC-BY-4.0 licence, converted to ONNX and reduced to 8 bits by this "
         "project (github.com/%s). Not reviewed or endorsed by NVIDIA. Helper "
-        "for long dictations: Silero VAD by the Silero Team, MIT licence."
+        "for long dictations: Silero VAD by the Silero Team, MIT licence. "
+        "Windows: Qt 6 and PySide6 by The Qt Company and contributors, LGPL-3.0."
         % ("v3" if MODEL.endswith("v3") else "v2", MODELS_REPO),
         "",
         "Free software under the MIT licence, provided as is, without any "
