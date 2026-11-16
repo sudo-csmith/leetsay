@@ -99,7 +99,7 @@ jobs:
         run: |
           $sum = Get-Content Output\SHA256SUMS.txt -Raw
           $notes = @"
-          leetsay ${{ steps.version.outputs.value }}: free, local dictation for Windows.
+          leetsay ${{ steps.version.outputs.value }}: local dictation for Windows.
 
           Download **leetsay-setup-${{ steps.version.outputs.value }}.exe** below and run it. (**leetsay-setup.exe** is the very same file under a name without the version, for links that always get the newest release.) The installer is not yet signed, so Windows may show "Windows protected your PC": choose **More info**, then **Run anyway**. See the README for details.
 
