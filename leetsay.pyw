@@ -1573,6 +1573,25 @@ _NOT_TYPABLE = frozenset((
 _focus_seen = {"last": None}       # for tests only: the kinds last seen, never text
 
 
+# Terminal windows: you can always type into them, but Windows' accessibility
+# service reports them as something else (the Command Prompt as a plain window,
+# Windows Terminal as read-only text), so they are recognised by their window
+# type instead. (Measured 2026-11-16.)
+_TERMINAL_CLASSES = ("ConsoleWindowClass",            # Command Prompt, PowerShell
+                     "CASCADIA_HOSTING_WINDOW_CLASS",  # Windows Terminal
+                     "mintty", "PuTTY", "VirtualConsoleClass",   # Git Bash, PuTTY, ConEmu
+                     "org.wezfurlong.wezterm", "Alacritty")
+
+
+def is_terminal(window):
+    try:
+        name = ctypes.create_unicode_buffer(128)
+        ctypes.windll.user32.GetClassNameW(window, name, 128)
+        return name.value in _TERMINAL_CLASSES
+    except Exception:
+        return False
+
+
 def focused_password_box():
     """Is the keyboard focus in a password box? Asked before any finished text
     is typed, whatever the text box setting says: dictated words never go into
@@ -5090,7 +5109,7 @@ class Dictation(QtCore.QObject):
         # repress_modifiers), and only while you are still dictating.
         # The text box warning in the normal mode (see _update_box_warning).
         self.box_timer = QtCore.QTimer()
-        self.box_timer.setInterval(250)
+        self.box_timer.setInterval(150)
         self.box_timer.timeout.connect(
             lambda: self._update_box_warning() if self.state == "recording"
             else self.box_timer.stop())
@@ -5846,9 +5865,12 @@ class Dictation(QtCore.QObject):
         self.lt_active = LIVE_TYPE
         self.lt_gentle = LIVE_TYPE and self._needs_gentle_typing()   # small pieces only
         self.lt_missing = 0
+        self.box_settled = False                   # a first "no" shows at once
+        self.box_answered = False
         self.overlay.box_missing = False
         if TEXTBOX_ONLY and not LIVE_TYPE:
             self.box_timer.start()                 # the warning in the normal mode too
+            QtCore.QTimer.singleShot(0, self._update_box_warning)   # ask straight away
         self.lt_commit, self.lt_index = 0, (0, 0)
         self.lt_done = self.lt_pending = ""
         self.lt_counts = [0, 0, 0]
@@ -6253,6 +6275,8 @@ class Dictation(QtCore.QObject):
         don't answer still get their words."""
         if not TEXTBOX_ONLY:
             return True                          # switched off: Windows isn't asked
+        if is_terminal(target):
+            return True                          # a terminal: always somewhere to type
         focus, _caret = focus_details(target)
         key = (int(target), focus)
         box = self.lt_box
@@ -6296,6 +6320,8 @@ class Dictation(QtCore.QObject):
     def _text_box_now(self, target):
         """The same question, answered now (waits at most half a second)."""
         if not TEXTBOX_ONLY:
+            return True
+        if is_terminal(target):
             return True
         answer = {}
         asking = threading.Thread(target=lambda: answer.setdefault("v", focused_text_box()),
@@ -6430,8 +6456,17 @@ class Dictation(QtCore.QObject):
             elif fresh:                      # count each new answer once
                 self.lt_missing = getattr(self, "lt_missing", 0) + 1
                 self.lt_missing_at = self.lt_box.get("at", 0.0)
+            if ((getattr(self, "lt_box_waiting", False) and getattr(self, "box_answered", False))
+                    or (fresh and not missing)):
+                self.box_settled = True      # the focus moved since, or a text box was seen
+            if fresh:
+                self.box_answered = True     # Windows has answered once this dictation
+            # At the start of a dictation the first "no" is enough (owner: a
+            # second was too slow to notice); once the focus has moved, two in a
+            # row, so clicking about doesn't make it flicker.
+            needed = 2 if getattr(self, "box_settled", False) else 1
             was = self.overlay.box_missing
-            self.overlay.box_missing = getattr(self, "lt_missing", 0) >= 2
+            self.overlay.box_missing = getattr(self, "lt_missing", 0) >= needed
             if was and not self.overlay.box_missing:
                 # Back in a text box: the card's words line comes back
                 # with the text as it is now, not as it was before.
@@ -6654,7 +6689,23 @@ class Dictation(QtCore.QObject):
                     return
                 delay = 200                    # give the window a moment to wake up
         QtCore.QTimer.singleShot(
-            delay, lambda: self._deliver(text, 30, finish=True, after_key=after_key))
+            delay, lambda: self._deliver_if_text_box(text, after_key))
+
+    def _deliver_if_text_box(self, text, after_key):
+        """The normal mode, when you let go: typed where the cursor is, unless
+        it is clearly not in a text box (a web page, a video, an image): typed
+        letters would work as shortcuts there and move things about (owner).
+        "Can't tell" types as usual; terminals count as text boxes."""
+        target = self.target_window
+        if (text.strip() and TEXTBOX_ONLY and target
+                and foreground_window() == target
+                and self._text_box_now(target) is False):
+            print("No text box when the dictation ended; it was not typed.")
+            if self.overlay.mode == "message" and self.overlay.message == self.TYPING:
+                self.overlay.dismiss()
+            self.overlay.show_message("No text box, so it wasn't typed", ms=2500)
+            return                               # kept only with "Missed text safety"
+        self._deliver(text, 30, finish=True, after_key=after_key)
 
     # -- the last dictation, kept briefly so a missed paste isn't lost --------
     def remember(self, text):
