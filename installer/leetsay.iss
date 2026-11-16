@@ -61,6 +61,9 @@ const
   RunningMutex = 'dictate_py_single_instance';
   EVENT_MODIFY_STATE = $0002;
 
+var
+  RemoveChoice: Integer;                        { 2 = remove everything, else keep }
+
 { Plain numbers for Windows' BOOL (0 = no), the safest for these calls. }
 function OpenEventW(Access: Cardinal; Inherit: Cardinal; Name: String): THandle;
   external 'OpenEventW@kernel32.dll stdcall';
@@ -98,7 +101,8 @@ begin
   Result := True;
 end;
 
-{ After uninstalling: keep the settings (and with them the downloaded speech
+{ Asked as uninstalling starts (owner: asked at the end, it looked as if it
+  was still installed): keep the settings (and with them the downloaded speech
   model; the default), or remove everything. 0 or 2. Closing the window keeps
   everything. }
 function AskWhatToRemove(): Integer;
@@ -122,7 +126,7 @@ begin
     Info.AutoSize := False;
     Info.WordWrap := True;
     Info.Height := ScaleY(34);
-    Info.Caption := '{#AppName} has been removed. What should happen to your settings?';
+    Info.Caption := '{#AppName} will be removed. What should happen to your settings?';
 
     KeepAll := TNewRadioButton.Create(Form);
     KeepAll.Parent := Form;
@@ -161,22 +165,21 @@ begin
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
-var
-  Choice: Integer;
 begin
   if CurUninstallStep = usAppMutexCheck then
     AskLeetsayToClose();        { just before Uninstall checks whether it runs }
   if CurUninstallStep = usUninstall then
   begin
+    { Asked first, acted on once the program is gone (below). }
+    RemoveChoice := 0;
+    if not UninstallSilent() then
+      RemoveChoice := AskWhatToRemove();
     { The program is going: so does its "Start with Windows" entry. }
     RegDeleteValue(HKEY_CURRENT_USER, RunKey, '{#AppName}');
   end;
   if CurUninstallStep = usPostUninstall then
   begin
-    if UninstallSilent() then
-      Exit;                     { silent: keep settings and the model }
-    Choice := AskWhatToRemove();
-    if Choice = 2 then          { settings, log and the downloaded speech models }
+    if RemoveChoice = 2 then    { settings, log and the downloaded speech models }
       DelTree(ExpandConstant('{localappdata}\{#AppName}'), True, True, True);
   end;
 end;
