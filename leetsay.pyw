@@ -11027,8 +11027,10 @@ class SettingsWindow(QtWidgets.QDialog):
             self.mic_note.setToolTip(
                 "Plug one in and press Refresh, or check that Windows lets desktop "
                 "apps use the microphone (Microphone privacy settings, below).")
+            self.mic_bar.setVisible(False)       # no level to show: room for the words
             return
         self.mic_note.setToolTip("")
+        self.mic_bar.setVisible(True)
         self._test_level = 0.0
         self._test_until = time.monotonic() + 12.0
         self._test_ticket += 1
@@ -11084,8 +11086,9 @@ class SettingsWindow(QtWidgets.QDialog):
                 stream.close()
             except Exception:
                 pass
-            self.mic_note.setText("")
+        self.mic_note.setText("")
         self.mic_bar.setValue(0)
+        self.mic_bar.setVisible(True)
         self.mic_test.setText("Test")
         try:     # the test is over: its words go too, and the gap closes
             self.mic_heard.setText("")
