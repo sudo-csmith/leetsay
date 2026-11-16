@@ -6628,6 +6628,7 @@ class Dictation(QtCore.QObject):
         threading.Thread(target=self._transcribe, args=(audio,), daemon=True).start()
 
     WORKING, TYPING = "Transcribing\u2026", "Typing\u2026"
+    SHORT_CHECK_SECONDS = 2.0    # shorter recordings are checked for speech first
 
     def _still_working(self, session):
         """A long dictation takes a few seconds to turn into text: show a small
@@ -6649,7 +6650,8 @@ class Dictation(QtCore.QObject):
                     text, self._final_before = self._timed_read(audio, skip)
                     self.finished.emit(text.strip())
                     return
-                if len(audio) > LONG_AUDIO_SECONDS * SAMPLE_RATE:
+                short = len(audio) < self.SHORT_CHECK_SECONDS * SAMPLE_RATE
+                if len(audio) > LONG_AUDIO_SECONDS * SAMPLE_RATE or short:
                     if self.model_vad is None:     # loaded on first use, not at start
                         try:
                             if not helper_ok():    # only the official file is used
@@ -6658,9 +6660,20 @@ class Dictation(QtCore.QObject):
                             self.model_vad = self.model.with_vad(
                                 onnx_asr.load_vad("silero", helper_dir()))
                         except Exception as exc:
-                            print("Long dictation without the helper: %s" % exc,
+                            print("Dictation without the helper: %s" % exc,
                                   file=sys.stderr)
                             self.model_vad = False
+                if self.model_vad and short:
+                    # A quick press: the speech model alone "hears" a word
+                    # ("Okay", "Uh") in half a second of key click and room
+                    # noise. The helper tells real speech from noise (tested:
+                    # every noise bit empty, every word found, even in 0.4 s).
+                    try:
+                        if not list(self.model_vad.recognize(audio, sample_rate=SAMPLE_RATE)):
+                            self.finished.emit("")
+                            return
+                    except Exception:
+                        pass                       # can't tell: read it as usual
                 if self.model_vad and len(audio) > LONG_AUDIO_SECONDS * SAMPLE_RATE:
                     try:
                         parts = self.model_vad.recognize(audio, sample_rate=SAMPLE_RATE)
