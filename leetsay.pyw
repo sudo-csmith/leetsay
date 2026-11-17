@@ -6139,7 +6139,9 @@ class Dictation(QtCore.QObject):
                 text = str(self.model.recognize(audio, sample_rate=SAMPLE_RATE))
                 done = time.monotonic()
                 self._live_rest_until = done + (done - began) * LIVE_REST
-            self.live_text.emit(session, " ".join(text.split()))
+            # The same clean-up as the final text (fillers, times, your word
+            # replacements), so the card shows what will be typed.
+            self.live_text.emit(session, " ".join(clean_words(text.split())))
         except Exception:
             pass
         finally:
