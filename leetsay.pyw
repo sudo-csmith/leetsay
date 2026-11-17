@@ -2217,6 +2217,12 @@ def focus_window(hwnd):
             return True
         if user32.IsIconic(hwnd):
             user32.ShowWindow(hwnd, 9)            # SW_RESTORE: it was minimised
+        # Windows lets a program bring a window to the front only if it sent
+        # the last input. An empty mouse event (no move, no click: nothing
+        # happens) counts as that, so the switch below is allowed.
+        nothing = _INPUT(type=0)                  # INPUT_MOUSE, all zero
+        user32.SendInput.argtypes = [wintypes.UINT, ctypes.POINTER(_INPUT), ctypes.c_int]
+        user32.SendInput(1, ctypes.byref(nothing), ctypes.sizeof(_INPUT))
         user32.SetForegroundWindow(hwnd)
         if user32.GetForegroundWindow() != hwnd:
             # Windows refuses focus changes from background programs unless the
@@ -6897,28 +6903,45 @@ class Dictation(QtCore.QObject):
         if ADD_SPACE and not after_key:
             text += " "                        # so the next dictation doesn't run on
         self.remember(typed + text)
-        delay = 60
         if RETURN_FOCUS and self.target_window:
             now = foreground_window()
             if now and now != self.target_window:
                 # Something else took the focus while you were speaking.
-                back = focus_window(self.target_window)
-                # The log never names the programs you use (least data kept).
-                print("Focus moved to another window during dictation; %s." % (
-                    "returned to the window you started in" if back
-                    else "could not return to the starting window"))
-                if not back:
-                    # Typing anyway would put your words (and an Enter, if one
-                    # is set) into whatever took over: a chat could send them.
-                    # Kept only with "Missed text safety", as always.
-                    if self.overlay.mode == "message" and self.overlay.message == self.TYPING:
-                        self.overlay.dismiss()
-                    self.overlay.show_message("Couldn't get back to your window, so it "
-                                              "wasn't typed", ms=4500)
-                    return
-                delay = 200                    # give the window a moment to wake up
+                self._return_then_deliver(text, after_key, self.target_window, 0)
+                return
         QtCore.QTimer.singleShot(
-            delay, lambda: self._deliver_if_text_box(text, after_key))
+            60, lambda: self._deliver_if_text_box(text, after_key))
+
+    RETURN_TRIES = 4             # attempts to get back to the starting window,
+    RETURN_GAP_MS = 250          # this far apart (about a second in all)
+
+    def _return_then_deliver(self, text, after_key, target, attempt):
+        """Back to the window you started in, then type. Windows can refuse
+        while another program is still coming up (one starting in the
+        background often takes the front for a moment), so it is tried a few
+        times over about a second before giving up."""
+        if self.state == "recording" or self.target_window != target:
+            return                               # a new dictation has started
+        back = focus_window(target)
+        if not back and attempt + 1 < self.RETURN_TRIES and ctypes.windll.user32.IsWindow(target):
+            QtCore.QTimer.singleShot(self.RETURN_GAP_MS, lambda: self._return_then_deliver(
+                text, after_key, target, attempt + 1))
+            return
+        # The log never names the programs you use (least data kept).
+        print("Focus moved to another window during dictation; %s (attempt %d)." % (
+            "returned to the window you started in" if back
+            else "could not return to the starting window", attempt + 1))
+        if not back:
+            # Typing anyway would put your words (and an Enter, if one is set)
+            # into whatever took over: a chat could send them. Kept only with
+            # "Missed text safety", as always.
+            if self.overlay.mode == "message" and self.overlay.message == self.TYPING:
+                self.overlay.dismiss()
+            self.overlay.show_message("Couldn't get back to your window, so it "
+                                      "wasn't typed", ms=4500)
+            return
+        QtCore.QTimer.singleShot(       # give the window a moment to wake up
+            200, lambda: self._deliver_if_text_box(text, after_key))
 
     def _deliver_if_text_box(self, text, after_key):
         """The normal mode, when you let go: typed where the cursor is, unless
