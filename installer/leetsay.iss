@@ -184,15 +184,15 @@ var
 begin
   Result := 0;
   { Inno Setup 6.6+: the size is given here (scaled by it), and fixed. }
-  Form := CreateCustomForm(420, 160, True, True);
+  Form := CreateCustomForm(440, 176, True, True);
   try
     Form.Caption := 'Uninstall';
 
     Info := TNewStaticText.Create(Form);
     Info.Parent := Form;
-    Info.Left := ScaleX(18);
-    Info.Top := ScaleY(16);
-    Info.Width := Form.ClientWidth - ScaleX(36);
+    Info.Left := ScaleX(24);
+    Info.Top := ScaleY(18);
+    Info.Width := Form.ClientWidth - ScaleX(48);
     Info.AutoSize := False;
     Info.WordWrap := True;
     Info.Height := ScaleY(34);
@@ -200,17 +200,21 @@ begin
 
     KeepAll := TNewRadioButton.Create(Form);
     KeepAll.Parent := Form;
-    KeepAll.Left := ScaleX(18);
-    KeepAll.Top := ScaleY(60);
-    KeepAll.Width := Form.ClientWidth - ScaleX(36);
+    { Tall enough at every display scaling (the default height clipped the
+      button and its text at 125-150%). }
+    KeepAll.Left := ScaleX(24);
+    KeepAll.Top := ScaleY(58);
+    KeepAll.Width := Form.ClientWidth - ScaleX(48);
+    KeepAll.Height := ScaleY(24);
     KeepAll.Caption := 'Keep my settings';
     KeepAll.Checked := True;
 
     Everything := TNewRadioButton.Create(Form);
     Everything.Parent := Form;
-    Everything.Left := ScaleX(18);
-    Everything.Top := ScaleY(86);
-    Everything.Width := Form.ClientWidth - ScaleX(36);
+    Everything.Left := ScaleX(24);
+    Everything.Top := ScaleY(88);
+    Everything.Width := Form.ClientWidth - ScaleX(48);
+    Everything.Height := ScaleY(24);
     Everything.Caption := 'Remove everything';
 
     OkButton := TNewButton.Create(Form);
@@ -218,8 +222,8 @@ begin
     OkButton.Caption := 'OK';
     OkButton.Width := ScaleX(84);
     OkButton.Height := ScaleY(26);
-    OkButton.Left := Form.ClientWidth - OkButton.Width - ScaleX(16);
-    OkButton.Top := Form.ClientHeight - OkButton.Height - ScaleY(14);
+    OkButton.Left := Form.ClientWidth - OkButton.Width - ScaleX(24);
+    OkButton.Top := Form.ClientHeight - OkButton.Height - ScaleY(18);
     OkButton.ModalResult := mrOk;
     OkButton.Default := True;
 
