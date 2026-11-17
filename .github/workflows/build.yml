@@ -68,16 +68,6 @@ jobs:
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=${{ steps.version.outputs.value }}" installer\leetsay.iss
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed" }
 
-      # The same installer under a name without the version, so one link always
-      # gets the newest: releases/latest/download/leetsay-setup.exe. A byte-for-
-      # byte copy of the finished (later: signed) file, never a second build.
-      - name: Plain-named copy for the website's download link
-        shell: pwsh
-        run: |
-          $v = "Output\leetsay-setup-${{ steps.version.outputs.value }}.exe"
-          Copy-Item $v Output\leetsay-setup.exe
-          if ((Get-FileHash $v).Hash -ne (Get-FileHash Output\leetsay-setup.exe).Hash) { throw "the copy differs" }
-
       - name: Fingerprint (SHA-256)
         shell: pwsh
         run: |
@@ -101,11 +91,11 @@ jobs:
           $notes = @"
           leetsay ${{ steps.version.outputs.value }}: local dictation for Windows.
 
-          Download **leetsay-setup-${{ steps.version.outputs.value }}.exe** below and run it. (**leetsay-setup.exe** is the very same file under a name without the version, for links that always get the newest release.) The installer is not yet signed, so Windows may show "Windows protected your PC": choose **More info**, then **Run anyway**. See the README for details.
+          Download **leetsay-setup.exe** below and run it. The installer is not yet signed, so Windows may show "Windows protected your PC": choose **More info**, then **Run anyway**. See the README for details.
 
           **"Smart App Control blocked an app".** On PCs with Smart App Control switched on, Windows blocks every unsigned app, with no way to allow a single one, so leetsay cannot be installed there until it is signed (being worked on). See "Smart App Control" in the README for your options.
 
-          **Optional check: the SHA-256 fingerprint.** The code below is worked out from every byte of the installer. If the file were changed or damaged in any way, the code would be completely different. To compare: open your Downloads folder, right-click an empty spot, choose **Open in Terminal**, type ``Get-FileHash .\leetsay-setup-${{ steps.version.outputs.value }}.exe`` and press Enter (or ``Get-FileHash .\leetsay-setup.exe`` for the plain-named copy: both have the same code). The code after **Hash** should match this one (capital or small letters don't matter). If it doesn't, don't run the file; download it again.
+          **Optional check: the SHA-256 fingerprint.** The code below is worked out from every byte of the installer. If the file were changed or damaged in any way, the code would be completely different. To compare: open your Downloads folder, right-click an empty spot, choose **Open in Terminal**, type ``Get-FileHash .\leetsay-setup.exe`` and press Enter. The code after **Hash** should match this one (capital or small letters don't matter). If it doesn't, don't run the file; download it again.
           ``````
           $sum
           ``````

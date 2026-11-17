@@ -60,7 +60,7 @@ the [Disclaimer](#disclaimer) before using it.
 ### With the installer (recommended)
 
 1. Open the [Releases](https://github.com/sudo-csmith/leetsay/releases) page
-   and download the newest `leetsay-setup-<version>.exe`.
+   and download `leetsay-setup.exe` from the newest release.
 2. Run it. leetsay installs for your Windows user only, so no administrator
    password is needed. It adds leetsay to the Start menu; whether it starts
    with Windows is chosen in its introduction (and can be changed in Settings).
@@ -95,10 +95,7 @@ anyone who wants to be extra sure they have the real, untouched file:
 
 1. Open the folder you saved the installer to (usually **Downloads**).
 2. Right-click an empty spot in the folder and choose **Open in Terminal**.
-3. Type `Get-FileHash .\leetsay-setup-<version>.exe` (with the real version
-   number) and press Enter. If you downloaded `leetsay-setup.exe` (the same
-   file under a name without the version), type
-   `Get-FileHash .\leetsay-setup.exe` instead: both have the same code.
+3. Type `Get-FileHash .\leetsay-setup.exe` and press Enter.
 4. Compare the long code after **Hash** with the one on the release page. If
    they are the same, the file is exactly the one that was published (capital
    or small letters don't matter). If they differ, don't run it: download it
