@@ -2,6 +2,11 @@
   <img src="assets/banner.png" alt="leetsay: local dictation for Windows" width="100%">
 </p>
 
+<p align="center">
+  <img src="assets/leetsay-card-hd.gif" alt="Animation of the leetsay status pill opening into the dictation card while words appear." width="700">
+</p>
+<p align="center"><sub>Illustration of the dictation card. The real card follows your accent colour and theme.</sub></p>
+
 Free, local dictation for Windows. Hold a hotkey, speak, let go: your words are
 typed into whatever program you are using. (A Mac version is planned.)
 
