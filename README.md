@@ -1,19 +1,27 @@
 <p align="center">
-  <img src="assets/banner.png" alt="leetsay: local dictation for Windows" width="100%">
+  <a href="https://leetsay.com"><img src="assets/banner.png" alt="leetsay: local dictation for Windows" width="100%"></a>
 </p>
-
 <p align="center">
-  <img src="assets/leetsay-card-hd.gif" alt="Animation of the leetsay status pill opening into the dictation card while words appear." width="700">
+  <a href="https://github.com/sudo-csmith/leetsay/releases"><img src="assets/leetsay-card-banner.gif" alt="Animation of the leetsay status pill opening into the dictation card while words appear." width="100%"></a>
 </p>
 <p align="center"><sub>Illustration of the dictation card. The real card follows your accent colour and theme.</sub></p>
 
-Free, local dictation for Windows. Hold a hotkey, speak, let go: your words are
+## What it's for
+
+- Talk your prompts into an AI coding tool, so you don't have to type them.
+- Dictate emails, chat messages and documents.
+- Get a thought down while it's still in your head.
+- Give your hands a break on long writing days.
+
+**[Download for Windows](https://github.com/sudo-csmith/leetsay/releases)**
+
+Local dictation for Windows. Hold a hotkey, speak, let go: your words are
 typed into whatever program you are using. (A Mac version is planned.)
 
 leetsay has no accounts, statistics or tracking. See [How it works](#how-it-works)
 and [PRIVACY.md](PRIVACY.md).
 
-leetsay is free software, provided as is, without any warranty. Please read
+leetsay is open-source software, provided as is, without any warranty. Please read
 the [Disclaimer](#disclaimer) before using it.
 
 ## How it works
@@ -116,6 +124,40 @@ anyone who wants to be extra sure they have the real, untouched file:
 
 4. Double-click `leetsay.pyw` to start it.
 
+## Questions
+
+**Does it work offline?**
+Yes. Speech is recognised on your PC. leetsay goes online only after you
+agree: once to download the speech model (about 660 MB), and later only if
+you choose to (another speech model, or checking for app updates). The rest
+of the time it works offline and blocks its own network access.
+
+**Why does Windows warn me when I install it?**
+The installer isn't code-signed yet, so Windows doesn't recognise the
+publisher. See [Installing](#installing) for what each message means. Code
+signing is in progress.
+
+**Does it need a graphics card?**
+No. It runs on the processor, with about 1 GB of free memory while it runs.
+
+**Which languages does it support?**
+English by default. You can switch to a model that covers 25 European
+languages in Settings.
+
+**How accurate is it?**
+Good, but not perfect. Speech recognition makes mistakes, so check your text
+before you send it. You can teach it names and terms with word replacements.
+
+**Can I use it at work?**
+That depends on your workplace's rules about installing software and about
+speech tools. leetsay itself keeps your audio on your PC.
+
+**Is there a Mac version?**
+It's planned. There's no date yet.
+
+**How do I uninstall it?**
+From Windows, or from leetsay's own Settings on the Privacy tab.
+
 ## The first time
 
 One setup window walks you through it:
@@ -186,6 +228,16 @@ Good to know:
 - To move your settings to another PC, use **Export settings** and **Import
   settings** on the Privacy tab.
 
+## Why I built this
+
+I wanted dictation on Windows that kept my voice on my own PC, started
+fast, and looked good while it worked. So I built it. leetsay is the
+tool I use every day: hold a key, talk, and the words are there. It's
+open source because I'd want to be able to read the code of anything that
+listens to my microphone.
+
+I designed and tested leetsay myself and built it with AI coding tools.
+
 ## Checking the network block
 
 - In Settings, on the **Privacy** tab, the **Network** line says *blocked for
@@ -248,7 +300,7 @@ not run or control).
 
 ## Disclaimer
 
-- **No warranty.** leetsay is free, open-source software, provided "as is",
+- **No warranty.** leetsay is open-source software, provided "as is",
   without warranty of any kind, express or implied. In no event shall the
   author be liable for any claim, damages or other liability arising from it
   or its use. The full terms are in the [LICENSE](LICENSE). You use leetsay
@@ -306,6 +358,12 @@ not run or control).
   limited by law. If any part cannot be enforced, the rest still applies. The
   terms that come with each version apply to that version; the installer shows
   them in full.
+
+## What's next
+
+- Code signing, so Windows can verify who published leetsay and shows fewer
+  warnings when you install it.
+- A Mac version.
 
 ## Licence and credits
 
