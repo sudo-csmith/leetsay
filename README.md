@@ -1,7 +1,4 @@
 <p align="center">
-  <a href="https://github.com/sudo-csmith/leetsay/releases"><img src="assets/banner.png" alt="leetsay: local dictation for Windows" width="100%"></a>
-</p>
-<p align="center">
   <a href="https://github.com/sudo-csmith/leetsay/releases"><img src="assets/leetsay-type-as-you-speak.gif" alt="Animation of leetsay typing words into a text box while the dictation card shows them." width="100%"></a>
 </p>
 <p align="center"><sub>Illustration of typing as you speak (an optional setting). The real card follows your accent colour and theme.</sub></p>
