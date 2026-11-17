@@ -3,359 +3,136 @@
 </p>
 <p align="center"><sub>Illustration of typing as you speak (an optional setting). The real card follows your accent colour and theme.</sub></p>
 
-## What it's for
-
-- Talk your prompts into an AI coding tool, so you don't have to type them.
-- Dictate emails, chat messages and documents.
-- Get a thought down while it's still in your head.
-- Give your hands a break on long writing days.
-
-**[Download for Windows](https://github.com/sudo-csmith/leetsay/releases)**
-
 Local dictation for Windows. Hold a hotkey, speak, let go: your words are
-typed into whatever program you are using. (A Mac version is planned.)
+typed into whatever program you are using.
 
-leetsay has no accounts, statistics or tracking. See [How it works](#how-it-works)
-and [PRIVACY.md](PRIVACY.md).
+- Talk your prompts into an AI coding tool, or dictate emails, chats and documents.
+- Speech is recognised on your own PC. No accounts, statistics or tracking.
+- Open source, provided as is: please read the [Disclaimer](#disclaimer).
 
-leetsay is open-source software, provided as is, without any warranty. Please read
-the [Disclaimer](#disclaimer) before using it.
+**[Download for Windows](https://github.com/sudo-csmith/leetsay/releases)** (Windows 10 or 11, 64-bit, a microphone, about 1 GB of free memory and 700 MB of disk space). A Mac version is planned.
 
 ## How it works
 
-- **Your microphone** is used only while you hold the hotkey (with "Press to start and stop":
-  between one press and the next).
-- **Your speech is turned into text on your own PC**, by a speech recognition
-  model (NVIDIA's Parakeet) that runs locally. Your audio is not sent to a
-  server for this, and it is not saved.
-- **The model is downloaded once**, about 660 MB, from this project's own
-  model page, [leetsay-models](https://github.com/sudo-csmith/leetsay-models) on github.com, after you agree in a window that says "This
-  application will go online". The files there are converted in the open from
-  NVIDIA's originals, and leetsay checks every file against a fingerprint built
-  into it before using it. After that, leetsay needs no internet connection to
-  work.
-- **leetsay blocks its own network access while it runs.** It opens it only
-  for a download you have just agreed to, only to github.com (and GitHub's
-  server that delivers the files), and closes it again straight afterwards. It
-  checks the block every time it starts (see
-  [Checking the network block](#checking-the-network-block)).
-- **App updates** are only checked if you ask: tick **Check for app updates
-  at startup**, or click **Check for app updates now** (both off until you
-  agree to go online, to github.com). leetsay only reads the latest version
-  number and tells you; it does not download or install anything by itself.
-  A newer speech model only ever comes with a newer version of leetsay.
-- **This covers leetsay itself, not the programs you type into.** A chat, a web
-  page or an online document may send your text over the internet; leetsay
-  cannot see or control that. See the [Disclaimer](#disclaimer).
+- **The microphone** is on only while you hold the hotkey (or, in toggle
+  mode, between two presses).
+- **Speech becomes text on your PC**, using NVIDIA's Parakeet speech model.
+  Your audio is never sent anywhere and never saved.
+- **The model is downloaded once** (about 660 MB) from this project's
+  [leetsay-models](https://github.com/sudo-csmith/leetsay-models) page on
+  github.com, after you agree in a window that says "This application will go
+  online". Every file is checked against a fingerprint built into leetsay.
+- **leetsay blocks its own network access** and opens it only for a download
+  or update check you have just agreed to, only to github.com. Settings >
+  Privacy shows the block; the log confirms it at every start.
+- **This covers leetsay, not the programs you type into.** A chat or web page
+  may send your text online; leetsay cannot see or control that.
 
-## What you need
-
-- Windows 10 or 11, 64-bit.
-- About 1 GB of free memory while it runs, and about 700 MB of disk space for
-  the speech model.
-- A microphone.
+More in [PRIVACY.md](PRIVACY.md).
 
 ## Installing
 
-### With the installer (recommended)
+1. Download `leetsay-setup.exe` from the newest
+   [release](https://github.com/sudo-csmith/leetsay/releases) and run it. It
+   installs for your Windows user only; no administrator password needed.
+2. If Edge says the file **isn't commonly downloaded**: **Keep** (or **Show
+   more**, then **Keep anyway**).
+3. If Windows says **"Windows protected your PC"**: choose **More info**, then
+   **Run anyway**. leetsay is signed (from 0.2.3), but new, so Windows may warn
+   until more people have downloaded it.
 
-1. Open the [Releases](https://github.com/sudo-csmith/leetsay/releases) page
-   and download `leetsay-setup.exe` from the newest release.
-2. Run it. leetsay installs for your Windows user only, so no administrator
-   password is needed. It adds leetsay to the Start menu; whether it starts
-   with Windows is chosen in its introduction (and can be changed in Settings).
+Versions 0.2.1 and earlier are unsigned and are blocked by Smart App Control;
+use the newest release.
 
-**"isn't commonly downloaded" (Microsoft Edge).** Edge may hold the download
-back because the file is new. To keep it: click **Keep** (if Edge asks again:
-**Show more**, then **Keep anyway**). Other browsers may show a similar
-message.
+**Checking the download (optional).** Each release lists a SHA-256
+fingerprint. In your Downloads folder, right-click an empty spot, choose
+**Open in Terminal**, run `Get-FileHash .\leetsay-setup.exe`, and compare the
+code after **Hash**. If it differs, don't run the file.
 
-**"Windows protected your PC".** leetsay is digitally signed (from version
-0.2.3), so Windows shows who published it. Because leetsay is new, Windows
-SmartScreen may still show this warning for a while, until enough people have
-downloaded it. To continue, choose **More info** (it shows the publisher),
-then **Run anyway**.
-
-**"Smart App Control blocked an app that may be unsafe".** Some Windows 11
-PCs have Smart App Control switched on (often new PCs, or after a fresh
-install of Windows). It blocks apps that are not signed. leetsay is signed
-from version 0.2.3, so it can be installed there; older versions (0.2.1 and
-earlier) were not signed and are blocked. Use the newest release.
-
-**Checking the download (optional).** Each release lists a long code called
-a SHA-256 fingerprint. It is worked out from every byte of the installer, so if
-the file were changed or damaged in any way, even by one letter, the code would
-come out completely different. You don't have to check it; it is there for
-anyone who wants to be extra sure they have the real, untouched file:
-
-1. Open the folder you saved the installer to (usually **Downloads**).
-2. Right-click an empty spot in the folder and choose **Open in Terminal**.
-3. Type `Get-FileHash .\leetsay-setup.exe` and press Enter.
-4. Compare the long code after **Hash** with the one on the release page. If
-   they are the same, the file is exactly the one that was published (capital
-   or small letters don't matter). If they differ, don't run it: download it
-   again from the Releases page.
-
-### With Python
-
-1. Install [Python 3.13](https://www.python.org/downloads/) (64-bit). During
-   setup, tick **Add python.exe to PATH**. Please note: python.org is a
-   third-party website that we do not run or control.
-2. Download this repository (the green **Code** button, then **Download ZIP**)
-   and unzip it to a folder of its own, for example `Documents\leetsay`.
-   Keep it out of your Downloads folder.
-3. Open that folder, click in the address bar, type `cmd` and press Enter.
-   In the window that opens, run:
-
-   ```
-   py -3.13 -m pip install -r requirements.txt
-   ```
-
-4. Double-click `leetsay.pyw` to start it.
-
-## Questions
-
-**Does it work offline?**
-Yes. Speech is recognised on your PC. leetsay goes online only after you
-agree: once to download the speech model (about 660 MB), and later only if
-you choose to (another speech model, or checking for app updates). The rest
-of the time it works offline and blocks its own network access.
-
-**Why does Windows warn me when I install it?**
-leetsay is signed, but it is new: Windows SmartScreen has not yet seen many
-downloads of it, so it may warn for a while. See [Installing](#installing)
-for what each message means.
-
-**Does it need a graphics card?**
-No. It runs on the processor, with about 1 GB of free memory while it runs.
-
-**Which languages does it support?**
-English by default. You can switch to a model that covers 25 European
-languages in Settings.
-
-**How accurate is it?**
-Good, but not perfect. Speech recognition makes mistakes, so check your text
-before you send it. You can teach it names and terms with word replacements.
-
-**Can I use it at work?**
-That depends on your workplace's rules about installing software and about
-speech tools. leetsay itself keeps your audio on your PC.
-
-**Is there a Mac version?**
-It's planned. There's no date yet.
-
-**How do I uninstall it?**
-From Windows, or from leetsay's own Settings on the Privacy tab.
-
-## The first time
-
-One setup window walks you through it:
-
-1. **Before you start:** a short note on using leetsay responsibly, confirmed
-   by holding a button for a few seconds.
-2. leetsay asks before it downloads the speech model (about 660 MB) from this
-   project's model page on github.com, a third-party website that we do not run
-   or control. Choose
-   **Download**, or **Manual download** to fetch the files yourself with your
-   web browser (the steps are shown), or **Quit**.
-3. **Welcome:** choose a colour and a dark or light look, and whether to show
-   the screen glow and a small status pill.
-4. **Hotkey and microphone:** see the hotkey, choose a microphone, and try it.
-5. **Good to know:** where Settings are, and a **Start with Windows** tick box.
-
-Your words appear all at once when you let go of the hotkey (the most accurate
-way). Typing as you speak can be turned on later in Settings.
-
-After that, leetsay runs in the background and shows a small icon by the
-clock. Windows may hide new icons behind the **^**
-arrow by the clock; you can drag the icon out next to the clock to keep it in
-sight.
+**With Python instead:** install [Python 3.13](https://www.python.org/downloads/)
+(python.org is a third-party website that we do not run or control), download
+this repository, run `py -3.13 -m pip install -r requirements.txt` in its
+folder, then double-click `leetsay.pyw`.
 
 ## Using it
 
-- **Hold the hotkey, speak, let go.** The text is typed where your cursor is.
-  The hotkey is Ctrl+Space at first; you can change it, or switch to toggle
-  mode, in Settings.
-- **Settings:** click the leetsay icon by the clock. Starting leetsay again
-  while it is running also opens Settings.
-- **Cancel** a dictation: hover over the pop-up and click it.
-- **Quit:** click the icon by the clock to open Settings, then **Quit leetsay**.
-- **The dot on the pop-up is a status light:** your colour when leetsay is
-  ready, amber while the speech model is loading, red when something needs you
-  (no microphone, no sound from it, or no speech model). Click the pop-up to
-  see what is wrong.
-
-### Type as you speak
-
-Turn on **Type as you speak** (Settings, Typing) and your words appear in
-your program while you are still talking, about half a second behind you,
-instead of all at once when you let go. You can keep holding the hotkey.
-
-- It is less accurate than the normal mode, which is why it is off by
-  default. In the normal mode the speech model hears your whole sentence
-  before anything is typed, so small words like "and" or "on" come out right.
-  Typing as you speak, each word is typed before the rest of the sentence is
-  heard, and words already typed are not changed afterwards. Choose it if you
-  prefer to see your words straight away.
-- It only types into the window you started in. With **Text box detection**
-  on (the default), it also waits until the cursor is in a text box, so that
-  on a web page or a video your words are not taken as keyboard shortcuts.
-  The pop-up says **No text box selected** while it waits.
-- **Word replacements** (Settings, Typing) fix names and words the speech
-  model doesn't know, such as "leaked say" written for "leetsay": you list what
-  it writes and what you want instead. The list stays on this PC.
-- **Remove filler words** (on by default) leaves out "um", "uh" and "erm", in
-  both modes.
-
-Good to know:
-
-- Ctrl+Space is also used by some code editors (for suggestions) and by
-  Chinese and Japanese keyboards (to switch input). While leetsay runs, it
-  takes that key. If you need it, choose another hotkey in Settings.
-- Windows does not let leetsay type into programs running as administrator.
-  leetsay tells you when that happens.
-- To move your settings to another PC, use **Export settings** and **Import
-  settings** on the Privacy tab.
-
-## Why I built this
-
-I wanted dictation on Windows that kept my voice on my own PC, started
-fast, and looked good while it worked. So I built it. leetsay is the
-tool I use every day: hold a key, talk, and the words are there. It's
-open source because I'd want to be able to read the code of anything that
-listens to my microphone.
-
-I designed and tested leetsay myself and built it with AI coding tools.
-
-## Checking the network block
-
-- In Settings, on the **Privacy** tab, the **Network** line says *blocked for
-  this program (offline, checked at start)*.
-- leetsay checks its network block every time it starts. The result is the
-  second line of `%LOCALAPPDATA%\leetsay\dictate.log`:
-  `Network block check: verified, all network access is refused`.
-- You can also watch it yourself: open **Resource Monitor** (press Windows+R,
-  type `resmon`, press Enter), go to the **Network** tab, and look for
-  `leetsay.exe` (or `pythonw.exe`, if you run it with Python) under **Network
-  Activity**. It should not appear there.
-
-leetsay goes online only after you agree in a window that says "This
-application will go online": to download the speech model, or, if you turned it
-on, to check for a newer version of leetsay.
+- **Hold Ctrl+Space, speak, let go.** The text is typed where your cursor is.
+  The hotkey and toggle mode can be changed in Settings.
+- **Settings:** click the leetsay icon by the clock, or right-click the small
+  pill on screen. **Quit** is at the bottom of Settings.
+- **The dot on the pill** is a status light: your colour when ready, amber
+  while loading, red when something needs you. Click it to see what.
+- **Type as you speak** (Settings > Typing, off by default) types your words
+  while you talk. It is a little less accurate, because each word is typed
+  before the rest of the sentence is heard.
+- **Languages:** English by default; a model for 25 European languages is in
+  Settings > Model.
+- **Word replacements** fix names the model doesn't know. Filler words such as
+  "um" are left out by default.
+- Ctrl+Space is also used by some code editors and Asian keyboard layouts;
+  pick another hotkey if you need it. Windows doesn't let leetsay type into
+  programs running as administrator.
 
 ## Uninstalling
 
-### If you used the installer
+**Windows Settings > Apps > Installed apps > leetsay > Uninstall**, or
+**Uninstall leetsay** on leetsay's Privacy tab. It asks whether to keep your
+settings or remove everything, including the speech model. With Python:
+remove the model (Model tab), quit, and delete `%LOCALAPPDATA%\leetsay` and
+the leetsay folder.
 
-Open Windows **Settings → Apps → Installed apps**, find **leetsay**, and
-choose **Uninstall**, or click **Uninstall leetsay** in leetsay's own Settings
-(Privacy tab). A running leetsay is closed for you. The uninstaller first
-asks whether to keep your settings (the default, ready for a reinstall) or
-remove everything, including the downloaded speech model, and then removes
-the program and its start-up entry.
+## Why I built this
 
-### If you used Python
-
-1. In Settings, on the **Model** tab, click **Remove model**. This deletes the
-   speech model (about 630 MB).
-2. Untick **Start with Windows** (General tab), then click **Quit leetsay**
-   at the bottom of Settings.
-3. Delete the folder `%LOCALAPPDATA%\leetsay` (paste that into the File
-   Explorer address bar to open it). It holds your settings, the log and the
-   speech model.
-4. Delete the folder you put leetsay in.
-
-The Python packages can be removed with
-`py -3.13 -m pip uninstall -r requirements.txt`.
-
-## Code signing policy
-
-Windows releases of leetsay (from version 0.2.3) are signed with Microsoft's
-Azure Artifact Signing, under the developer's identity as verified by
-Microsoft.
-
-- **Team:** [sudo-csmith](https://github.com/sudo-csmith) is the author,
-  reviewer and approver.
-- **What is signed:** `leetsay.exe`, the installer, its setup helper and the
-  uninstaller, built and signed by GitHub Actions from this repository.
-  Bundled third-party files keep their makers' own signatures. The build signs
-  in to Azure with GitHub's own sign-in, so no signing key or password is
-  stored anywhere, and only this repository's main branch and release tags can
-  sign. Every release is approved by hand.
-- **Privacy:** leetsay does not send information to other networked systems
-  unless the user asks for it (the speech model download and the optional
-  update check, each after a "This application will go online" question).
-  See [PRIVACY.md](PRIVACY.md).
+I wanted dictation on Windows that kept my voice on my own PC, started fast,
+and looked good. It's open source because I'd want to read the code of
+anything that listens to my microphone. I designed and tested leetsay myself
+and built it with AI coding tools.
 
 ## Disclaimer
 
-- **No warranty.** leetsay is open-source software, provided "as is",
-  without warranty of any kind, express or implied. In no event shall the
-  author be liable for any claim, damages or other liability arising from it
-  or its use. The full terms are in the [LICENSE](LICENSE). You use leetsay
-  entirely at your own risk.
-- **The text comes from a speech model made by others.** It can mishear,
-  leave out or add words, including words that were never said. The author of
-  leetsay does not control, and is not responsible for, the text the model
-  produces. Check it before you use it.
-- **Speech recognition makes mistakes.** How well it works depends on your
-  voice, accent, language, microphone and background noise (NVIDIA's model
-  card, linked in [CREDITS.md](CREDITS.md), describes its known limits). Always check text before you send or submit it, especially
-  if you set leetsay to press Enter after a dictation.
-  Do not rely on leetsay where a wrong, missing or misplaced word could cause
-  harm or loss, such as medical, legal, financial, safety or emergency use.
+- **No warranty.** leetsay is provided "as is", without warranty of any kind.
+  The author is not liable for any claim or damages arising from it or its
+  use. Full terms: [LICENSE](LICENSE). You use it at your own risk.
+- **The text comes from a speech model made by others** and can contain
+  mistakes, missing words or words never said. Always check it before you
+  send it, especially if leetsay presses Enter for you. Do not rely on it
+  where a wrong word could cause harm or loss (medical, legal, financial,
+  safety or emergency use). It is not an assistive or medical device.
 - **Where the text goes is up to you.** leetsay types into whichever window
-  has the focus when your dictation ends (with **Type as you speak**, into the
-  window you started in, while you speak; **Text box detection** is a help, not
-  a guarantee: some programs do not say what has the focus). It cannot know or control which
-  program, chat, form or document that is, or what that program then does with
-  the text: send it, save it, share it or upload it. Check where your cursor is
-  before you speak, especially if you set **After each dictation** to press
-  Enter, and do not dictate passwords or other sensitive information. People near
-  you can hear what you say, and anyone who can see your screen can read the
-  words in the pop-up as you speak.
-- **Not an assistive or medical device.** leetsay is not certified for
-  accessibility or medical use. If you depend on dictation to use your
-  computer, keep another way to type available.
-- **Your responsibility.** You are responsible for how you use leetsay and for
-  what it types on your behalf, including following any laws or rules about
-  recording or processing speech that apply where you are, getting consent
-  where other people's voices may be picked up, and following the rules of
-  your employer or school.
-- **Third parties.** The speech models, libraries and websites leetsay uses
-  belong to others and come with their own licences and terms (see
-  [CREDITS.md](CREDITS.md)). Websites mentioned here are third-party websites
-  that we do not run or control.
-- **No affiliation.** leetsay is an independent project. It is not affiliated
-  with, endorsed or sponsored by NVIDIA, GitHub, Microsoft, the Qt Company, the
-  Silero Team or the Python Software Foundation. NVIDIA, Parakeet, GitHub,
-  Windows, Qt and Python are
-  trademarks of their respective owners, used here only to describe what
-  leetsay works with.
-- **Official downloads only.** Only releases published on this repository's
-  [Releases](https://github.com/sudo-csmith/leetsay/releases) page are
-  official. Copies offered anywhere else may have been changed.
-- **Name and icon.** The MIT licence covers the code. It gives no right to use
-  the name "leetsay" or its icon as the name or logo of another version or
-  product. Modified copies must use a different name, and must not suggest
-  that they are official or endorsed by this project.
-- **No support obligation.** Help, fixes and updates are offered when possible,
-  with no promise of any, and no promise that leetsay or its speech model
-  downloads stay available. Any version may be withdrawn, for example if a
-  problem is found.
-- **Limits of these terms.** Nothing here limits any liability that cannot be
-  limited by law. If any part cannot be enforced, the rest still applies. The
-  terms that come with each version apply to that version; the installer shows
-  them in full.
+  has the focus and cannot control what that program does with the text. Do
+  not dictate passwords or sensitive information. People nearby can hear you
+  and anyone who sees your screen can read the pop-up.
+- **Your responsibility.** You are responsible for how you use leetsay,
+  including laws on recording speech, consent from others who may be
+  recorded, and your employer's or school's rules.
+- **Third parties.** Speech models, libraries and websites used by leetsay
+  belong to others and have their own licences and terms
+  ([CREDITS.md](CREDITS.md)). Linked websites are third-party websites that we
+  do not run or control.
+- **No affiliation.** leetsay is independent and not affiliated with,
+  endorsed or sponsored by NVIDIA, GitHub, Microsoft, the Qt Company, the
+  Silero Team or the Python Software Foundation. Their names and trademarks
+  are used only to describe what leetsay works with.
+- **Official downloads** are only those on this repository's
+  [Releases](https://github.com/sudo-csmith/leetsay/releases) page.
+- **Name and icon.** The MIT licence covers the code, not the name "leetsay"
+  or its icon. Modified copies must use a different name and must not appear
+  official.
+- **No support obligation.** Help and updates are offered when possible, with
+  no promise; any version or download may be withdrawn.
+- **Limits.** Nothing here limits liability that cannot be limited by law. If
+  any part cannot be enforced, the rest still applies. The installer shows
+  the full terms for each version.
 
-## What's next
+## Code signing
 
-- A Mac version.
+Releases from 0.2.3 are signed with Microsoft's Azure Artifact Signing, under
+the developer's identity as verified by Microsoft. Only `leetsay.exe`, the
+installer, its setup helper and the uninstaller are signed, by GitHub Actions
+from this repository; every release is approved by hand.
 
 ## Licence and credits
 
-leetsay is released under the MIT licence, see [LICENSE](LICENSE). The speech
-models are by NVIDIA under CC-BY-4.0; see [CREDITS.md](CREDITS.md) for these
-and the libraries leetsay uses.
-
-Security problems: see [SECURITY.md](SECURITY.md).
+MIT licence, see [LICENSE](LICENSE). Speech models by NVIDIA under CC-BY-4.0;
+these and the libraries leetsay uses are listed in [CREDITS.md](CREDITS.md).
+Security problems: [SECURITY.md](SECURITY.md).
