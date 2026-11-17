@@ -89,7 +89,7 @@ from ctypes import wintypes
 
 
 
-VERSION = "0.2.3"              # shown in Settings and About
+VERSION = "0.2.4"              # shown in Settings and About
 APP_TITLE = "leetsay"                # the name shown to the user (one place)
 _HERE = os.path.dirname(_SELF)        # the program's own folder
 
@@ -2450,6 +2450,14 @@ def _read_wav(path):
 def play_sound(name):
     if not SOUNDS:
         return
+    path = sound_path(name)
+    if not path or not os.path.isfile(path):
+        # The file went missing (another version of the app tidied the sounds
+        # folder, or it was cleared): write it again rather than stay silent.
+        try:
+            _prepare_sound_files()
+        except Exception as exc:
+            print("Could not write the sound files again:", exc, file=sys.stderr)
     if SOUND_DEVICE:                             # a particular output was chosen
         try:
             device = chosen_output()
@@ -5231,6 +5239,8 @@ class Dictation(QtCore.QObject):
         self.model_vad = None
         self.load_seconds = None
         self.target_window = None              # window that had focus at the start
+        self.typed_this_session = 0            # for the one-time "type as you speak" tip
+                                               # (memory only, never saved or counted on)
         self.after_ticket = 0                  # which pending "after" key press is current
         self.last_text = ""                    # last dictation, in memory only
         self.last_time = 0.0
@@ -5549,6 +5559,26 @@ class Dictation(QtCore.QObject):
             save_setting("pill_tip_seen", True)
             self.overlay.show_message(self.PILL_TIP, ms=4500, pulse=True)
         QtCore.QTimer.singleShot(2600, show)     # after the hotkey's own flash
+
+    LIVE_TIP = "Want words typed as you speak? Click me"
+    LIVE_TIP_AFTER = 3                           # dictations in this session
+
+    def maybe_live_tip(self):
+        """Once ever, after a few dictations in one session with "Type as you
+        speak" off: the pill says it exists; a click opens Settings > Typing.
+        Nothing is counted beyond this session; only "seen" is saved."""
+        if LIVE_TYPE or _config.get("live_tip_seen"):
+            return
+        self.typed_this_session += 1
+        if self.typed_this_session != self.LIVE_TIP_AFTER:
+            return
+
+        def show():
+            if self.state != "idle" or self.intro_open or LIVE_TYPE or _config.get("live_tip_seen"):
+                return                           # busy: on a later dictation, never
+            save_setting("live_tip_seen", True)
+            self.overlay.show_message(self.LIVE_TIP, ms=6000, pulse=True)
+        QtCore.QTimer.singleShot(2500, show)     # once the words are typed
 
     def on_welcome_done(self):
         save_setting("welcomed", True)
@@ -6903,6 +6933,7 @@ class Dictation(QtCore.QObject):
         if ADD_SPACE and not after_key:
             text += " "                        # so the next dictation doesn't run on
         self.remember(typed + text)
+        self.maybe_live_tip()
         if RETURN_FOCUS and self.target_window:
             now = foreground_window()
             if now and now != self.target_window:
@@ -7165,6 +7196,10 @@ class Dictation(QtCore.QObject):
             return
         if (getattr(self.overlay, "message", "") or "").startswith(self.DOWNLOADING):
             return                               # a click on the download card does nothing
+        if getattr(self.overlay, "message", "") == self.LIVE_TIP:
+            self.overlay.dismiss()
+            open_settings(self, "Typing")        # where "Type as you speak" is
+            return
         if "microphone" in (getattr(self.overlay, "message", "") or "").lower():
             self.overlay.dismiss()
             open_settings(self, "Audio")          # pick the microphone, test it
