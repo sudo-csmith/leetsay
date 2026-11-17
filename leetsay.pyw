@@ -358,10 +358,16 @@ KEEP_LAST_SECONDS = 300              # pastes the last dictation again; it is he
 TAP_SECONDS = 0.35                   # a press shorter than this counts as a tap
 TYPE_TEXT = True                     # True: type the text, never touch the clipboard
                                      # False: paste, then put your clipboard back
+LAST_WORD_MS = 400                   # "Last-word catch": keep listening this long after
+                                     # the hotkey is let go (0.25 s clipped words people
+                                     # finish as they let go; measured: no audio is lost
+                                     # when the microphone stops)
 MAX_RECORD_SECONDS = 300             # a recording is always stopped after this long
 MIC_DEVICE = ""                      # microphone by name; "" = Windows' default one
 SOUND_DEVICE = ""                    # where the sounds play; "" = Windows' default output
 ADD_SPACE = True                     # put a space after each dictation
+SPOKEN_BREAKS = True                 # saying "new line" / "new paragraph" starts one
+                                     # (Shift+Enter: never sends in a chat app)
 REMOVE_FILLERS = True                # leave out "um", "uh" and the like
 # Word replacements: what the speech model writes -> what you want instead, for
 # names and words it doesn't know (it can't learn new words). Whole words only.
@@ -652,7 +658,7 @@ for _name, _key in (("SHOW_APP_ICON", "show_app_icon"), ("SHOW_APP_NAME", "show_
                     ("OUTLINE_LIGHT", "outline_light"), ("GLOW_FROM_APP", "glow_from_app"),
                     ("SHOW_HOTKEY_HINT", "hotkey_hint"), ("KEEP_LAST", "keep_last"),
                     ("LIVE_TYPE", "live_type"),
-                    ("REMOVE_FILLERS", "remove_fillers"), ("TEXTBOX_ONLY", "textbox_only"),
+                    ("REMOVE_FILLERS", "remove_fillers"), ("SPOKEN_BREAKS", "spoken_breaks"), ("TEXTBOX_ONLY", "textbox_only"),
                     ("POINTER_HINT", "pointer_hint"), ("POINT_TO_TYPE", "point_to_type"),
                     ("SCREEN_GLOW_FLOW", "screen_glow_flow"),
                     ("RETURN_FOCUS", "return_focus")):
@@ -661,7 +667,8 @@ for _name, _key in (("SHOW_APP_ICON", "show_app_icon"), ("SHOW_APP_NAME", "show_
 if isinstance(_config.get("volume"), (int, float)) and not isinstance(_config["volume"], bool):
     SOUND_VOLUME = max(0.0, min(1.0, float(_config["volume"])))
 for _name, _key, _low, _high in (("SCREEN_GLOW_STRENGTH", "screen_glow_strength", 5, 100),
-                                 ("SCREEN_GLOW_SIZE", "screen_glow_size", 20, 200)):
+                                 ("SCREEN_GLOW_SIZE", "screen_glow_size", 20, 200),
+                                 ("LAST_WORD_MS", "last_word_ms", 250, 1000)):
     _value = _config.get(_key)
     if isinstance(_value, (int, float)) and not isinstance(_value, bool):
         globals()[_name] = int(max(_low, min(_high, _value)))
@@ -1589,6 +1596,14 @@ _TERMINAL_CLASSES = ("ConsoleWindowClass",            # Command Prompt, PowerShe
                      "org.wezfurlong.wezterm", "Alacritty")
 
 
+def no_breaks_in_terminal(text, window):
+    """In a terminal, Shift+Enter works like Enter and would run a
+    half-typed command: a spoken line break becomes a space there."""
+    if "\n" in text and window and is_terminal(window):
+        return re.sub(r" *\n+ *", " ", text)
+    return text
+
+
 def is_terminal(window):
     try:
         name = ctypes.create_unicode_buffer(128)
@@ -1824,6 +1839,13 @@ def type_while_held(text, really_held=None, repress=True, lift_only=False):
         units = text.encode("utf-16-le")
         for i in range(0, len(units), 2):
             unit = units[i] | (units[i + 1] << 8)
+            if unit == 0x0A:
+                # A spoken line break: Shift+Enter, which is a new line in
+                # chat apps too (a plain Enter would send the message).
+                key(0xA0); key(0x0D); key(0x0D, up=True); key(0xA0, up=True)
+                continue
+            if unit == 0x0D:
+                continue
             key(scan=unit, unicode=True); key(scan=unit, up=True, unicode=True)
         if not repress:
             held = []                            # pressed again later (repress_modifiers)
@@ -1878,6 +1900,7 @@ def insert_text(control, text):
         user32.SendMessageTimeoutW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM,
                                                ctypes.c_wchar_p, wintypes.UINT, wintypes.UINT,
                                                ctypes.POINTER(ctypes.c_size_t)]
+        text = text.replace("\r\n", "\n").replace("\n", "\r\n")   # a Windows line break
         return bool(user32.SendMessageTimeoutW(control, 0x00C2, 1, text,   # EM_REPLACESEL
                                                0x0002, 2000, ctypes.byref(result)))
     except Exception:
@@ -2057,9 +2080,65 @@ def fix_times(words):
     return out
 
 
+_BREAK_WORDS = {"line": "\n", "paragraph": "\n\n"}
+
+
+def _bare(word):
+    return "".join(c for c in word.lower() if c.isalnum())
+
+
+def _stands_apart(words, first, last):
+    """Is words[first..last] said on its own, as a command: a pause or
+    punctuation before it (or the very start) and after it (or the very end),
+    and none inside it? So "a new line of credit" stays words."""
+    before = first == 0 or words[first - 1][-1:] in ".,!?;:"
+    after = last == len(words) - 1 or words[last][-1:] in ".,!?;:"
+    inside = all(w[-1:] not in ".,!?;:" for w in words[first:last])
+    return before and after and inside
+
+
+def spoken_breaks(words):
+    """ "new line" and "new paragraph" (any capitals, any punctuation the model
+    adds: "New line.") become a line break, as a word of its own ("\n" or
+    "\n\n"), when said on their own (see _stands_apart); the word after it
+    gets a capital. Off: left as words."""
+    if not SPOKEN_BREAKS:
+        return list(words)
+    out, i, capital = [], 0, False
+    while i < len(words):
+        word, bare = words[i], _bare(words[i])
+        if bare == "newline" and _stands_apart(words, i, i):
+            out.append("\n")
+            i += 1
+            capital = True
+            continue
+        if (bare == "new" and i + 1 < len(words)
+                and _bare(words[i + 1]) in _BREAK_WORDS
+                and _stands_apart(words, i, i + 1)):
+            out.append(_BREAK_WORDS[_bare(words[i + 1])])
+            i += 2
+            capital = True
+            continue
+        if capital and word[:1].isalpha():
+            word = word[:1].upper() + word[1:]
+        capital = False
+        out.append(word)
+        i += 1
+    return out
+
+
+_BREAK_SPACES = re.compile(r" *(\n+) *")
+
+
+def join_words(words):
+    """Words as text: spaces between them, none around a line break."""
+    return _BREAK_SPACES.sub(r"\1", " ".join(words))
+
+
 def clean_words(words):
-    """Filler words out, then times, then your word replacements."""
-    return replace_words(fix_times(drop_fillers(words)))
+    """Filler words out, then times, then spoken line breaks, then your word
+    replacements."""
+    return replace_words(spoken_breaks(fix_times(drop_fillers(words))))
 
 
 def holds_speech(audio, whole, rate):
@@ -6025,9 +6104,6 @@ class Dictation(QtCore.QObject):
             if ALWAYS_SHOW and (not o.isVisible() or o.fade_target == 0):
                 o.show_idle()
 
-    TAIL_MS = 400        # keep listening this long after you let go (0.25 s
-                         # clipped words people finish as they let go; measured:
-                         # no audio is lost when the microphone stops)
 
     def _finish_soon(self):
         """You let go (or pressed again, or clicked): keep listening a
@@ -6042,7 +6118,7 @@ class Dictation(QtCore.QObject):
         def now():
             if self.session == session and self.state == "recording":
                 self._finish()
-        QtCore.QTimer.singleShot(self.TAIL_MS, now)
+        QtCore.QTimer.singleShot(LAST_WORD_MS, now)   # "Last-word catch"
 
     def on_released(self):
         if HOLD_TO_TALK and self.state == "recording":
@@ -6298,7 +6374,7 @@ class Dictation(QtCore.QObject):
                 self._live_rest_until = done + (done - began) * LIVE_REST
             # The same clean-up as the final text (fillers, times, your word
             # replacements), so the card shows what will be typed.
-            self.live_text.emit(session, " ".join(clean_words(text.split())))
+            self.live_text.emit(session, join_words(clean_words(text.split())))
         except Exception:
             pass
         finally:
@@ -6465,10 +6541,11 @@ class Dictation(QtCore.QObject):
             else:
                 marks = ""
             self.lt_held = marks
-        if self.lt_done or self.lt_pending or text:
+        if (self.lt_done or self.lt_pending or text) and \
+                not (text or self.lt_done + self.lt_pending).endswith("\n"):
             text += " "
         self.lt_all += self._plain(words)
-        return text + " ".join(words)
+        return join_words([text + " ".join(words)])
 
     def _queue_words(self, words, before=None, piece_end=False):
         text = self._compose(words, before, piece_end)
@@ -6495,6 +6572,8 @@ class Dictation(QtCore.QObject):
             agreed += 1
         self.lt_prev = fresh
         upto = begin + min(agreed, len(fresh) - 1)       # never the newest word
+        if SPOKEN_BREAKS and upto > begin and _bare(words[upto - 1]) == "new":
+            upto -= 1                    # "new" waits: "new line" may be coming
         # The next reading starts as soon as the model has rested, not at the
         # next tick of the clock: words are confirmed as soon as it can manage.
         wait = max(0.0, self._live_rest_until - time.monotonic())
@@ -6637,7 +6716,7 @@ class Dictation(QtCore.QObject):
         if count < 1:
             return
         self.lt_credit -= count
-        part = self.lt_pending[:count]
+        part = no_breaks_in_terminal(self.lt_pending[:count], target)
         self._typing_until = time.monotonic() + 5.0          # our own keystrokes
         try:
             control = focused_control(target) if getattr(self, "lt_gentle", False) else None
@@ -6830,7 +6909,7 @@ class Dictation(QtCore.QObject):
         play_sound("finish")
         # A tap: nothing was said. Judged as before the tail grew from 0.25 s
         # (the recording includes the tail), so taps behave as they always did.
-        if len(audio) < SAMPLE_RATE * (TAP_SECONDS + (self.TAIL_MS - 250) / 1000.0):
+        if len(audio) < SAMPLE_RATE * (TAP_SECONDS + (LAST_WORD_MS - 250) / 1000.0):
             self.state = "idle"
             again = self.last_dictation()
             if again:                          # paste the last dictation once more
@@ -6944,8 +7023,10 @@ class Dictation(QtCore.QObject):
 
     def on_finished(self, text):
         self.state = "idle"
-        text = " ".join(clean_words(text.split()))   # one line: a stray Enter could
-                                               # send a message
+        # Line breaks only where spoken ("new line"), typed as Shift+Enter:
+        # never a plain Enter, which could send a message.
+        cleaned = clean_words(text.split())  # line breaks stay words of their own
+        text = join_words(cleaned)
         typed = ""
         if self.lt_active:
             # Typing as you speak: what is left, after what was typed already
@@ -6956,7 +7037,7 @@ class Dictation(QtCore.QObject):
                   "the starting window or a text box, %d refused by Windows."
                   % tuple(self.lt_counts))
             typed = self.lt_done
-            words = text.split()                 # skip the words typed already
+            words = list(cleaned)                # skip the words typed already
             begin = self._after_typed(self._plain(words)) if words else 0
             text = self._compose(words[begin:], words[begin - 1] if begin
                                  else (self._final_before or None))
@@ -7127,6 +7208,7 @@ class Dictation(QtCore.QObject):
                 self.overlay.dismiss()
             self.overlay.show_message("Not typed into a password box", ms=4000)
             return
+        text = no_breaks_in_terminal(text, foreground_window())
         # While these keystrokes go out, the hotkey listener stands aside, so
         # nothing sent here can be mistaken for a hotkey.
         self._typing_until = time.monotonic() + 1.5 + len(text) * 0.004
@@ -7161,8 +7243,12 @@ class Dictation(QtCore.QObject):
                     # shortcuts (measured in Notepad).
                     type_while_held("", set(), repress=False, lift_only=True)
                     time.sleep(0.1)
-                    if not type_while_held(text, set(), repress=False):
+                    if not type_while_held(text, set(), repress=False) and "\n" not in text:
                         keyboard.write(text, delay=0)
+                elif "\n" in text:
+                    # Line breaks: only through our own keys (Shift+Enter);
+                    # keyboard.write would press a plain Enter.
+                    type_while_held(text, set(), repress=False)
                 else:
                     keyboard.write(text, delay=0)   # typed out; clipboard untouched
             finally:
@@ -7691,6 +7777,7 @@ _PORTABLE_CHECKS = {
     "live_lines": _is_int_in(1, 6),
     "card_width": _is_int_in(0, 2000),
     "max_seconds": _is_int_in(30, 3600),
+    "last_word_ms": _is_int_in(250, 1000),
     "screen_glow_strength": _is_int_in(5, 100),
     "screen_glow_size": _is_int_in(20, 200),
 }
@@ -7699,7 +7786,7 @@ for _key in ("add_space", "always_show", "pill_over_fullscreen", "accent_outline
              "show_popup", "show_timer", "show_waveform", "sounds", "tray_live", "wide_card",
              "hold_to_talk", "live_preview", "type_text", "keep_last",
              "check_app_updates", "live_type", "remove_fillers",
-             "textbox_only", "screen_glow_flow", "pointer_hint", "point_to_type"):
+             "textbox_only", "screen_glow_flow", "pointer_hint", "point_to_type", "spoken_breaks"):
     _PORTABLE_CHECKS[_key] = lambda v: isinstance(v, bool)
 _PORTABLE_CHECKS["card_style"] = lambda v: v in [key for key, _label in CARD_STYLES]
 _PORTABLE_CHECKS["screen_glow_edges"] = lambda v: v in ("bottom", "top", "left", "right", "all")
@@ -10276,6 +10363,14 @@ class SettingsWindow(QtWidgets.QDialog):
                   "password boxes. Needs Text box detection.",
               hint="While no text box is selected, rest the mouse on one for a "
                    "moment and it's selected for you.")
+        check("Say \"new line\" for a line break", SPOKEN_BREAKS,
+              option("SPOKEN_BREAKS", "spoken_breaks"),
+              tip="On by default. Saying \"new line\" starts a new line, and \"new "
+                  "paragraph\" leaves an empty line between. Sent as Shift+Enter, "
+                  "so a chat app never sends your message. In a terminal it is a "
+                  "space instead (there it would run the command).",
+              hint="\"New line\" and \"new paragraph\" start a new line (never "
+                   "sends a message).")
         check("Remove filler words", REMOVE_FILLERS,
               option("REMOVE_FILLERS", "remove_fillers"),
               hint="Leaves out um, uh and erm.")
@@ -10678,6 +10773,31 @@ class SettingsWindow(QtWidgets.QDialog):
         note("A dictation ends by itself after this long. This is a safety net: if the "
              "hotkey gets stuck or a dictation is accidentally left running, it will "
              "stop automatically after this time.")
+
+        # "Last-word catch": how long the microphone keeps listening after the
+        # hotkey is let go, 0.25 to 1 second in twentieths.
+        self.catch = QtWidgets.QSlider(Qt.Horizontal)
+        self.catch.setRange(5, 20)
+        self.catch.setValue(int(round(LAST_WORD_MS / 50.0)))
+        self.catch.setFixedWidth(200)
+        self.catch_value = QtWidgets.QLabel("")
+        self.catch_value.setObjectName("info")
+
+        def catch_shown(value):
+            self.catch_value.setText("%.2f s" % (value * 0.05))
+
+        def catch_saved():
+            set_option("LAST_WORD_MS", "last_word_ms", int(self.catch.value() * 50))
+
+        catch_shown(self.catch.value())
+        self.catch.valueChanged.connect(catch_shown)
+        self.catch.sliderReleased.connect(catch_saved)
+        self.catch.valueChanged.connect(       # a click, the arrow keys or the wheel
+            lambda _value: None if self.catch.isSliderDown() else catch_saved())
+        row(field("Last-word catch"), self.catch, self.catch_value, None)
+        note("Keeps listening a moment after you let go, so a word you're still "
+             "finishing isn't cut off. Longer catches more; the text appears that "
+             "much later.")
 
         heading("Sounds")
         check("Play a sound when dictation starts and finishes", SOUNDS, set_sounds)
