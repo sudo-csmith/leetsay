@@ -152,10 +152,11 @@ begin
     before anything is closed or changed. }
   Installed := InstalledVersion();
   if (Installed <> '') and (VersionNumber(Installed) > VersionNumber('{#AppVersion}')) then
-    if SuppressibleMsgBox('A newer version of {#AppName} (' + Installed + ') is already installed.' +
-         #13#10#13#10 + 'This installer has an older version ({#AppVersion}). Installing it ' +
-         'would replace the newer one. Your settings are kept either way.' +
-         #13#10#13#10 + 'Install the older version anyway?',
+    { No line may start with #: the preprocessor would take it as its own. }
+    if SuppressibleMsgBox('A newer version of {#AppName} (' + Installed + ') is already installed.' + #13#10#13#10 +
+         'This installer has an older version ({#AppVersion}). Installing it ' +
+         'would replace the newer one. Your settings are kept either way.' + #13#10#13#10 +
+         'Install the older version anyway?',
          mbConfirmation, MB_YESNO or MB_DEFBUTTON2, IDNO) <> IDYES then
     begin
       Result := False;
