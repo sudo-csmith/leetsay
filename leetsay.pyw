@@ -380,6 +380,8 @@ TECH_TERMS = [["kilobytes", "KB"], ["kilobyte", "KB"], ["megabytes", "MB"],
               ["node js", "Node.js"], ["vs code", "VS Code"]]
 TEXTBOX_ONLY = True                  # typing as you speak: only into a text box (asks
                                      # Windows what kind of control has the focus)
+POINT_TO_TYPE = False                # while no text box is selected, resting the mouse
+                                     # on one selects it (no click; off by default)
 POINTER_HINT = True                  # ... and say "No text box" by the mouse pointer too
 AFTER_KEY = ""                       # key pressed for you once the text is in:
                                      # "" (nothing), "enter", "ctrl+enter" or "tab"
@@ -651,7 +653,7 @@ for _name, _key in (("SHOW_APP_ICON", "show_app_icon"), ("SHOW_APP_NAME", "show_
                     ("SHOW_HOTKEY_HINT", "hotkey_hint"), ("KEEP_LAST", "keep_last"),
                     ("LIVE_TYPE", "live_type"),
                     ("REMOVE_FILLERS", "remove_fillers"), ("TEXTBOX_ONLY", "textbox_only"),
-                    ("POINTER_HINT", "pointer_hint"),
+                    ("POINTER_HINT", "pointer_hint"), ("POINT_TO_TYPE", "point_to_type"),
                     ("SCREEN_GLOW_FLOW", "screen_glow_flow"),
                     ("RETURN_FOCUS", "return_focus")):
     if isinstance(_config.get(_key), bool):
@@ -1623,13 +1625,17 @@ def focused_password_box():
     return answer.get("v") is True
 
 
-def focused_text_box(password_only=False):
+def focused_text_box(password_only=False, point=None, focus=False):
     """Is the keyboard focus in something you can type into? Asks Windows'
     accessibility service (what screen readers use) about the focused
     control. True: a text box. False: clearly not one (a web page, a video,
     a button: typed letters would work as shortcuts there, and Space would
     scroll). None: can't tell, so typing goes ahead as usual. Run it off the
-    main thread: a busy program can be slow to answer."""
+    main thread: a busy program can be slow to answer.
+
+    point: ask about the control at that screen point (physical pixels)
+    instead of the focused one. focus: if that is clearly a text box (never a
+    password box), move the keyboard focus into it, without any click."""
     ole32 = ctypes.windll.ole32
     ole32.CoInitializeEx(None, 0)                # this thread: multithreaded COM
     automation = ctypes.c_void_p()
@@ -1644,8 +1650,13 @@ def focused_text_box(password_only=False):
             table = ctypes.cast(obj, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p)))[0]
             return ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, *types)(table[index])
 
+        if point is not None:
+            # IUIAutomation::ElementFromPoint
+            if method(automation, 7, wintypes.POINT, ctypes.POINTER(ctypes.c_void_p))(
+                    automation, wintypes.POINT(*point), ctypes.byref(element)) != 0 or not element:
+                return None
         # IUIAutomation::GetFocusedElement
-        if method(automation, 8, ctypes.POINTER(ctypes.c_void_p))(
+        elif method(automation, 8, ctypes.POINTER(ctypes.c_void_p))(
                 automation, ctypes.byref(element)) != 0 or not element:
             return None
         get = method(element, 10, ctypes.c_int, ctypes.POINTER(_VARIANT))   # GetCurrentPropertyValue
@@ -1672,6 +1683,17 @@ def focused_text_box(password_only=False):
         read_only = prop(30046)                  # ValueIsReadOnly
         has_text = prop(30040)                   # IsTextPatternAvailable
         _focus_seen["last"] = (kind, has_value, read_only, has_text)   # kinds only
+        if focus:
+            # Only something whose text can clearly be changed is focused for
+            # you: an edit box, or a control that says its text is editable.
+            # Never a password box (returned above), a read-only page, a
+            # button or link, or "can't tell".
+            sure = kind not in _NOT_TYPABLE and (
+                (kind == 50004 and read_only is not True)
+                or (has_value and read_only is False))
+            if not sure:
+                return False
+            return method(element, 3)(element) == 0   # IUIAutomationElement::SetFocus
         if kind in _NOT_TYPABLE:
             # A button, an image, a menu, a list... (see _NOT_TYPABLE): never
             # somewhere to type, whatever else it says
@@ -5239,6 +5261,7 @@ class Dictation(QtCore.QObject):
         self.model_vad = None
         self.load_seconds = None
         self.target_window = None              # window that had focus at the start
+        self.ptt = {"pos": None, "since": 0.0, "tried": False, "busy": False}   # pointing
         self.typed_this_session = 0            # for the one-time "type as you speak" tip
                                                # (memory only, never saved or counted on)
         self.after_ticket = 0                  # which pending "after" key press is current
@@ -6002,7 +6025,9 @@ class Dictation(QtCore.QObject):
             if ALWAYS_SHOW and (not o.isVisible() or o.fade_target == 0):
                 o.show_idle()
 
-    TAIL_MS = 250        # keep listening this long after you let go
+    TAIL_MS = 400        # keep listening this long after you let go (0.25 s
+                         # clipped words people finish as they let go; measured:
+                         # no audio is lost when the microphone stops)
 
     def _finish_soon(self):
         """You let go (or pressed again, or clicked): keep listening a
@@ -6728,6 +6753,56 @@ class Dictation(QtCore.QObject):
             self.lt_missing = 0
             self.overlay.box_missing = False
         self._pointer_hint(self.overlay.box_missing)
+        self._point_to_type()
+
+    POINT_REST = 0.5             # seconds the mouse rests on a text box
+    POINT_STILL_PX = 4           # moves smaller than this still count as resting
+
+    def _point_to_type(self):
+        """"Select one by pointing at it" (text box detection): while the card says "No text
+        box selected", a mouse resting on a text box in the window you
+        started in selects it, through Windows' accessibility service (no
+        click, so held keys can't turn it into Ctrl+click). Once per spot."""
+        p = self.ptt
+        if not (POINT_TO_TYPE and TEXTBOX_ONLY and self.state == "recording"
+                and self.overlay.box_missing and self.target_window
+                and foreground_window() == self.target_window):
+            p["pos"], p["tried"] = None, False
+            return
+        try:
+            user32 = ctypes.windll.user32
+            here = wintypes.POINT()
+            user32.GetPhysicalCursorPos(ctypes.byref(here))
+        except Exception:
+            return
+        pos, now = (here.x, here.y), time.monotonic()
+        if (p["pos"] is None or abs(pos[0] - p["pos"][0]) > self.POINT_STILL_PX
+                or abs(pos[1] - p["pos"][1]) > self.POINT_STILL_PX):
+            p["pos"], p["since"], p["tried"] = pos, now, False   # moved: start again
+            return
+        if p["tried"] or p["busy"] or now - p["since"] < self.POINT_REST:
+            return
+        p["tried"] = True                        # this spot is asked about once
+        try:
+            user32.WindowFromPhysicalPoint.restype = wintypes.HWND
+            user32.GetAncestor.restype = wintypes.HWND
+            under = user32.WindowFromPhysicalPoint(here)
+            if not under or user32.GetAncestor(under, 2) != self.target_window:   # GA_ROOT
+                return                           # another window: never
+        except Exception:
+            return
+        p["busy"] = True
+
+        def ask():
+            try:
+                done = focused_text_box(point=pos, focus=True)
+                if done:
+                    print("Pointing: a text box was selected for you.")
+            except Exception:
+                pass
+            finally:
+                p["busy"] = False
+        threading.Thread(target=ask, daemon=True).start()
 
     def _pointer_hint(self, show):
         """The "No text box" tag by the mouse pointer (Settings: on by default)."""
@@ -6753,7 +6828,9 @@ class Dictation(QtCore.QObject):
         audio = self.recorder.stop()
         self.show_listening(False)
         play_sound("finish")
-        if len(audio) < SAMPLE_RATE * TAP_SECONDS:    # a tap: nothing was said
+        # A tap: nothing was said. Judged as before the tail grew from 0.25 s
+        # (the recording includes the tail), so taps behave as they always did.
+        if len(audio) < SAMPLE_RATE * (TAP_SECONDS + (self.TAIL_MS - 250) / 1000.0):
             self.state = "idle"
             again = self.last_dictation()
             if again:                          # paste the last dictation once more
@@ -7622,7 +7699,7 @@ for _key in ("add_space", "always_show", "pill_over_fullscreen", "accent_outline
              "show_popup", "show_timer", "show_waveform", "sounds", "tray_live", "wide_card",
              "hold_to_talk", "live_preview", "type_text", "keep_last",
              "check_app_updates", "live_type", "remove_fillers",
-             "textbox_only", "screen_glow_flow", "pointer_hint"):
+             "textbox_only", "screen_glow_flow", "pointer_hint", "point_to_type"):
     _PORTABLE_CHECKS[_key] = lambda v: isinstance(v, bool)
 _PORTABLE_CHECKS["card_style"] = lambda v: v in [key for key, _label in CARD_STYLES]
 _PORTABLE_CHECKS["screen_glow_edges"] = lambda v: v in ("bottom", "top", "left", "right", "all")
@@ -10190,6 +10267,15 @@ class SettingsWindow(QtWidgets.QDialog):
               option("POINTER_HINT", "pointer_hint"),
               hint="A small \"No text box\" tag follows the pointer while the "
                    "cursor isn't in a text box.")
+        check("Select one by pointing at it", POINT_TO_TYPE,
+              option("POINT_TO_TYPE", "point_to_type"),
+              tip="Off by default. While the pop-up says \"No text box selected\", "
+                  "rest the mouse on a text box for a moment and it is selected "
+                  "for you, as if you had clicked it (nothing is clicked). Only "
+                  "in the window you started in, only clear text boxes, never "
+                  "password boxes. Needs Text box detection.",
+              hint="While no text box is selected, rest the mouse on one for a "
+                   "moment and it's selected for you.")
         check("Remove filler words", REMOVE_FILLERS,
               option("REMOVE_FILLERS", "remove_fillers"),
               hint="Leaves out um, uh and erm.")
