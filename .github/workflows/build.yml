@@ -12,10 +12,14 @@ on:
 
 permissions:
   contents: write          # needed to publish a release for a tag
+  id-token: write          # signing: GitHub's own sign-in to Azure (no stored password)
 
 jobs:
   build:
     runs-on: windows-latest
+    # Signing is allowed only from this repository's "signing" environment
+    # (main and v* tags); the Azure side trusts nothing else.
+    environment: signing
     steps:
       - uses: actions/checkout@v6
         with:
@@ -59,14 +63,67 @@ jobs:
           $commercial = Get-ChildItem $lic -Filter "*Commercial*"
           if ($commercial) { throw "Qt's commercial licence text must not be bundled: $($commercial.Name -join ', ')" }
 
+      # Code signing with Azure Artifact Signing. Only our own files are signed
+      # (leetsay.exe, the installer, its helper and the uninstaller); bundled
+      # third-party files keep their makers' own signatures, or none.
+      - name: Sign in to Azure (GitHub's own sign-in; no password is stored)
+        uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Get the signing tools (exact versions)
+        id: sign
+        shell: pwsh
+        run: |
+          $d = Join-Path $env:RUNNER_TEMP "signing"
+          nuget install Microsoft.Windows.SDK.BuildTools -Version 10.0.28000.2957 -OutputDirectory $d -NonInteractive | Out-Null
+          nuget install Microsoft.ArtifactSigning.Client -Version 1.0.151 -OutputDirectory $d -NonInteractive | Out-Null
+          $tool = Get-ChildItem $d -Recurse -Filter signtool.exe | Where-Object { $_.FullName -match '\\x64\\' } | Select-Object -First 1
+          $dlib = Get-ChildItem $d -Recurse -Filter Azure.CodeSigning.Dlib.dll | Where-Object { $_.FullName -match '\\x64\\' } | Select-Object -First 1
+          if (-not $tool -or -not $dlib) { throw "The signing tools were not found" }
+          $meta = Join-Path $d "metadata.json"
+          @{
+            Endpoint = "https://eus.codesigning.azure.net"
+            CodeSigningAccountName = "leetsay-signing"
+            CertificateProfileName = "leetsay"
+            # Only the Azure sign-in above is used.
+            ExcludeCredentials = @("EnvironmentCredential", "ManagedIdentityCredential",
+              "WorkloadIdentityCredential", "SharedTokenCacheCredential", "VisualStudioCredential",
+              "VisualStudioCodeCredential", "AzurePowerShellCredential",
+              "AzureDeveloperCliCredential", "InteractiveBrowserCredential")
+          } | ConvertTo-Json | Set-Content $meta -Encoding utf8NoBOM
+          "tool=$($tool.FullName)" >> $env:GITHUB_OUTPUT
+          "dlib=$($dlib.FullName)" >> $env:GITHUB_OUTPUT
+          "meta=$meta" >> $env:GITHUB_OUTPUT
+
+      - name: Sign leetsay.exe
+        shell: pwsh
+        run: |
+          & "${{ steps.sign.outputs.tool }}" sign /v /fd SHA256 /tr http://timestamp.acs.microsoft.com /td SHA256 /dlib "${{ steps.sign.outputs.dlib }}" /dmdf "${{ steps.sign.outputs.meta }}" dist\leetsay\leetsay.exe
+          if ($LASTEXITCODE -ne 0) { throw "Signing leetsay.exe failed" }
+
       - name: Install Inno Setup
         run: choco install innosetup --no-progress -y
 
-      - name: Build the installer
+      - name: Build the installer (signed: installer, setup helper, uninstaller)
         shell: pwsh
         run: |
-          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=${{ steps.version.outputs.value }}" installer\leetsay.iss
+          # Inno Setup runs this for each file it signs: $q is a quote, $f the file.
+          $cmd = '$q' + "${{ steps.sign.outputs.tool }}" + '$q sign /fd SHA256 /tr http://timestamp.acs.microsoft.com /td SHA256 /dlib $q' + "${{ steps.sign.outputs.dlib }}" + '$q /dmdf $q' + "${{ steps.sign.outputs.meta }}" + '$q $f'
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=${{ steps.version.outputs.value }}" /DSign "/Sazure=$cmd" installer\leetsay.iss
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed" }
+
+      - name: Check the signatures
+        shell: pwsh
+        run: |
+          foreach ($f in "dist\leetsay\leetsay.exe", "Output\leetsay-setup.exe") {
+            $s = Get-AuthenticodeSignature $f
+            "{0}: {1}" -f $f, $s.Status          # (the public log never shows the certificate's details)
+            if ($s.Status -ne "Valid") { throw "$f is not validly signed" }
+            if (-not $s.TimeStamperCertificate) { throw "$f has no time stamp" }
+          }
 
       - name: Fingerprint (SHA-256)
         shell: pwsh
