@@ -1,5 +1,5 @@
 <p align="center">
-  <a href="https://leetsay.com"><img src="assets/banner.png" alt="leetsay: local dictation for Windows" width="100%"></a>
+  <a href="https://github.com/sudo-csmith/leetsay/releases"><img src="assets/banner.png" alt="leetsay: local dictation for Windows" width="100%"></a>
 </p>
 <p align="center">
   <a href="https://github.com/sudo-csmith/leetsay/releases"><img src="assets/leetsay-card-banner.gif" alt="Animation of the leetsay status pill opening into the dictation card while words appear." width="100%"></a>
