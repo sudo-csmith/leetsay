@@ -70,22 +70,17 @@ back because the file is new. To keep it: click **Keep** (if Edge asks again:
 **Show more**, then **Keep anyway**). Other browsers may show a similar
 message.
 
-**"Windows protected your PC".** The installer is not signed with a paid
-code-signing certificate yet, so Windows SmartScreen may show this warning for
-a new download. To continue, choose **More info**, then **Run anyway**.
+**"Windows protected your PC".** leetsay is digitally signed (from version
+0.2.3), so Windows shows who published it. Because leetsay is new, Windows
+SmartScreen may still show this warning for a while, until enough people have
+downloaded it. To continue, choose **More info** (it shows the publisher),
+then **Run anyway**.
 
 **"Smart App Control blocked an app that may be unsafe".** Some Windows 11
 PCs have Smart App Control switched on (often new PCs, or after a fresh
-install of Windows). It blocks every app that is not signed, with no way to
-allow a single one, so until leetsay is signed it cannot be installed while
-Smart App Control is on. Signing is being worked on. Your options meanwhile:
-
-- wait for a signed version of leetsay; or
-- switch Smart App Control off, in **Windows Security → App & browser control
-  → Smart App Control**. That is your decision: it lowers a protection for all
-  apps, not only for leetsay. On recent versions of Windows 11 it can be
-  switched back on later in the same place; on older versions, switching it
-  off cannot be undone without resetting Windows.
+install of Windows). It blocks apps that are not signed. leetsay is signed
+from version 0.2.3, so it can be installed there; older versions (0.2.1 and
+earlier) were not signed and are blocked. Use the newest release.
 
 **Checking the download (optional).** Each release lists a long code called
 a SHA-256 fingerprint. It is worked out from every byte of the installer, so if
@@ -127,9 +122,9 @@ you choose to (another speech model, or checking for app updates). The rest
 of the time it works offline and blocks its own network access.
 
 **Why does Windows warn me when I install it?**
-The installer isn't code-signed yet, so Windows doesn't recognise the
-publisher. See [Installing](#installing) for what each message means. Code
-signing is in progress.
+leetsay is signed, but it is new: Windows SmartScreen has not yet seen many
+downloads of it, so it may warn for a while. See [Installing](#installing)
+for what each message means.
 
 **Does it need a graphics card?**
 No. It runs on the processor, with about 1 GB of free memory while it runs.
@@ -275,18 +270,18 @@ The Python packages can be removed with
 
 ## Code signing policy
 
-Windows releases of leetsay are to be signed through the SignPath Foundation
-(application in progress; until then releases are unsigned, see
-[Installing](#installing)). Once in place: free code signing provided by
-[SignPath.io](https://signpath.io), certificate by
-[SignPath Foundation](https://signpath.org) (third-party websites that we do
-not run or control).
+Windows releases of leetsay (from version 0.2.3) are signed with Microsoft's
+Azure Artifact Signing, under the developer's identity as verified by
+Microsoft.
 
 - **Team:** [sudo-csmith](https://github.com/sudo-csmith) is the author,
   reviewer and approver.
-- **What is signed:** only `leetsay.exe` and its installer, built by GitHub
-  Actions from this repository on each release tag. Every release is approved
-  by hand before it is signed.
+- **What is signed:** `leetsay.exe`, the installer, its setup helper and the
+  uninstaller, built and signed by GitHub Actions from this repository.
+  Bundled third-party files keep their makers' own signatures. The build signs
+  in to Azure with GitHub's own sign-in, so no signing key or password is
+  stored anywhere, and only this repository's main branch and release tags can
+  sign. Every release is approved by hand.
 - **Privacy:** leetsay does not send information to other networked systems
   unless the user asks for it (the speech model download and the optional
   update check, each after a "This application will go online" question).
@@ -355,8 +350,6 @@ not run or control).
 
 ## What's next
 
-- Code signing, so Windows can verify who published leetsay and shows fewer
-  warnings when you install it.
 - A Mac version.
 
 ## Licence and credits
