@@ -1,6 +1,6 @@
 # Security
 
-leetsay is a free, volunteer-maintained project, provided "as is" without
+leetsay is an open-source, volunteer-maintained project, provided "as is" without
 warranty of any kind (see [LICENSE](LICENSE)). Security reports are welcome and
 are looked at on a best-effort basis; no response time, fix or support is
 promised.

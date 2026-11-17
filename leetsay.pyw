@@ -8928,7 +8928,7 @@ def responsibility_paragraphs():
             "•  Don't rely on it where a wrong word could cause harm.\n"
             "•  Don't dictate passwords or anything private.",
             "You are responsible for what %(app)s types and where it goes. It is "
-            "free software, provided as is, without any warranty. Full terms: the "
+            "open-source software, provided as is, without any warranty. Full terms: the "
             "Disclaimer in the README and the LICENSE." % app]
 
 
@@ -11290,7 +11290,7 @@ def show_about(dictation):
         "Windows: Qt 6 and PySide6 by The Qt Company and contributors, LGPL-3.0."
         % ("v3" if MODEL.endswith("v3") else "v2", MODELS_REPO),
         "",
-        "Free software under the MIT licence, provided as is, without any "
+        "Open-source software under the MIT licence, provided as is, without any "
         "warranty. Speech recognition makes mistakes, and can add words that "
         "were never said: check the text before you send it, and do not rely "
         "on it where a wrong word could cause harm. You are responsible for "

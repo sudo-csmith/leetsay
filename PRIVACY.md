@@ -1,6 +1,6 @@
 # Privacy
 
-This page describes how leetsay handles information. leetsay is free,
+This page describes how leetsay handles information. leetsay is
 open-source software that runs on your own PC. Its author does not run any
 server or service for it and does not receive, collect or store any
 information about you or your use of it.

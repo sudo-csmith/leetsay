@@ -1,6 +1,6 @@
 PLEASE READ BEFORE INSTALLING LEETSAY
 
-leetsay is free software, provided "as is", without warranty of any kind.
+leetsay is open-source software, provided "as is", without warranty of any kind.
 
 - leetsay types what you dictate into whichever window or application is
   active. It does not decide or control which program, chat, form or document
