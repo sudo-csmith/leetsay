@@ -107,7 +107,7 @@ jobs:
       - name: Install Inno Setup
         run: choco install innosetup --no-progress -y
 
-      - name: Build the installer (signed: installer, setup helper, uninstaller)
+      - name: Build the installer (installer, setup helper and uninstaller signed)
         shell: pwsh
         run: |
           # Inno Setup runs this for each file it signs: $q is a quote, $f the file.
