@@ -1,0 +1,17 @@
+name: Conduct report
+description: Ask for a private way to report someone's behaviour (no details here)
+title: "Conduct report"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This report is public, so please **don't describe what happened here**.
+        It only lets the maintainer know you need a private way to talk.
+        See the [Code of conduct](https://github.com/sudo-csmith/leetsay/blob/main/CODE_OF_CONDUCT.md).
+  - type: checkboxes
+    id: private
+    attributes:
+      label: Private contact
+      options:
+        - label: I would like a private way to report a conduct problem.
+          required: true
