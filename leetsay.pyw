@@ -89,7 +89,7 @@ from ctypes import wintypes
 
 
 
-VERSION = "0.2.2"              # shown in Settings and About
+VERSION = "0.2.3"              # shown in Settings and About
 APP_TITLE = "leetsay"                # the name shown to the user (one place)
 _HERE = os.path.dirname(_SELF)        # the program's own folder
 
@@ -304,7 +304,10 @@ STARTUP_MESSAGE = False              # show a "Loading..." pop-up while starting
 STARTUP_FLASH = True                 # briefly show the pop-up once it can be used
 ALWAYS_SHOW = True                   # always show a small status pill on screen (on by
                                      # default: it shows the hotkey; owner)
-ACCENT_OUTLINE = True                # a ring in the accent colour round the pop-up
+PILL_OVER_FULLSCREEN = False         # keep the pill over full-screen programs (games,
+                                     # videos) too; off: it steps aside while one
+                                     # covers its screen
+ACCENT_OUTLINE = True               # a ring in the accent colour round the pop-up
 CARD_STYLE = "glow"                  # the dictation card: "clean" (a soft neutral
                                      # shadow and a crisp edge), "accent" (the same,
                                      # with a fine edge in the accent colour while
@@ -642,6 +645,7 @@ for _name, _key in (("SHOW_APP_ICON", "show_app_icon"), ("SHOW_APP_NAME", "show_
                     ("SHOW_POPUP", "show_popup"), ("SCREEN_GLOW", "screen_glow"),
                     ("TRAY_LIVE", "tray_live"),
                     ("ALWAYS_SHOW", "always_show"), ("ACCENT_OUTLINE", "accent_outline"),
+                    ("PILL_OVER_FULLSCREEN", "pill_over_fullscreen"),
                     ("WIDE_CARD", "wide_card"),
                     ("OUTLINE_LIGHT", "outline_light"), ("GLOW_FROM_APP", "glow_from_app"),
                     ("SHOW_HOTKEY_HINT", "hotkey_hint"), ("KEEP_LAST", "keep_last"),
@@ -2109,6 +2113,71 @@ def keep_on_top(widget):
         pass
 
 
+class _MONITORINFO(ctypes.Structure):
+    _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", wintypes.RECT),
+                ("rcWork", wintypes.RECT), ("dwFlags", wintypes.DWORD)]
+
+
+def fullscreen_app_in_front(widget):
+    """Is the window in front a full-screen program (a game, a full-screen
+    video or slide show) covering the whole screen this widget is on? Reads
+    only that window's place, size and style, never its title or program.
+    A few calls, on the existing 3-second status timer."""
+    try:
+        user32 = ctypes.windll.user32
+        user32.GetForegroundWindow.restype = wintypes.HWND
+        user32.MonitorFromWindow.restype = wintypes.HANDLE
+        user32.MonitorFromWindow.argtypes = [wintypes.HWND, wintypes.DWORD]
+        user32.GetWindowLongPtrW.restype = ctypes.c_ssize_t
+        h = user32.GetForegroundWindow()
+        if not h:
+            return False
+        pid = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(h, ctypes.byref(pid))
+        if pid.value == os.getpid():
+            return False                         # one of our own windows
+        state = ctypes.c_int(0)
+        if (ctypes.windll.shell32.SHQueryUserNotificationState(ctypes.byref(state)) == 0
+                and state.value == 3):           # QUNS_RUNNING_D3D_FULL_SCREEN
+            return True                          # a game in exclusive full screen
+        return window_fills_screen(h, widget)
+    except Exception:
+        return False
+
+
+def window_fills_screen(h, widget):
+    """Does window h cover the whole screen that widget is on, as a
+    full-screen program does (not the desktop, the taskbar or an ordinary
+    maximised window)?"""
+    try:
+        user32 = ctypes.windll.user32
+        user32.MonitorFromWindow.restype = wintypes.HANDLE
+        user32.MonitorFromWindow.argtypes = [wintypes.HWND, wintypes.DWORD]
+        user32.GetWindowLongPtrW.restype = ctypes.c_ssize_t
+        cls = ctypes.create_unicode_buffer(64)
+        user32.GetClassNameW(h, cls, 64)
+        if cls.value in ("Progman", "WorkerW", "Shell_TrayWnd", "Shell_SecondaryTrayWnd"):
+            return False                         # the desktop or the taskbar
+        style = user32.GetWindowLongPtrW(h, -16)                  # GWL_STYLE
+        if user32.IsZoomed(h) and style & 0x00C00000 == 0x00C00000:
+            return False                         # an ordinary maximised window (with an
+                                                 # auto-hidden taskbar it fills the screen)
+        mon = user32.MonitorFromWindow(h, 2)                      # nearest
+        if mon != user32.MonitorFromWindow(int(widget.winId()), 1):   # primary if none
+            return False                         # full screen, but on another screen
+        info = _MONITORINFO()
+        info.cbSize = ctypes.sizeof(_MONITORINFO)
+        rect = wintypes.RECT()
+        if not (user32.GetMonitorInfoW(mon, ctypes.byref(info))
+                and user32.GetWindowRect(h, ctypes.byref(rect))):
+            return False
+        m = info.rcMonitor
+        return (rect.left <= m.left and rect.top <= m.top
+                and rect.right >= m.right and rect.bottom >= m.bottom)
+    except Exception:
+        return False
+
+
 def tuck_behind_taskbar(widget):
     """Put a window just below the taskbar (which stays on top of it, icons
     and all), above everything else. Windows brings the taskbar forward now
@@ -2790,6 +2859,7 @@ class Overlay(QtWidgets.QWidget):
                          | Qt.WindowDoesNotAcceptFocus)   # clickable, never takes focus
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAttribute(Qt.WA_ShowWithoutActivating)
+        self.stepped_aside = False  # the idle pill is hidden for a full-screen program
         self.preview_words = None  # third-row text while previewing
         self.warning = ""          # microphone problem shown where the words go
         self.box_missing = False   # typing as you speak: no text box has the focus
@@ -3186,8 +3256,11 @@ class Overlay(QtWidgets.QWidget):
         """Fade out (the window hides once fully transparent). With the
         always-on setting, settle back to the small pill instead."""
         if ALWAYS_SHOW and not force:
-            self.show_idle()
-            return
+            if PILL_OVER_FULLSCREEN or not fullscreen_app_in_front(self):
+                self.show_idle()
+                return
+            self.stepped_aside = True            # a game is in front: fade out instead;
+                                                 # the status timer brings the pill back
         self.fade_target = 0.0
         if not self.isVisible():
             self.timer.stop()
@@ -5857,6 +5930,7 @@ class Dictation(QtCore.QObject):
         microphone is said on the card while you dictate (a light that turned
         red after a silent dictation stayed red after unmuting, as nothing
         listens between dictations to notice)."""
+        self._step_aside_check()
         if not self.overlay.isVisible():
             return                               # nothing shows the light: don't ask
         keep_on_top(self.overlay)
@@ -5869,6 +5943,28 @@ class Dictation(QtCore.QObject):
         if status != self.overlay.status:
             self.overlay.status = status
             self.overlay.update()
+
+    def _step_aside_check(self):
+        """While a full-screen program (a game, a video) covers the pill's
+        screen, the idle pill fades out, and comes back once it is gone, unless
+        "Show it over full-screen programs too" is on. Only the idle pill: a
+        dictation card or a notice still shows."""
+        o = self.overlay
+        if not o.stepped_aside and not (ALWAYS_SHOW and not PILL_OVER_FULLSCREEN
+                                        and o.isVisible() and o.mode == "idle"
+                                        and o.fade_target > 0):
+            return                               # nothing to hide or bring back
+        if self.state not in ("idle", "loading", "nomodel"):
+            return
+        covered = (ALWAYS_SHOW and not PILL_OVER_FULLSCREEN
+                   and fullscreen_app_in_front(o))
+        if covered and not o.stepped_aside:
+            o.stepped_aside = True
+            o.dismiss(force=True)
+        elif not covered and o.stepped_aside:
+            o.stepped_aside = False
+            if ALWAYS_SHOW and (not o.isVisible() or o.fade_target == 0):
+                o.show_idle()
 
     TAIL_MS = 250        # keep listening this long after you let go
 
@@ -7463,7 +7559,7 @@ _PORTABLE_CHECKS = {
     "screen_glow_strength": _is_int_in(5, 100),
     "screen_glow_size": _is_int_in(20, 200),
 }
-for _key in ("add_space", "always_show", "accent_outline", "outline_light", "glow_from_app",
+for _key in ("add_space", "always_show", "pill_over_fullscreen", "accent_outline", "outline_light", "glow_from_app",
              "hotkey_hint", "return_focus", "screen_glow", "show_app_icon", "show_app_name",
              "show_popup", "show_timer", "show_waveform", "sounds", "tray_live", "wide_card",
              "hold_to_talk", "live_preview", "type_text", "keep_last",
@@ -10103,6 +10199,11 @@ class SettingsWindow(QtWidgets.QDialog):
               option("ALWAYS_SHOW", "always_show", refresh=True),
               tip="Shows a small pill between dictations so you can see the app is "
                   "running. The microphone stays off until you press the hotkey.")
+        check("Show it over full-screen programs too", PILL_OVER_FULLSCREEN,
+              option("PILL_OVER_FULLSCREEN", "pill_over_fullscreen", refresh=True),
+              tip="Off: the pill steps aside while a game, a full-screen video or "
+                  "another full-screen program covers its screen, and comes back "
+                  "after. The hotkey works either way.")
         check("Show the hotkey text", SHOW_HOTKEY_HINT,
               lambda value: (option("SHOW_HOTKEY_HINT", "hotkey_hint", refresh=True)(value),
                              dictation.preview_pill()))
