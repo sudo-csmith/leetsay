@@ -1,7 +1,7 @@
 <p align="center">
-  <a href="https://github.com/sudo-csmith/leetsay/releases"><img src="assets/leetsay-type-as-you-speak.gif" alt="Animation of leetsay typing words into a text box while the dictation card shows them." width="100%"></a>
+  <a href="https://github.com/sudo-csmith/leetsay/releases"><img src="assets/leetsay-card-banner.gif" alt="Animation of leetsay: hold Ctrl+Space, speak, and the dictation card shows your words before they are typed." width="100%"></a>
 </p>
-<p align="center"><sub>Illustration of typing as you speak (an optional setting). The real card follows your accent colour and theme.</sub></p>
+<p align="center"><sub>Illustration, not a screen recording. The real card follows your accent colour and theme.</sub></p>
 
 Local dictation for Windows. Hold a hotkey, speak, let go: your words are
 typed into whatever program you are using.
@@ -64,9 +64,6 @@ folder, then double-click `leetsay.pyw`.
   pill on screen. **Quit** is at the bottom of Settings.
 - **The dot on the pill** is a status light: your colour when ready, amber
   while loading, red when something needs you. Click it to see what.
-- **Type as you speak** (Settings > Typing, off by default) types your words
-  while you talk. It is a little less accurate, because each word is typed
-  before the rest of the sentence is heard.
 - **Languages:** English by default; a model for 25 European languages is in
   Settings > Model.
 - **Word replacements** fix names the model doesn't know. Filler words such as
@@ -74,6 +71,17 @@ folder, then double-click `leetsay.pyw`.
 - Ctrl+Space is also used by some code editors and Asian keyboard layouts;
   pick another hotkey if you need it. Windows doesn't let leetsay type into
   programs running as administrator.
+
+### Type as you speak
+
+Settings > Typing > **Type as you speak** types your words into your program
+while you talk, instead of all at once when you let go. It is a little less
+accurate, because each word is typed before the rest of the sentence is heard.
+
+<p align="center">
+  <img src="assets/leetsay-type-as-you-speak.gif" alt="Animation of leetsay typing words into a text box while the dictation card shows them." width="100%">
+</p>
+<p align="center"><sub>Type as you speak is an optional setting and is off by default. Illustration, not a screen recording.</sub></p>
 
 ## Uninstalling
 
