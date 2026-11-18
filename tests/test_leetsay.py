@@ -15,6 +15,7 @@ import os
 import socket
 import sys
 import tempfile
+import types
 import unittest
 import urllib.request
 from importlib.machinery import SourceFileLoader
@@ -379,6 +380,33 @@ class TestUpdateCheck(unittest.TestCase):
         self.assertEqual(self.offered([self.asset("SHA256SUMS.txt", self.REPO + "v1/SHA256SUMS.txt")]), "")
         self.assertEqual(self.offered(None), "")
         self.assertEqual(self.offered(["not a dict"]), "")
+
+
+class TestSameTextBox(unittest.TestCase):
+    """Words go only into the text box the dictation started in: a box that
+    grows a line is still the same one; another box in the same window is
+    not; a dictation going to a pinned box is not judged this way."""
+
+    def judge(self, start, now, pinned=False):
+        holder = types.SimpleNamespace(start_rect=start, pin_used=pinned)
+        return ls.Dictation._box_moved(holder, now)
+
+    def test_same_box(self):
+        start = (100, 500, 700, 540)
+        self.assertFalse(self.judge(start, start))
+        self.assertFalse(self.judge(start, (100, 480, 700, 540)))   # grew upwards
+        self.assertFalse(self.judge(start, (100, 500, 700, 580)))   # grew downwards
+        self.assertFalse(self.judge(start, (104, 503, 696, 538)))   # a few pixels off
+
+    def test_another_box(self):
+        start = (100, 500, 700, 540)
+        self.assertTrue(self.judge(start, (100, 200, 700, 240)))    # a box higher up
+        self.assertTrue(self.judge(start, (800, 500, 1200, 540)))   # a box beside it
+
+    def test_not_judged(self):
+        self.assertFalse(self.judge(None, (1, 2, 3, 4)))             # didn't start in a box
+        self.assertFalse(self.judge((100, 500, 700, 540), None))     # place unknown
+        self.assertFalse(self.judge((100, 500, 700, 540), (0, 0, 9, 9), pinned=True))
 
 
 class TestSpeechDecision(unittest.TestCase):

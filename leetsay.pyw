@@ -3417,6 +3417,7 @@ class Overlay(QtWidgets.QWidget):
     CARD_EDGE_GAP = 24             # a dictation card's room from the screen's edges
     TASKBAR_GAP = 18               # ... and from the taskbar
     NO_BOX = "No text box selected"
+    MOVED_BOX = "Go back to your text box to type there"
     NO_MIC = "Microphone not detected  \u00b7  click for help"
 
     def _mic_warning(self):
@@ -3428,6 +3429,8 @@ class Overlay(QtWidgets.QWidget):
         if elapsed > 5.0 and peak < MIC_QUIET_PEAK and not self.live_text:
             return self.CANT_HEAR
         if self.box_missing:
+            if getattr(self, "box_moved", False):
+                return self.MOVED_BOX            # another box: waiting for the first
             return self.NO_BOX                   # typing as you speak is waiting
         return ""
 
@@ -5907,6 +5910,9 @@ class Dictation(QtCore.QObject):
         self.sticky = None                     # the sticky text box (made when first used)
         self.sticky_return = None              # the window to go back to afterwards
         self.pin_direct = None                 # the pinned box's control, typed into unseen
+        self.start_rect = None                 # where the box you started in is
+        self.pin_used = False                  # this dictation goes to the pin
+        self.last_moved = False                # the last check found another box
         self.pin_glow = None                   # the blue outline round the pinned box
         self.pin_place = None                  # (window rect, box rect, card - box)
         self.pin_timer = QtCore.QTimer()
@@ -6808,8 +6814,23 @@ class Dictation(QtCore.QObject):
         self.show_listening(True)
         self._start_effects()
         self.sticky_return = None
+        self.start_rect, self.pin_used = None, False
         if STICKY_BOX:
             self._sticky_start()
+        if TEXTBOX_ONLY and not self.pin_used:
+            # The words go only into the box you started in: in a browser or
+            # VS Code every box is in one window, and the last words (read a
+            # moment after you let go) went into a box clicked meanwhile.
+            session = self.session
+
+            def note_start():
+                try:
+                    rect = focused_box_rect() if focused_text_box() is True else None
+                except Exception:
+                    rect = None
+                if session == self.session:
+                    self.start_rect = rect
+            threading.Thread(target=note_start, daemon=True).start()
 
     def demo_screen_glow(self):
         """From Settings: show the screen glow for a moment (nothing records)."""
@@ -7261,10 +7282,18 @@ class Dictation(QtCore.QObject):
                         verdict = False if focused_text_box(password_only=True) else None
                 except Exception:
                     verdict = None
-                rect = None
+                rect, moved = None, False
+                if verdict is True and self.start_rect and not self.pin_used:
+                    try:
+                        moved = self._box_moved(focused_box_rect())
+                    except Exception:
+                        moved = False
+                    if moved:
+                        verdict = False          # another box: wait for the first
                 if verdict is True and DICTATION_MARK == "frame":
                     rect = focused_box_rect(self.frame_card)   # for the glow round it
-                box.update(key=key, verdict=verdict, rect=rect, at=time.monotonic(), busy=False)
+                box.update(key=key, verdict=verdict, rect=rect, at=time.monotonic(),
+                           busy=False, moved=moved)
             threading.Thread(target=ask, daemon=True).start()
         self.lt_box_waiting = box["key"] != key
         if self.lt_box_waiting:
@@ -7462,6 +7491,7 @@ class Dictation(QtCore.QObject):
             # never take the focus from the other screen). Typing as you speak
             # would need the box in front, so this dictation goes in whole.
             self.pin_direct = box.control
+            self.pin_used = True
             self.lt_active = self.lt_gentle = False
             self._pin_follow()
             return
@@ -7470,6 +7500,7 @@ class Dictation(QtCore.QObject):
         # comes forward just for the typing, and you are taken back
         # (_sticky_reach). Typing as you speak waits for that too.
         self.pin_direct = "later"
+        self.pin_used = True
         self.lt_active = self.lt_gentle = False
         self._pin_follow()                       # the outline wakes with your voice
 
@@ -7502,17 +7533,38 @@ class Dictation(QtCore.QObject):
             self.sticky.focus_on(other)          # back into the box you had moved to
             self.sticky.drop(other)
 
+    def _box_moved(self, rect):
+        """Is this text box another one than the box the dictation started in
+        (same window, other place)? A box that grows a line keeps its sides and
+        its top or bottom, so it still counts as the same."""
+        start = self.start_rect
+        if not start or not rect or self.pin_used:
+            return False
+        near = lambda a, b: abs(a - b) <= 10
+        return not (near(rect[0], start[0]) and near(rect[2], start[2])
+                    and (near(rect[1], start[1]) or near(rect[3], start[3])))
+
     def _text_box_now(self, target):
-        """The same question, answered now (waits at most half a second)."""
+        """The same question, answered now (waits at most about half a
+        second). False too when it is another text box than the one you
+        started in (self.last_moved says so)."""
+        self.last_moved = False
         if not TEXTBOX_ONLY:
             return True
         if is_terminal(target):
             return True
         answer = {}
-        asking = threading.Thread(target=lambda: answer.setdefault("v", focused_text_box()),
-                                  daemon=True)
+
+        def ask():
+            verdict = focused_text_box()
+            if verdict is True and self.start_rect and not self.pin_used \
+                    and self._box_moved(focused_box_rect()):
+                answer["moved"], verdict = True, False
+            answer["v"] = verdict
+        asking = threading.Thread(target=ask, daemon=True)
         asking.start()
-        asking.join(0.5)
+        asking.join(0.7)
+        self.last_moved = bool(answer.get("moved"))
         return answer.get("v")
 
     def _pace_tick(self):
@@ -7659,6 +7711,7 @@ class Dictation(QtCore.QObject):
             # row, so clicking about doesn't make it flicker.
             needed = 2 if getattr(self, "box_settled", False) else 1
             was = self.overlay.box_missing
+            self.overlay.box_moved = bool(self.lt_box.get("moved"))
             self.overlay.box_missing = getattr(self, "lt_missing", 0) >= needed
             if was and not self.overlay.box_missing:
                 # Back in a text box: the card's words line comes back
@@ -8102,9 +8155,14 @@ class Dictation(QtCore.QObject):
                     and self._text_box_now(self.target_window) is False):
                 # Still no text box when you let go (a web page, a video):
                 # typing it now would set off shortcuts there, so it isn't.
-                print("Typing as you speak: no text box at the end; the rest was not typed.")
+                moved = self.last_moved
+                print("Typing as you speak: %s at the end; the rest was not typed." % (
+                    "another text box" if moved else "no text box"))
                 self.remember(typed + text)      # kept only with "Missed text safety"
-                if self.overlay.box_missing:
+                if moved:
+                    self.overlay.show_message("You moved to another text box, so the "
+                                              "rest wasn't typed", ms=3000)
+                elif self.overlay.box_missing:
                     # The card already said "No text box selected": just close.
                     self.overlay.dismiss()
                 else:                            # it had no chance to say so
@@ -8276,10 +8334,13 @@ class Dictation(QtCore.QObject):
         if (text.strip() and TEXTBOX_ONLY and target
                 and foreground_window() == target
                 and self._text_box_now(target) is False):
-            print("No text box when the dictation ended; it was not typed.")
+            moved = self.last_moved
+            print("%s when the dictation ended; it was not typed." % (
+                "Another text box" if moved else "No text box"))
             if self.overlay.mode == "message" and self.overlay.message == self.TYPING:
                 self.overlay.dismiss()
-            self.overlay.show_message("No text box, so it wasn't typed", ms=2500)
+            self.overlay.show_message("You moved to another text box, so it wasn't typed"
+                                      if moved else "No text box, so it wasn't typed", ms=3000)
             return                               # kept only with "Missed text safety"
         self._deliver(text, 30, finish=True, after_key=after_key)
 
