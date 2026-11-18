@@ -434,6 +434,24 @@ class TestNoRepeatedPhrase(unittest.TestCase):
         self.assertEqual(self.skip("I said no", "no, it is fine".split()), 0)
         self.assertEqual(self.skip("", "one two three".split()), 0)
 
+    def test_last_reading_lined_up_with_typed_text(self):
+        line_up = ls.Dictation._after_tail
+        # The word times put new words into the context: they are kept.
+        whole = "it cuts off a, but when the like".split()
+        self.assertEqual(" ".join(whole[line_up("Here at the end it cuts off a", whole, 8):]),
+                         "but when the like")
+        # A context word came back as part of the piece: not typed twice.
+        whole = "be fine? Like, the first line seems to get messed up.".split()
+        self.assertEqual(" ".join(whole[line_up("Could that be fine? Like, the first line seems",
+                                                whole, 0):]), "to get messed up.")
+        # One last typed word heard differently is still lined up.
+        whole = "we went to the shop and then home".split()
+        self.assertEqual(" ".join(whole[line_up("so we went to the shops", whole, 5):]),
+                         "and then home")
+        # Nothing to line up with: the times decide.
+        self.assertIsNone(line_up("Hello there", "something else entirely".split(), 1))
+        self.assertIsNone(line_up("", "one two".split(), 0))
+
     def test_earlier_words_back_in_a_started_piece(self):
         # Part of the piece is typed already, and a reading brings back more
         # of the words before it than the line-up looks at: only the new

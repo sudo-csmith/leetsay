@@ -6721,6 +6721,7 @@ class Dictation(QtCore.QObject):
         if self.state != "recording" or getattr(self, "_finishing", False):
             return
         self._finishing = True
+        self.lt_hurry = True                     # words still waiting go in now
         session = self.session
 
         def now():
@@ -6804,6 +6805,7 @@ class Dictation(QtCore.QObject):
         self.lt_commit, self.lt_index = 0, (0, 0)
         self.lt_done = self.lt_pending = ""
         self.lt_last_add = self.lt_gap = None        # steady flow: learnt afresh
+        self.lt_hurry = False
         self.lt_counts = [0, 0, 0]
         self.lt_prev, self.lt_seg_words = [], []
         self.lt_all, self.lt_held = [], None
@@ -7088,6 +7090,8 @@ class Dictation(QtCore.QObject):
         words = [w for w in words if w[0]]
         before = [w for w, at in words if at < skip - 0.04]
         piece = [w for w, at in words if at >= skip - 0.04]
+        self._timed_all = [w for w, _at in words]        # the whole reading
+        self._timed_split = len(before)                  # where the times cut it
         return " ".join(piece), (before[-1] if before else "")
 
     def _live_read_run(self, audio, start, session, skip):
@@ -7156,6 +7160,31 @@ class Dictation(QtCore.QObject):
             return min(len(typed), len(plain))
         last = blocks[-1]
         return min(len(plain), last.b + last.size + (len(typed) - (last.a + last.size)))
+
+    @classmethod
+    def _after_tail(cls, typed, words, split):
+        """Where the new words begin in a whole reading (context included),
+        found by lining its start up with the end of the typed text instead of
+        trusting the word times: those can put a word spoken just after the
+        pause into the context (it was never typed: endings went missing) or
+        a context word into the piece (typed twice). None when it can't be
+        lined up (then the times decide). typed: the text typed so far; words:
+        the whole reading; split: where the times cut it."""
+        tail = cls._plain(typed.split())[-30:]
+        plain = cls._plain(words)
+        if len(tail) < 2 or not plain:
+            return None
+        import difflib
+        best = None
+        for b in difflib.SequenceMatcher(None, tail, plain, autojunk=False) \
+                .get_matching_blocks():
+            # A run of 2+ words that reaches the end of the typed text (one
+            # last word heard differently allowed) and starts in the context.
+            if b.size >= 2 and b.a + b.size >= len(tail) - 1 and b.b <= max(split, 1):
+                end = b.b + b.size + (len(tail) - (b.a + b.size))
+                if best is None or end > best:
+                    best = end
+        return None if best is None else min(best, len(plain))
 
     REPEAT_MIN = 3               # words: a shorter echo can be meant ("no, no")
 
@@ -7641,6 +7670,10 @@ class Dictation(QtCore.QObject):
         rate = waiting * 0.03 / left                       # letters this tick
         if waiting > 40:
             rate = max(rate, waiting / 8.0)              # far behind: catch up
+        if getattr(self, "lt_hurry", False):
+            # You let go: what is waiting goes in within about 0.1 s, so it
+            # is in before you press Enter or click Send.
+            rate = max(rate, waiting / 3.0, 3.0)
         self.lt_credit += max(rate, 0.35)
         count = min(len(self.lt_pending), int(self.lt_credit))
         if getattr(self, "lt_gentle", False):
@@ -8134,6 +8167,16 @@ class Dictation(QtCore.QObject):
                             self.finished.emit("")
                             return
                     text, self._final_before = self._timed_read(audio, skip)
+                    whole = list(self._timed_all)
+                    at = self._after_tail(self.lt_done + self.lt_pending, whole,
+                                          self._timed_split)
+                    self._final_aligned = at is not None
+                    if at is not None:
+                        text = " ".join(whole[at:])
+                        self._final_before = whole[at - 1] if at else ""
+                        print("Typing as you speak: last reading lined up with the "
+                              "typed text (the times said %d new, the line-up %d)."
+                              % (len(whole) - self._timed_split, len(whole) - at))
                     self.finished.emit(text.strip())
                     return
                 self._load_helper()
@@ -8192,9 +8235,10 @@ class Dictation(QtCore.QObject):
                   % tuple(self.lt_counts))
             typed = self.lt_done
             words = list(cleaned)                # skip the words typed already
-            begin = self._after_typed(self._plain(words)) if words else 0
+            aligned, self._final_aligned = getattr(self, "_final_aligned", False), False
+            begin = self._after_typed(self._plain(words)) if words and not aligned else 0
             lined_up = begin
-            if words:
+            if words and not aligned:
                 begin = max(begin, self._skip_repeat(words))   # earlier words read again
             # Counts only (never the words): helps tell a cut-off ending apart.
             print("Typing as you speak: last reading %d words: %d typed already, %d more "
