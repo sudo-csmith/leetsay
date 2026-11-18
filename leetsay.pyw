@@ -6803,6 +6803,7 @@ class Dictation(QtCore.QObject):
             QtCore.QTimer.singleShot(0, self._update_box_warning)   # ask straight away
         self.lt_commit, self.lt_index = 0, (0, 0)
         self.lt_done = self.lt_pending = ""
+        self.lt_last_add = self.lt_gap = None        # steady flow: learnt afresh
         self.lt_counts = [0, 0, 0]
         self.lt_prev, self.lt_seg_words = [], []
         self.lt_all, self.lt_held = [], None
@@ -7209,9 +7210,22 @@ class Dictation(QtCore.QObject):
         self.lt_all += self._plain(words)
         return join_words([text + " ".join(words)])
 
+    LT_FLOW = (0.35, 1.2)        # seconds: the shortest and longest spread of a batch
+
     def _queue_words(self, words, before=None, piece_end=False):
         text = self._compose(words, before, piece_end)
         if text:
+            # Steady flow: each batch of words is spread over the time until
+            # the next one usually arrives (learnt as you speak), so the words
+            # flow out instead of jumping in and then waiting.
+            now = time.monotonic()
+            last = getattr(self, "lt_last_add", None)
+            gap = getattr(self, "lt_gap", None) or 0.7
+            if last is not None and now - last < 3.0:
+                gap = 0.7 * gap + 0.3 * (now - last)
+            self.lt_gap = min(max(gap, self.LT_FLOW[0]), self.LT_FLOW[1])
+            self.lt_last_add = now
+            self.lt_flow_until = now + self.lt_gap
             self.lt_pending += text
             self._flush_live()
 
@@ -7618,9 +7632,16 @@ class Dictation(QtCore.QObject):
             # page is one window, so a move from a name field to a password
             # field changes nothing else that could be seen.
             return
-        # A steady flow: the more is waiting, the faster it goes (about a
-        # quarter of a second to catch up), never stopping and starting in jumps.
-        self.lt_credit += max(len(self.lt_pending) / 6.0, 2.0)
+        # A steady flow: what is waiting is spread evenly over the time until
+        # the next words usually arrive (see _queue_words), so it never stops
+        # and starts in jumps; with a lot waiting it goes faster (at most
+        # about a second behind).
+        left = max(getattr(self, "lt_flow_until", 0.0) - time.monotonic(), 0.06)
+        waiting = len(self.lt_pending)
+        rate = waiting * 0.03 / left                       # letters this tick
+        if waiting > 40:
+            rate = max(rate, waiting / 8.0)              # far behind: catch up
+        self.lt_credit += max(rate, 0.35)
         count = min(len(self.lt_pending), int(self.lt_credit))
         if getattr(self, "lt_gentle", False):
             count = min(count, self.GENTLE_LETTERS)   # a program that drops fast keys
