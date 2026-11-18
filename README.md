@@ -135,6 +135,10 @@ from this repository; every release is approved by hand.
 
 ## Licence and credits
 
-MIT licence, see [LICENSE](LICENSE). Speech models by NVIDIA under CC-BY-4.0;
-these and the libraries leetsay uses are listed in [CREDITS.md](CREDITS.md).
+MIT licence, see [LICENSE](LICENSE).
+
+Speech model: Parakeet TDT 0.6B (v2 for English, v3 for 25 European languages) by NVIDIA Corporation, under the CC-BY-4.0 licence, converted to ONNX and reduced to 8 bits by this project (github.com/sudo-csmith/leetsay-models). Not reviewed or endorsed by NVIDIA.
+
+The models and the libraries leetsay uses are listed, with their licences, in
+[CREDITS.md](CREDITS.md).
 Security problems: [SECURITY.md](SECURITY.md).

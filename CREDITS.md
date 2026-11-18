@@ -2,6 +2,8 @@
 
 ## Speech model
 
+Speech model: Parakeet TDT 0.6B (v2 for English, v3 for 25 European languages) by NVIDIA Corporation, under the CC-BY-4.0 licence, converted to ONNX and reduced to 8 bits by this project (github.com/sudo-csmith/leetsay-models). Not reviewed or endorsed by NVIDIA.
+
 leetsay uses **Parakeet TDT 0.6B v2** (English) and, if you choose it,
 **Parakeet TDT 0.6B v3** (25 European languages), speech recognition models
 made by NVIDIA and released under the
