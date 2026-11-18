@@ -41,8 +41,10 @@ More in [PRIVACY.md](PRIVACY.md).
    **Run anyway**. leetsay is signed (from 0.2.3), but new, so Windows may warn
    until more people have downloaded it.
 
-Versions 0.2.1 and earlier are unsigned and are blocked by Smart App Control;
-use the newest release.
+**Smart App Control:** versions 0.2.1 and earlier are unsigned and are
+blocked by it. Releases from 0.2.3 are signed, which it should accept, but
+this has not been confirmed yet on a PC with Smart App Control switched on.
+Use the newest release.
 
 **Checking the download (optional).** Each release lists a SHA-256
 fingerprint. In your Downloads folder, right-click an empty spot, choose
