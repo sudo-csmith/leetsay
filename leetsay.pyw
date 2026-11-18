@@ -45,6 +45,37 @@ APP_REPO = "sudo-csmith/leetsay"                 # where new versions are publis
 # numpy is first imported; a value the user set themselves is kept.
 os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 
+INSTALLER_LINK_START = "https://github.com/%s/releases/download/" % APP_REPO
+
+
+def pick_installer(assets):
+    """The installer's download link among a release's files (as GitHub lists
+    them): "leetsay-setup.exe" (releases from 0.2.3), else the older
+    "leetsay-setup-<version>.exe". "" if there is neither."""
+    plain = versioned = ""
+    for asset in assets or []:
+        if not isinstance(asset, dict):
+            continue
+        name = str(asset.get("name") or "").lower()
+        link = str(asset.get("browser_download_url") or "")
+        if name == "leetsay-setup.exe":
+            plain = plain or link
+        elif name.startswith("leetsay-setup-") and name.endswith(".exe"):
+            versioned = versioned or link
+    return plain or versioned
+
+
+def safe_release_link(link, start):
+    """Only a plain link under this repository: no tricks such as "..",
+    an encoded dot or slash, a user name, a port or odd characters."""
+    from urllib.parse import urlsplit
+    link = str(link or "")
+    if not link.startswith(start) or any(c in link for c in "\\%@?#<>\"' "):
+        return False
+    parts = urlsplit(link)
+    return (parts.scheme == "https" and parts.netloc == "github.com"
+            and ".." not in parts.path.split("/"))
+
 if sys.argv[1:2] == ["--check-app-update"] and len(sys.argv) >= 3:
     # Not the application: a short-lived helper, started only after the user
     # agreed to "This application will go online" (or switched on the update
@@ -61,11 +92,7 @@ if sys.argv[1:2] == ["--check-app-update"] and len(sys.argv) >= 3:
         try:
             with urllib.request.urlopen(_request, timeout=20) as _reply:
                 _data = json.load(_reply)
-            _installer = ""
-            for _asset in _data.get("assets") or []:
-                _name = str(_asset.get("name") or "")
-                if _name.lower().startswith("leetsay-setup-") and _name.lower().endswith(".exe"):
-                    _installer = str(_asset.get("browser_download_url") or "")
+            _installer = pick_installer(_data.get("assets"))
             _result = {"ok": True, "tag": _data.get("tag_name") or "",
                        "url": _data.get("html_url") or "", "installer": _installer,
                        "notes": str(_data.get("body") or "")[:4000]}
@@ -853,20 +880,11 @@ def fetch_latest_release():
             pass
     if not result.get("ok"):
         return None, None, None, result.get("error") or "github.com could not be reached"
-    def safe_link(link, start):
-        """Only a plain link under this repository: no tricks such as "..",
-        an encoded dot or slash, a user name, a port or odd characters."""
-        from urllib.parse import urlsplit
-        if not link.startswith(start) or any(c in link for c in "\\%@?#<>\"' "):
-            return False
-        parts = urlsplit(link)
-        return (parts.scheme == "https" and parts.netloc == "github.com"
-                and ".." not in parts.path.split("/"))
     page = str(result.get("url") or "")
-    if not safe_link(page, "https://github.com/%s/" % APP_REPO):
+    if not safe_release_link(page, "https://github.com/%s/" % APP_REPO):
         page = APP_RELEASES_PAGE                 # only ever this repository's page
     installer = str(result.get("installer") or "")
-    if not safe_link(installer, "https://github.com/%s/releases/download/" % APP_REPO):
+    if not safe_release_link(installer, INSTALLER_LINK_START):
         installer = ""                           # not this repository's: not offered
     # A release can say that older versions should no longer be used, with a
     # line "Minimum safe version: x.y.z" in its notes.

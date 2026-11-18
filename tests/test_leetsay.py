@@ -337,6 +337,50 @@ class TestLogPrivacy(unittest.TestCase):
         self.assertEqual(found, [], "log lines that may contain dictated text")
 
 
+class TestUpdateCheck(unittest.TestCase):
+    """The installer link offered by "Check for app updates", from fake
+    release replies as GitHub sends them."""
+    REPO = "https://github.com/sudo-csmith/leetsay/releases/download/"
+
+    def offered(self, assets):
+        return ls.pick_installer(assets) if ls.safe_release_link(
+            ls.pick_installer(assets), ls.INSTALLER_LINK_START) else ""
+
+    @staticmethod
+    def asset(name, link):
+        return {"name": name, "browser_download_url": link}
+
+    def test_plain_name(self):
+        link = self.REPO + "v0.2.4/leetsay-setup.exe"
+        self.assertEqual(self.offered([self.asset("SHA256SUMS.txt", self.REPO + "v0.2.4/SHA256SUMS.txt"),
+                                       self.asset("leetsay-setup.exe", link)]), link)
+
+    def test_old_versioned_name(self):
+        link = self.REPO + "v0.2.1/leetsay-setup-0.2.1.exe"
+        self.assertEqual(self.offered([self.asset("leetsay-setup-0.2.1.exe", link)]), link)
+
+    def test_plain_name_preferred(self):
+        plain = self.REPO + "v0.3.0/leetsay-setup.exe"
+        self.assertEqual(self.offered([
+            self.asset("leetsay-setup-0.3.0.exe", self.REPO + "v0.3.0/leetsay-setup-0.3.0.exe"),
+            self.asset("leetsay-setup.exe", plain)]), plain)
+
+    def test_links_elsewhere_refused(self):
+        for link in ("https://example.com/leetsay-setup.exe",
+                     "https://github.com/someone-else/leetsay/releases/download/v1/leetsay-setup.exe",
+                     "http://github.com/sudo-csmith/leetsay/releases/download/v1/leetsay-setup.exe",
+                     self.REPO + "../../../evil/leetsay-setup.exe",
+                     self.REPO + "v1/%2e%2e/leetsay-setup.exe",
+                     self.REPO + "v1/leetsay-setup.exe?x=1",
+                     "https://github.com@example.com/sudo-csmith/leetsay/releases/download/v1/leetsay-setup.exe"):
+            self.assertEqual(self.offered([self.asset("leetsay-setup.exe", link)]), "", link)
+
+    def test_nothing_suitable(self):
+        self.assertEqual(self.offered([self.asset("SHA256SUMS.txt", self.REPO + "v1/SHA256SUMS.txt")]), "")
+        self.assertEqual(self.offered(None), "")
+        self.assertEqual(self.offered(["not a dict"]), "")
+
+
 class TestSpeechDecision(unittest.TestCase):
     """The rule: nothing is dropped without the pop-up saying so, short sound
     without speech is not typed (today's click-and-cough rule), and longer
