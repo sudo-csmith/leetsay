@@ -2386,14 +2386,30 @@ def _bare(word):
     return "".join(c for c in word.lower() if c.isalnum())
 
 
+# Words that make "new line" part of a sentence when said just before it
+# ("a new line", "the new paragraph", "our new line of ...").
+_BREAK_NOT_AFTER = {"a", "an", "the", "this", "that", "these", "those", "my",
+                    "your", "his", "her", "its", "our", "their", "another",
+                    "each", "every", "any", "no", "some", "what", "which",
+                    "whose", "whole", "entire", "brand", "is", "was", "be"}
+
+
 def _stands_apart(words, first, last):
-    """Is words[first..last] said on its own, as a command: a pause or
-    punctuation before it (or the very start) and after it (or the very end),
-    and none inside it? So "a new line of credit" stays words."""
-    before = first == 0 or words[first - 1][-1:] in ".,!?;:"
-    after = last == len(words) - 1 or words[last][-1:] in ".,!?;:"
+    """Is words[first..last] said as a command? The model often adds no
+    punctuation round it ("testing new line testing"), so it counts unless it
+    is clearly part of a sentence: a word like "a"/"the"/"my" just before it,
+    or "of" just after it ("a new line of credit" stays words). Punctuation
+    before it always makes it a command; none may sit inside it."""
     inside = all(w[-1:] not in ".,!?;:" for w in words[first:last])
-    return before and after and inside
+    if not inside:
+        return False
+    if first == 0 or words[first - 1][-1:] in ".,!?;:":
+        return True
+    if _bare(words[first - 1]) in _BREAK_NOT_AFTER:
+        return False
+    if words[last][-1:] in ".,!?;:" or last == len(words) - 1:
+        return True
+    return _bare(words[last + 1]) != "of"
 
 
 def spoken_breaks(words):

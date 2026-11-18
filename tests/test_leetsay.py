@@ -112,12 +112,19 @@ class TestNewLine(unittest.TestCase):
             self.assertEqual(text_of("First point. New paragraph. Second point."),
                              "First point.\n\nSecond point.")
             self.assertEqual(text_of("New line. Hi."), "\nHi.")
+            # Said straight through, with no punctuation from the model.
+            self.assertEqual(text_of("New line testing testing new line testing"),
+                             "\nTesting testing\nTesting")
+            self.assertEqual(text_of("Hello new line"), "Hello\n")
+            self.assertEqual(text_of("one point new paragraph second point"),
+                             "one point\n\nSecond point")
 
     def test_ordinary_sentences_stay_words(self):
         with Settings(SPOKEN_BREAKS=True):
             for sentence in ("I bought a new line of credit.", "Is this new? Line two.",
                              "I need a new line.", "The new paragraph is fine.",
-                             "Hello new line"):
+                             "They opened new line of credit", "Our new line is out.",
+                             "The bus is new line seven"):
                 self.assertEqual(text_of(sentence), sentence)
 
     def test_switched_off(self):
