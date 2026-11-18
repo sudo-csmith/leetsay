@@ -421,11 +421,11 @@ TEXTBOX_ONLY = True                  # typing as you speak: only into a text box
                                      # Windows what kind of control has the focus)
 POINT_TO_TYPE = False                # while no text box is selected, resting the mouse
                                      # on one selects it (no click; off by default)
-DICTATION_MARK = "pointer"           # where "dictating here" shows: "pointer" (the tag at
-                                     # the pointer; default), "frame" (a glow round the text
-                                     # box, beta; the pointer tag where there is none) or "off"
-DICTATION_MARKS = (("pointer", "Tag at the pointer"), ("frame", "Glow round the text box (beta)"),
-                   ("off", "Off"))
+DICTATION_MARK = "pointer"           # "frame": a glow round the text box while dictating
+                                     # (the last tab, Beta; the pointer tag where there is none);
+                                     # "pointer": no glow. The tag itself: POINTER_STATUS.
+DICTATION_MARKS = (("pointer", "Tag at the pointer"), ("frame", "Glow round the text box"),
+                   ("off", "Off"))       # "off" only in older settings files
 POINTER_STATUS = True                # "Listening" / "Typing..." by the mouse pointer
                                      # while dictating (not with typing as you speak)
 POINTER_HINT = True                  # ... and say "No text box" by the mouse pointer too
@@ -707,9 +707,8 @@ for _name, _key in (("SHOW_APP_ICON", "show_app_icon"), ("SHOW_APP_NAME", "show_
         globals()[_name] = _config[_key]
 if _config.get("dictation_mark") in [key for key, _label in DICTATION_MARKS]:
     DICTATION_MARK = _config["dictation_mark"]
-elif _config.get("pointer_status") is False:      # the earlier on/off switch, when off
-    DICTATION_MARK = "off"
-POINTER_STATUS = DICTATION_MARK != "off"
+if DICTATION_MARK == "off":              # an older choice: no glow and no tag
+    DICTATION_MARK, POINTER_STATUS = "pointer", False
 if isinstance(_config.get("volume"), (int, float)) and not isinstance(_config["volume"], bool):
     SOUND_VOLUME = max(0.0, min(1.0, float(_config["volume"])))
 for _name, _key, _low, _high in (("SCREEN_GLOW_STRENGTH", "screen_glow_strength", 5, 100),
@@ -10641,7 +10640,7 @@ class SettingsWindow(QtWidgets.QDialog):
                             | Qt.WindowMinimizeButtonHint
                             | Qt.WindowStaysOnTopHint)    # stays above other windows
         self.setStyleSheet(settings_style())
-        self.setFixedWidth(440)
+        self.setFixedWidth(480)                  # eight tabs in view (owner: a little wider)
         dark_title_bar(self)
         outer = QtWidgets.QVBoxLayout(self)
         outer.setContentsMargins(14, 10, 14, 14)
@@ -10675,7 +10674,7 @@ class SettingsWindow(QtWidgets.QDialog):
         outer.addWidget(self.leet_bar)
         tabs = QtWidgets.QTabWidget()
         tabs.setDocumentMode(False)
-        tabs.setUsesScrollButtons(False)         # all seven tabs in view, never arrows
+        tabs.setUsesScrollButtons(False)         # all eight tabs in view, never arrows
         outer.addWidget(tabs)
         self.swatches = []
         page = {"layout": None}          # the tab currently being filled
@@ -10917,14 +10916,40 @@ class SettingsWindow(QtWidgets.QDialog):
                   "when you finish. The hotkey can stay held: it doesn't get in "
                   "the way of the typing.\n\n"
                   "Words only go into the window you started in, and only into "
-                  "a text box (see below). Otherwise typing waits; if you click "
-                  "into a text box, it catches up.\n\n"
+                  "a text box. Otherwise typing waits; if you click into a text "
+                  "box, it catches up.\n\n"
                   "Less accurate: each part is read on its own, before the rest "
                   "of the sentence is heard, and words already typed are never "
                   "changed afterwards. Small words like \"and\" or \"on\" are the "
                   "most often wrong.",
-              hint="Words appear as you say them. Less accurate than all at once "
-                   "(off is recommended).")
+              hint="Words appear as you speak (a little less accurate).")
+        check("Say \"new line\" for a line break", SPOKEN_BREAKS,
+              option("SPOKEN_BREAKS", "spoken_breaks"),
+              tip="On by default. Saying \"new line\" starts a new line, and \"new "
+                  "paragraph\" leaves an empty line between. Sent as Shift+Enter, "
+                  "so a chat app never sends your message. In a terminal it is a "
+                  "space instead (there it would run the command).",
+              hint="Never sends a message.")
+        check("Remove filler words", REMOVE_FILLERS,
+              option("REMOVE_FILLERS", "remove_fillers"),
+              hint="Leaves out um, uh and erm.")
+        check("Add a space after each dictation", ADD_SPACE,
+              option("ADD_SPACE", "add_space"),
+              hint="So dictations don't run together.")
+        # The button after the tick boxes, so they line up together (owner).
+        replace_button = button("Word replacements\u2026",
+                                lambda: replacements_window(self), width=170)
+        replace_button.setToolTip("Fix words the speech model gets wrong, such as names it "
+                                  "doesn't know: what it writes, and what you want instead.")
+        row(field("Words"), replace_button, None)
+
+        heading("Where your words go")
+        check("Stay in the window I started in", RETURN_FOCUS,
+              option("RETURN_FOCUS", "return_focus"),
+              tip="If another program pops up and takes over while you are "
+                  "speaking, your words still go to the window you were in when "
+                  "you pressed the hotkey.",
+              hint="Even if another window pops up while you speak.")
         check("Text box detection", TEXTBOX_ONLY, option("TEXTBOX_ONLY", "textbox_only"),
               tip="On by default. While you dictate, the pop-up says \"No text "
                   "box selected\" when the cursor isn't in one, so you notice in "
@@ -10939,62 +10964,18 @@ class SettingsWindow(QtWidgets.QDialog):
                   "page or the program. Nothing is kept or written down.\n\n"
                   "Off: Windows isn't asked, and words are typed wherever the "
                   "focus is.",
-              hint="The pop-up says when the cursor isn't in a text box. Asks "
-                   "Windows only what kind of control has the focus.")
+              hint="Says when the cursor isn't in a text box.")
         check("Show it at the mouse pointer", POINTER_HINT,
               option("POINTER_HINT", "pointer_hint"),
-              hint="A small \"No text box\" tag follows the pointer while the "
-                   "cursor isn't in a text box. Microphone problems show there "
-                   "too, in red.")
-        self.mark = QtWidgets.QComboBox()
-        for key, label in DICTATION_MARKS:
-            self.mark.addItem(label, key)
-        self.mark.setCurrentIndex(max(0, self.mark.findData(DICTATION_MARK)))
-
-        def mark_changed(index):
-            set_option("DICTATION_MARK", "dictation_mark", self.mark.itemData(index))
-            globals()["POINTER_STATUS"] = DICTATION_MARK != "off"
-
-        self.mark.currentIndexChanged.connect(mark_changed)
-        row(field("Dictating"), self.mark, None)
-        note("Shows where your words will go while you dictate: a \"Listening\" tag at "
-             "the pointer, or a soft glow round the text box. The glow is in beta: it "
-             "fits well in VS Code; on some web pages it can sit a little off the box. "
-             "Only the box's place is asked, never its text.")
-        check("Select one by pointing at it", POINT_TO_TYPE,
-              option("POINT_TO_TYPE", "point_to_type"),
-              tip="Off by default. While the pop-up says \"No text box selected\", "
-                  "rest the mouse on a text box for a moment and it is selected "
-                  "for you, as if you had clicked it (nothing is clicked). Only "
-                  "in the window you started in, only clear text boxes, never "
-                  "password boxes. Needs Text box detection.",
-              hint="While no text box is selected, rest the mouse on one for a "
-                   "moment and it's selected for you.")
-        check("Say \"new line\" for a line break", SPOKEN_BREAKS,
-              option("SPOKEN_BREAKS", "spoken_breaks"),
-              tip="On by default. Saying \"new line\" starts a new line, and \"new "
-                  "paragraph\" leaves an empty line between. Sent as Shift+Enter, "
-                  "so a chat app never sends your message. In a terminal it is a "
-                  "space instead (there it would run the command).",
-              hint="\"New line\" and \"new paragraph\" start a new line (never "
-                   "sends a message).")
-        check("Remove filler words", REMOVE_FILLERS,
-              option("REMOVE_FILLERS", "remove_fillers"),
-              hint="Leaves out um, uh and erm.")
-        check("Add a space after each dictation", ADD_SPACE,
-              option("ADD_SPACE", "add_space"),
-              hint="So two dictations in a row don't run together.")
-        check("Stay in the window I started in", RETURN_FOCUS,
-              option("RETURN_FOCUS", "return_focus"),
-              hint="If another program pops up and takes over while you are speaking, "
-                   "your words still go to the window you were in when you pressed "
-                   "the hotkey.")
-        # The button after the tick boxes, so they line up together (owner).
-        replace_button = button("Word replacements\u2026",
-                                lambda: replacements_window(self), width=170)
-        replace_button.setToolTip("Fix words the speech model gets wrong, such as names it "
-                                  "doesn't know: what it writes, and what you want instead.")
-        row(field("Words"), replace_button, None)
+              tip="A small \"No text box\" tag follows the pointer while the cursor "
+                  "isn't in a text box. Microphone problems show there too, in red.",
+              hint="\"No text box\" and microphone problems, by the pointer.")
+        check("Show Listening and Typing at the pointer", POINTER_STATUS,
+              option("POINTER_STATUS", "pointer_status"),
+              tip="While you dictate, the tag by the pointer says \"Listening\", "
+                  "then \"Typing\u2026\" until your words are in. Not with typing "
+                  "as you speak.",
+              hint="While you dictate.")
 
         end_tab()
 
@@ -11610,6 +11591,30 @@ class SettingsWindow(QtWidgets.QDialog):
         if uninstaller_path():
             helpers.append(button("Uninstall %s" % APP_TITLE, lambda: start_uninstall(self)))
         button_grid(*helpers)
+        end_tab()
+
+        # ================= Beta =================
+        tab("Beta")
+        heading("Beta", first=True)
+        note("Features still being tested. They may change, and may not work the "
+             "same in every program. Each is off until you switch it on.")
+        check("Glow round the text box", DICTATION_MARK == "frame",
+              lambda on: set_option("DICTATION_MARK", "dictation_mark",
+                                    "frame" if on else "pointer"),
+              tip="While you dictate, a soft glow in your accent colour goes round "
+                  "the text box your words will go into. Fits well in VS Code; on "
+                  "some web pages it can sit a little off the box. Where the text "
+                  "box can't be seen, the tag at the pointer says it instead. Only "
+                  "the box's place is asked, never its text.",
+              hint="Shows where your words will go. Fits best in VS Code.")
+        check("Select one by pointing at it", POINT_TO_TYPE,
+              option("POINT_TO_TYPE", "point_to_type"),
+              tip="While the pop-up says \"No text box selected\", rest the mouse "
+                  "on a text box for a moment and it is selected for you, as if "
+                  "you had clicked it (nothing is clicked). Only in the window you "
+                  "started in, only clear text boxes, never password boxes. Needs "
+                  "Text box detection.",
+              hint="Rest the mouse on a text box to select it.")
         end_tab()
         # Open on the tab that was showing last time (remembered only while
         # the application is running; nothing is written to disk for this).
