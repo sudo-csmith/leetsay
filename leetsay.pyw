@@ -6458,6 +6458,8 @@ class Dictation(QtCore.QObject):
         try:
             audio = leveled(audio)
             with self.model_lock:
+                if not self._speech_in(audio):
+                    return                       # noise only: nothing to show
                 began = time.monotonic()
                 text = str(self.model.recognize(audio, sample_rate=SAMPLE_RATE))
                 done = time.monotonic()
@@ -6544,6 +6546,8 @@ class Dictation(QtCore.QObject):
         try:
             audio = leveled(audio)
             with self.model_lock:
+                if not self._speech_in(audio[int(skip * SAMPLE_RATE):]):
+                    return                       # the new part is noise only: nothing to type
                 began = time.monotonic()
                 text, before = self._timed_read(audio, skip)
                 done = time.monotonic()
@@ -6559,6 +6563,10 @@ class Dictation(QtCore.QObject):
         try:
             audio = leveled(audio)
             with self.model_lock:
+                if not self._speech_in(audio[int(skip * SAMPLE_RATE):]):
+                    # A piece of noise only: done with it, nothing typed.
+                    self.live_piece.emit(session, "", end, start, "")
+                    return
                 began = time.monotonic()
                 text, before = self._timed_read(audio, skip)
                 done = time.monotonic()
@@ -7140,6 +7148,32 @@ class Dictation(QtCore.QObject):
             self.overlay.show_message(self.WORKING, ms=None)
 
     # -- transcription -------------------------------------------------------
+    def _load_helper(self):
+        """The voice detector (the Silero helper), loaded on first use. Call
+        with model_lock held."""
+        if self.model_vad is None:
+            try:
+                if not helper_ok():                # only the official file is used
+                    raise FileNotFoundError("the helper is not on this PC")
+                import onnx_asr
+                self.vad = onnx_asr.load_vad("silero", helper_dir())
+                self.model_vad = self.model.with_vad(self.vad)
+            except Exception as exc:
+                print("Dictation without the helper: %s" % exc, file=sys.stderr)
+                self.model_vad, self.vad = False, None
+
+    def _speech_in(self, audio):
+        """Is there speech in this (levelled) audio? Detection only. True when
+        it can't be told (no helper), so nothing is held back for that.
+        Call with model_lock held."""
+        self._load_helper()
+        if self.vad is None or len(audio) < SAMPLE_RATE * 0.25:
+            return self.vad is None
+        try:
+            return has_speech(self.vad, audio)
+        except Exception:
+            return True
+
     def _transcribe(self, audio):
         try:
             text = None
@@ -7148,20 +7182,20 @@ class Dictation(QtCore.QObject):
             with self.model_lock:              # waits for a preview pass to end
                 if skip is not None:
                     # The rest of a live dictation, read with its context: only
-                    # the words after the context are new.
+                    # the words after the context are new. Noise alone after the
+                    # last pause must not become a made-up "Okay" (see
+                    # speech_decision; nothing is dropped without a message).
+                    rest = audio[int(skip * SAMPLE_RATE):]
+                    if not self._speech_in(rest):
+                        what = speech_decision(False, self.take_peak, len(rest) / float(SAMPLE_RATE))
+                        if what != "read":
+                            self.nothing_reason = what
+                            self.finished.emit("")
+                            return
                     text, self._final_before = self._timed_read(audio, skip)
                     self.finished.emit(text.strip())
                     return
-                if self.model_vad is None:         # loaded on first use, not at start
-                    try:
-                        if not helper_ok():        # only the official file is used
-                            raise FileNotFoundError("the helper is not on this PC")
-                        import onnx_asr
-                        self.vad = onnx_asr.load_vad("silero", helper_dir())
-                        self.model_vad = self.model.with_vad(self.vad)
-                    except Exception as exc:
-                        print("Dictation without the helper: %s" % exc, file=sys.stderr)
-                        self.model_vad, self.vad = False, None
+                self._load_helper()
                 if self.vad is not None:
                     # Every recording: is there speech at all? The speech model
                     # alone "hears" a word ("Okay", "Uh") in key clicks and room
