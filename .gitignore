@@ -17,5 +17,38 @@ dist/
 Output/
 *.spec.bak
 
-# Private working notes (kept on this PC only)
+# Private working notes, handoffs and assistant files (kept on this PC only)
 CLAUDE.md
+CLAUDE*.md
+CLAUDE.local.md
+.claude/
+MEMORY.md
+NOTES*.md
+notes/
+handoff/
+*handoff*
+START-HERE*
+*.private.*
+
+# The pre-push guard's private word list (never uploaded)
+.privacy-blocklist
+
+# Logs, recordings and screenshots taken while testing
+*.log
+*.wav
+*.mp3
+*.m4a
+*.flac
+*.ogg
+*.webm
+*.aac
+shots/
+recordings/
+scratch/
+
+# Local settings and editor files
+.vscode/
+.idea/
+.env
+*.env
+*.local.json
