@@ -7286,9 +7286,14 @@ class Dictation(QtCore.QObject):
         if here and self._box_answer_now(here) is True:
             if box.remember(here):
                 box.control = focused_control(here)
-                print("Pin: a text box was pinned.")
-                self.overlay.show_message("Pinned. Your notes go here until you unpin",
-                                          ms=2800, pulse=True)
+                quiet = bool(box.control) and plain_text_control(box.control)
+                print("Pin: a text box was pinned (%s)." % (
+                    "typed into in the background" if quiet else "brought forward to type"))
+                # Only plain text boxes (as in Notepad) take words while
+                # another window is in front; others must come forward.
+                self.overlay.show_message(
+                    "Pinned. Your notes go here until you unpin" if quiet else
+                    "Pinned. This box comes to the front for each note", ms=3200, pulse=True)
             else:
                 self.overlay.show_message("Couldn't pin this text box", ms=2500)
             return
@@ -7329,9 +7334,13 @@ class Dictation(QtCore.QObject):
             return
         if box.holds_focus():
             return                               # you are in it already
-        if (box.control and not LIVE_TYPE and user32.IsWindow(box.control)
+        if (box.control and user32.IsWindow(box.control)
                 and user32.IsWindowVisible(box.control) and plain_text_control(box.control)):
-            self.pin_direct = box.control        # typed in at the end, unseen
+            # Typed in at the end, unseen, while you carry on elsewhere (owner:
+            # never take the focus from the other screen). Typing as you speak
+            # would need the box in front, so this dictation goes in whole.
+            self.pin_direct = box.control
+            self.lt_active = self.lt_gentle = False
             return
         here = foreground_window()
         moved = here != box.window
@@ -12055,8 +12064,11 @@ class SettingsWindow(QtWidgets.QDialog):
                   "that isn't a text box) to unpin; in another text box, to move "
                   "the pin there.\n\n"
                   "Plain text boxes, as in Notepad, take the words in the "
-                  "background: nothing moves. Others: their window comes forward "
-                  "for a moment, the words go in, and you are taken back.\n\n"
+                  "background: you keep working in your other window, nothing "
+                  "moves (with Type as you speak on, each note goes in whole when "
+                  "you let go). Other boxes (web pages, chat apps) can't take "
+                  "words from behind: their window comes forward for a moment, "
+                  "the words go in, and you are taken back.\n\n"
                   "If the box is gone or out of reach (for example in another tab "
                   "of the same browser), the pop-up says so and nothing is typed "
                   "elsewhere. The box is remembered in memory only, never its text, "
