@@ -10923,7 +10923,7 @@ class SettingsWindow(QtWidgets.QDialog):
             button("Open folder", open_model_folder), self.model_button, None)
         show_model_button()
         note("Check files compares the model's files with their known fingerprints. "
-             "Removing frees about 630 MB; it can be downloaded again later.")
+             "Removing frees about 660 MB; it can be downloaded again later.")
 
         note("A newer speech model only ever comes with a newer version of %s, "
              "together with its fingerprints (see Updates on the Privacy tab)." % APP_TITLE)

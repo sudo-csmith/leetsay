@@ -10,7 +10,7 @@ typed into whatever program you are using.
 - Speech is recognised on your own PC. No accounts, statistics or tracking.
 - Open source, provided as is: please read the [Disclaimer](#disclaimer).
 
-**[Download for Windows](https://github.com/sudo-csmith/leetsay/releases)** (Windows 10 or 11, 64-bit, a microphone, about 1 GB of free memory and 700 MB of disk space). A Mac version is planned.
+**[Download for Windows](https://github.com/sudo-csmith/leetsay/releases)** (Windows 10 or 11, 64-bit, a microphone, about 1 GB of free memory and about 900 MB of disk space, including the 660 MB speech model). A Mac version is planned.
 
 ## How it works
 
