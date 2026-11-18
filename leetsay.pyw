@@ -10131,10 +10131,20 @@ class SubTabPill(QtWidgets.QPushButton):
             edge = (QtGui.QColor(ACCENT) if chosen
                     else QtGui.QColor("#4A4D57" if hover else "#34363E"))
             words = QtGui.QColor("#FFFFFF" if chosen else ("#E6E7EC" if hover else "#9A9CA6"))
-        box = QtCore.QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
-        p.setPen(QtGui.QPen(edge, 1.0))
-        p.setBrush(Qt.NoBrush)
-        p.drawRoundedRect(box, box.height() / 2.0, box.height() / 2.0)
+        # A filled band for the edge, and a faint tint inside the chosen one:
+        # a thin line alone showed its steps round the curved ends (owner).
+        outer = QtCore.QRectF(self.rect())
+        band = 1.2 if chosen else 1.0
+        inner = outer.adjusted(band, band, -band, -band)
+        shape = QtGui.QPainterPath()
+        shape.addRoundedRect(outer, outer.height() / 2.0, outer.height() / 2.0)
+        hole = QtGui.QPainterPath()
+        hole.addRoundedRect(inner, inner.height() / 2.0, inner.height() / 2.0)
+        if chosen or hover:
+            tint = QtGui.QColor(edge)
+            tint.setAlphaF((0.10 if light_menus() else 0.14) if chosen else 0.06)
+            p.fillPath(shape, tint)
+        p.fillPath(shape.subtracted(hole), edge)
         p.setPen(words)
         p.setFont(self.font())
         p.drawText(self.rect(), Qt.AlignCenter, self._title)
