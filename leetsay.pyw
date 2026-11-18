@@ -114,6 +114,7 @@ import re
 import signal
 import struct
 import sys
+import queue
 import threading
 import time
 import wave
@@ -419,6 +420,7 @@ TECH_TERMS = [["kilobytes", "KB"], ["kilobyte", "KB"], ["megabytes", "MB"],
               ["node js", "Node.js"], ["vs code", "VS Code"]]
 TEXTBOX_ONLY = True                  # typing as you speak: only into a text box (asks
                                      # Windows what kind of control has the focus)
+STICKY_BOX = False                   # Beta: "Sticky text box" (see StickyBox)
 POINT_TO_TYPE = False                # while no text box is selected, resting the mouse
                                      # on one selects it (no click; off by default)
 DICTATION_MARK = "pointer"           # "frame": a glow round the text box while dictating
@@ -700,6 +702,7 @@ for _name, _key in (("SHOW_APP_ICON", "show_app_icon"), ("SHOW_APP_NAME", "show_
                     ("LIVE_TYPE", "live_type"),
                     ("REMOVE_FILLERS", "remove_fillers"), ("SPOKEN_BREAKS", "spoken_breaks"), ("TEXTBOX_ONLY", "textbox_only"),
                     ("POINTER_HINT", "pointer_hint"), ("POINT_TO_TYPE", "point_to_type"),
+                    ("STICKY_BOX", "sticky_box"),
                     ("POINTER_STATUS", "pointer_status"),
                     ("SCREEN_GLOW_FLOW", "screen_glow_flow"),
                     ("RETURN_FOCUS", "return_focus")):
@@ -1857,6 +1860,117 @@ def focused_box_rect(whole_card=False):
             ole32.CoUninitialize()
         except Exception:
             pass
+
+
+class StickyBox:
+    """ "Sticky text box" (beta): remembers the last text box you dictated
+    into, as a reference Windows' accessibility service gives (in memory
+    only: no text, no program name), and can put the keyboard focus back in
+    it. All its calls run in one worker thread of its own."""
+
+    def __init__(self):
+        self.window = None
+        self.element = None
+        self._jobs = queue.Queue()
+        self._auto = None
+        threading.Thread(target=self._worker, daemon=True).start()
+
+    @staticmethod
+    def _method(obj, index, *types):
+        table = ctypes.cast(ctypes.c_void_p(obj), ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p)))[0]
+        return ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, *types)(table[index])
+
+    @staticmethod
+    def _release(obj):
+        if obj:
+            table = ctypes.cast(ctypes.c_void_p(obj), ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p)))[0]
+            ctypes.WINFUNCTYPE(ctypes.c_ulong, ctypes.c_void_p)(table[2])(obj)
+
+    def _worker(self):
+        ole32 = ctypes.windll.ole32
+        ole32.CoInitializeEx(None, 0)            # kept for the life of this thread
+        auto = ctypes.c_void_p()
+        if ole32.CoCreateInstance(_guid("ff48dba4-60ef-4201-aa87-54103eef594e"), None, 1 | 4,
+                                  _guid("30cbe57d-d9d0-452a-ab13-7ac5ac4825ee"),
+                                  ctypes.byref(auto)) == 0:
+            self._auto = auto.value
+        while True:
+            job, box = self._jobs.get()
+            try:
+                box["v"] = job() if self._auto else None
+            except Exception:
+                box["v"] = None
+            box["done"].set()
+
+    def _run(self, job, wait=0.6):
+        box = {"done": threading.Event()}
+        self._jobs.put((job, box))
+        box["done"].wait(wait)
+        return box.get("v")
+
+    def _focused(self):
+        element = ctypes.c_void_p()
+        if self._method(self._auto, 8, ctypes.POINTER(ctypes.c_void_p))(
+                self._auto, ctypes.byref(element)) == 0 and element:
+            return element.value
+        return None
+
+    def remember(self, window):
+        """The focused control (a text box: checked by the caller) becomes
+        the sticky box."""
+        def job():
+            element = self._focused()
+            if not element:
+                return False
+            old, self.element, self.window = self.element, element, window
+            self._release(old)
+            return True
+        return bool(self._run(job))
+
+    def holds_focus(self):
+        """Is the keyboard focus in the remembered box right now?"""
+        def job():
+            if not self.element:
+                return False
+            now = self._focused()
+            if not now:
+                return False
+            same = ctypes.c_int(0)
+            self._method(self._auto, 3, ctypes.c_void_p, ctypes.c_void_p,
+                         ctypes.POINTER(ctypes.c_int))(self._auto, self.element, now,
+                                                       ctypes.byref(same))   # CompareElements
+            self._release(now)
+            return bool(same.value)
+        return bool(self._run(job))
+
+    def focus(self):
+        """Put the keyboard focus back in the remembered box (no click)."""
+        def job():
+            if not self.element:
+                return False
+            return self._method(self.element, 3)(self.element) == 0          # SetFocus
+        return bool(self._run(job))
+
+    def grab(self):
+        """A reference to the control that has the focus now (to come back
+        to it later); release it with drop()."""
+        return self._run(self._focused)
+
+    def focus_on(self, element):
+        def job():
+            return bool(element) and self._method(element, 3)(element) == 0      # SetFocus
+        return bool(self._run(job))
+
+    def drop(self, element):
+        if element:
+            self._run(lambda: self._release(element) or True)
+
+    def forget(self):
+        def job():
+            old, self.element, self.window = self.element, None, None
+            self._release(old)
+            return True
+        self._run(job)
 
 
 def window_out_of_reach(hwnd):
@@ -5692,6 +5806,11 @@ class Dictation(QtCore.QObject):
         self.target_window = None              # window that had focus at the start
         self.ptt = {"pos": None, "since": 0.0, "tried": False, "busy": False}   # pointing
         self.typed_this_session = 0            # for the one-time "type as you speak" tip
+        self.sticky = None                     # the sticky text box (made when first used)
+        self.sticky_return = None              # the window to go back to afterwards
+        self.sticky_watch = QtCore.QTimer()
+        self.sticky_watch.setInterval(100)
+        self.sticky_watch.timeout.connect(self._sticky_back_when_done)
                                                # (memory only, never saved or counted on)
         self.after_ticket = 0                  # which pending "after" key press is current
         self.last_text = ""                    # last dictation, in memory only
@@ -6571,6 +6690,9 @@ class Dictation(QtCore.QObject):
         self.watch_timer.start()
         self.show_listening(True)
         self._start_effects()
+        self.sticky_return = None
+        if STICKY_BOX:
+            self._sticky_start()
 
     def demo_screen_glow(self):
         """From Settings: show the screen glow for a moment (nothing records)."""
@@ -7050,6 +7172,90 @@ class Dictation(QtCore.QObject):
         self.lt_held = None
         self._final_before, self._final_skip, self._final_timed = "", None, None
 
+    def _box_answer_now(self, window):
+        """Is the keyboard focus in a text box? True / False / None (can't
+        tell), whatever the text box setting (waits at most half a second)."""
+        if window and is_terminal(window):
+            return True
+        answer = {}
+        asking = threading.Thread(target=lambda: answer.setdefault("v", focused_text_box()),
+                                  daemon=True)
+        asking.start()
+        asking.join(0.5)
+        return answer.get("v")
+
+    def _sticky_start(self):
+        """ "Sticky text box" (beta), at the hotkey: if the keyboard is clearly
+        not in a text box, go to the sticky box (its window comes forward, the
+        cursor goes back into it) and dictate there; you are taken back
+        afterwards. In a text box (or can't tell): dictate there, as always."""
+        if self.sticky is None:
+            self.sticky = StickyBox()
+        box = self.sticky
+        here = foreground_window()
+        answer = self._box_answer_now(here)
+        if answer is True:
+            box.remember(here)                   # where this dictation goes
+            return
+        if answer is None or box.window is None:
+            return                               # can't tell, or no sticky box yet
+        user32 = ctypes.windll.user32
+        if not user32.IsWindow(box.window):
+            box.forget()
+            return
+        moved = here != box.window
+        if moved and not focus_window(box.window):
+            self.overlay.show_message("Couldn't bring up your sticky text box", ms=2500)
+            return
+        if not (box.focus() and box.holds_focus()):
+            # Gone, or out of reach (another tab of the same browser window):
+            # never type somewhere else instead.
+            if moved:
+                focus_window(here)
+            box.forget()
+            self.overlay.show_message("Your sticky text box isn't there any more", ms=3000)
+            return
+        self.target_window = box.window
+        self.sticky_return = (here, None) if moved else None
+        self.lt_box = {"key": None, "verdict": None, "busy": False}   # ask afresh
+
+    def _sticky_remember(self):
+        """The box this dictation went into becomes the sticky box (only a
+        clear text box, in the window it started in)."""
+        if not STICKY_BOX or not self.target_window \
+                or foreground_window() != self.target_window:
+            return
+        if self._box_answer_now(self.target_window) is True:
+            if self.sticky is None:
+                self.sticky = StickyBox()
+            self.sticky.remember(self.target_window)
+
+    def _sticky_back_now(self):
+        self._sticky_until = 0.0
+        self.typed_quiet_until = 0.0
+        self._sticky_back_when_done()
+
+    def _sticky_back_when_done(self):
+        """After a dictation that went to the sticky box: back to the window
+        you were in, once the words are in (at most 30 s)."""
+        now = time.monotonic()
+        if self.state == "recording":
+            return
+        busy = (self.state == "transcribing" or self._gentle is not None
+                or now < max(getattr(self, "typed_quiet_until", 0.0), self._typing_until))
+        if busy and now < getattr(self, "_sticky_until", 0.0):
+            return
+        self.sticky_watch.stop()
+        back, self.sticky_return = self.sticky_return, None
+        if not back:
+            return
+        window, other = back
+        if window and ctypes.windll.user32.IsWindow(window) and foreground_window() != window:
+            focus_window(window)
+        if other is not None and self.sticky is not None:
+            self.sticky.focus_on(other)          # back into the box you had moved to
+            self.sticky.drop(other)
+
     def _text_box_now(self, target):
         """The same question, answered now (waits at most half a second)."""
         if not TEXTBOX_ONLY:
@@ -7158,6 +7364,8 @@ class Dictation(QtCore.QObject):
         self._pointer_off()
         if self.state != "recording":
             return
+        if self.sticky_return:                   # cancelled: straight back
+            QtCore.QTimer.singleShot(0, self._sticky_back_now)
         self.live_timer.stop()
         self.lt_pacer.stop()
         self.watch_timer.stop()
@@ -7449,6 +7657,13 @@ class Dictation(QtCore.QObject):
 
     def _finish(self):
         self._finishing = False
+        if self.state == "recording" and STICKY_BOX:
+            if self.sticky is None or self.sticky.element is None:
+                self._sticky_remember()
+            if self.sticky_return:
+                self.typed_quiet_until = time.monotonic() + 0.8
+                self._sticky_until = time.monotonic() + 30.0
+                self.sticky_watch.start()
         self._pointer_off(typing=True)
         if self.state != "recording":
             return                               # already finished (or cancelled)
@@ -7718,11 +7933,44 @@ class Dictation(QtCore.QObject):
         QtCore.QTimer.singleShot(       # give the window a moment to wake up
             200, lambda: self._deliver_if_text_box(text, after_key))
 
+    def _sticky_reach(self):
+        """Before typing (Sticky text box on): if the cursor is no longer in
+        the box this dictation was for (you clicked into another one while
+        the words were being read), put it back there for the typing, and
+        remember where you were, to take you back afterwards. False if the
+        box can't be reached: then nothing is typed elsewhere."""
+        box = self.sticky
+        if not STICKY_BOX or box is None or box.element is None or box.holds_focus():
+            return True
+        here = foreground_window()
+        other = box.grab()                       # the box you moved to
+        if (here != box.window and not focus_window(box.window)) \
+                or not (box.focus() and box.holds_focus()):
+            if here and foreground_window() != here:
+                focus_window(here)
+            box.focus_on(other)
+            box.drop(other)
+            return False
+        self.target_window = box.window
+        self.sticky_return = (here, other)
+        self.typed_quiet_until = time.monotonic() + 0.8
+        self._sticky_until = time.monotonic() + 30.0
+        self.sticky_watch.start()
+        return True
+
     def _deliver_if_text_box(self, text, after_key):
         """The normal mode, when you let go: typed where the cursor is, unless
         it is clearly not in a text box (a web page, a video, an image): typed
         letters would work as shortcuts there and move things about (owner).
         "Can't tell" types as usual; terminals count as text boxes."""
+        if text.strip() and not self._sticky_reach():
+            print("Sticky text box out of reach; the text was not typed.")
+            self.remember(text)                  # kept only with "Missed text safety"
+            if self.overlay.mode == "message" and self.overlay.message == self.TYPING:
+                self.overlay.dismiss()
+            self.overlay.show_message("Your sticky text box isn't there any more, so it "
+                                      "wasn't typed", ms=3500)
+            return
         target = self.target_window
         if (text.strip() and TEXTBOX_ONLY and target
                 and foreground_window() == target
@@ -8372,7 +8620,8 @@ for _key in ("add_space", "always_show", "pill_over_fullscreen", "accent_outline
              "show_popup", "show_timer", "show_waveform", "sounds", "tray_live", "wide_card",
              "hold_to_talk", "live_preview", "type_text", "keep_last",
              "check_app_updates", "live_type", "remove_fillers",
-             "textbox_only", "screen_glow_flow", "pointer_hint", "point_to_type", "spoken_breaks", "pointer_status"):
+             "textbox_only", "screen_glow_flow", "pointer_hint", "point_to_type", "spoken_breaks", "pointer_status",
+             "sticky_box"):
     _PORTABLE_CHECKS[_key] = lambda v: isinstance(v, bool)
 _PORTABLE_CHECKS["card_style"] = lambda v: v in [key for key, _label in CARD_STYLES]
 _PORTABLE_CHECKS["screen_glow_edges"] = lambda v: v in ("bottom", "top", "left", "right", "all")
@@ -11607,14 +11856,28 @@ class SettingsWindow(QtWidgets.QDialog):
                   "box can't be seen, the tag at the pointer says it instead. Only "
                   "the box's place is asked, never its text.",
               hint="Shows where your words will go. Fits best in VS Code.")
-        check("Select one by pointing at it", POINT_TO_TYPE,
+        check("Sticky text box", STICKY_BOX, option("STICKY_BOX", "sticky_box"),
+              tip="Your words go to the last text box you dictated into, even if "
+                  "you have moved on to another window. Press the hotkey while not "
+                  "in a text box: that box's window comes forward, the cursor goes "
+                  "back into it, and when your words are in you are taken back. "
+                  "Click into another text box to make it the sticky one.\n\n"
+                  "Also a safety net: if you click into another box while your "
+                  "words are still being typed, they still go into the box you "
+                  "were dictating into, and you are put back where you clicked.\n\n"
+                  "If the box is gone or out of reach (for example in another tab "
+                  "of the same browser), the pop-up says so and nothing is typed "
+                  "elsewhere. The box is remembered in memory only, never its text.",
+              hint="Keeps sending your words to your last text box.")
+        check("Hover to pick a text box", POINT_TO_TYPE,
               option("POINT_TO_TYPE", "point_to_type"),
               tip="While the pop-up says \"No text box selected\", rest the mouse "
                   "on a text box for a moment and it is selected for you, as if "
                   "you had clicked it (nothing is clicked). Only in the window you "
                   "started in, only clear text boxes, never password boxes. Needs "
                   "Text box detection.",
-              hint="Rest the mouse on a text box to select it.")
+              hint="When no text box is selected, rest your mouse on one and it's "
+                   "picked for you (no click).")
         end_tab()
         # Open on the tab that was showing last time (remembered only while
         # the application is running; nothing is written to disk for this).
