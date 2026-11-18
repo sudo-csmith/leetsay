@@ -8193,8 +8193,14 @@ class Dictation(QtCore.QObject):
             typed = self.lt_done
             words = list(cleaned)                # skip the words typed already
             begin = self._after_typed(self._plain(words)) if words else 0
+            lined_up = begin
             if words:
                 begin = max(begin, self._skip_repeat(words))   # earlier words read again
+            # Counts only (never the words): helps tell a cut-off ending apart.
+            print("Typing as you speak: last reading %d words: %d typed already, %d more "
+                  "skipped as repeated, %d new (%d of this piece typed while speaking)."
+                  % (len(words), lined_up, begin - lined_up, len(words) - begin,
+                     len(self.lt_seg_words)))
             text = self._compose(words[begin:], words[begin - 1] if begin
                                  else (self._final_before or None))
             self._final_before = ""
