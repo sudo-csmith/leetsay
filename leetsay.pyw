@@ -420,7 +420,7 @@ TECH_TERMS = [["kilobytes", "KB"], ["kilobyte", "KB"], ["megabytes", "MB"],
               ["node js", "Node.js"], ["vs code", "VS Code"]]
 TEXTBOX_ONLY = True                  # typing as you speak: only into a text box (asks
                                      # Windows what kind of control has the focus)
-STICKY_BOX = False                   # Beta: "Sticky text box" (see StickyBox)
+STICKY_BOX = False                   # Beta: "Pin a text box" (see StickyBox)
 POINT_TO_TYPE = False                # while no text box is selected, resting the mouse
                                      # on one selects it (no click; off by default)
 DICTATION_MARK = "pointer"           # "frame": a glow round the text box while dictating
@@ -764,6 +764,7 @@ if isinstance(_config.get("live_lines"), int) and not isinstance(_config["live_l
 # the saved ones away, as an earlier version did.)
 ACTION_HOTKEY = ""                   # a second hotkey: dictate, then press ACTION_KEY
 ACTION_KEY = "enter"                 # what that second hotkey presses afterwards
+PIN_HOTKEY = "ctrl+alt+p"            # Beta "Pin a text box": pins / unpins the box
 for _name, _key in (("SOUND_SET", "sound_set"), ("SOUND_START_FILE", "sound_start"),
                     ("SOUND_FINISH_FILE", "sound_finish"), ("POPUP_BG", "popup_bg"),
                     ("MIC_DEVICE", "mic"), ("SOUND_DEVICE", "sound_device"),
@@ -793,7 +794,8 @@ else:
     MENU_THEME = windows_app_mode()
 if not isinstance(_config.get("popup_bg"), str) and windows_app_mode() == "light":
     POPUP_BG = "#F8F8FA"                 # the pop-up too (BACKGROUND_CHOICES' Light)
-for _name, _key in (("PASTE_HOTKEY", "paste_hotkey"), ("ACTION_HOTKEY", "action_hotkey")):
+for _name, _key in (("PASTE_HOTKEY", "paste_hotkey"), ("ACTION_HOTKEY", "action_hotkey"),
+                    ("PIN_HOTKEY", "pin_hotkey")):
     if valid_hotkey(_config.get(_key), empty_ok=True) and _config[_key] != HOTKEY:
         globals()[_name] = _config[_key]
 
@@ -1896,14 +1898,15 @@ def focused_box_rect(whole_card=False):
 
 
 class StickyBox:
-    """ "Sticky text box" (beta): remembers the last text box you dictated
-    into, as a reference Windows' accessibility service gives (in memory
+    """ "Pin a text box" (beta): remembers the text box you pinned with the
+    pin hotkey, as a reference Windows' accessibility service gives (in memory
     only: no text, no program name), and can put the keyboard focus back in
     it. All its calls run in one worker thread of its own."""
 
     def __init__(self):
         self.window = None
         self.element = None
+        self.control = None                  # its Windows control, for plain text boxes
         self._jobs = queue.Queue()
         self._auto = None
         threading.Thread(target=self._worker, daemon=True).start()
@@ -1999,6 +2002,8 @@ class StickyBox:
             self._run(lambda: self._release(element) or True)
 
     def forget(self):
+        self.control = None
+
         def job():
             old, self.element, self.window = self.element, None, None
             self._release(old)
@@ -2148,6 +2153,17 @@ def focused_control(window):
     except Exception:
         pass
     return None
+
+
+def plain_text_control(control):
+    """Is this one of the plain Windows text controls (Edit, RichEdit, as in
+    Notepad) that take text by message, without keystrokes or focus?"""
+    try:
+        name = ctypes.create_unicode_buffer(64)
+        ctypes.windll.user32.GetClassNameW(control, name, 64)
+        return "RichEdit" in name.value or name.value == "Edit"
+    except Exception:
+        return False
 
 
 def insert_text(control, text):
@@ -5838,6 +5854,7 @@ class Dictation(QtCore.QObject):
     live_words = QtCore.Signal(int, str, int, str)   # ... and a reading of the piece so far
     hotkey_captured = QtCore.Signal(str)
     paste_again = QtCore.Signal()
+    pin_pressed = QtCore.Signal()
     frame_rect = QtCore.Signal(object)        # where the text box is now (for the glow)
     failed = QtCore.Signal(str)
 
@@ -5855,6 +5872,7 @@ class Dictation(QtCore.QObject):
         self.typed_this_session = 0            # for the one-time "type as you speak" tip
         self.sticky = None                     # the sticky text box (made when first used)
         self.sticky_return = None              # the window to go back to afterwards
+        self.pin_direct = None                 # the pinned box's control, typed into unseen
         self.sticky_watch = QtCore.QTimer()
         self.sticky_watch.setInterval(100)
         self.sticky_watch.timeout.connect(self._sticky_back_when_done)
@@ -5965,6 +5983,7 @@ class Dictation(QtCore.QObject):
         self.live_words.connect(self.on_live_words)
         self.hotkey_captured.connect(self.on_hotkey_captured)
         self.paste_again.connect(self.on_paste_again)
+        self.pin_pressed.connect(self.on_pin)
         self._capture_apply = True             # is the hotkey being recorded the main one?
         self._capture = False                  # waiting for the user to press a hotkey
         self._capture_done = None              # who to tell when they have
@@ -6109,6 +6128,12 @@ class Dictation(QtCore.QObject):
             self._action_modifiers, self._action_trigger = set(extra[:-1]), extra[-1]
         else:
             self._action_modifiers, self._action_trigger = set(), None
+        extra = [part.strip().lower() for part in PIN_HOTKEY.split("+") if part.strip()]
+        if (extra and extra[-1] not in self._MODIFIER_VKS
+                and PIN_HOTKEY not in (HOTKEY, PASTE_HOTKEY, ACTION_HOTKEY)):
+            self._pin_modifiers, self._pin_trigger = set(extra[:-1]), extra[-1]
+        else:
+            self._pin_modifiers, self._pin_trigger = set(), None
         self._held_trigger, self._held_modifiers = self._trigger, self._modifiers
         self.overlay.update()
 
@@ -6541,6 +6566,12 @@ class Dictation(QtCore.QObject):
                     and self._modifiers_match(self._paste_modifiers)):
                 self._swallow_up = name               # the paste-again hotkey
                 self.paste_again.emit()
+                return False
+            if (STICKY_BOX and getattr(self, "_pin_trigger", None) is not None
+                    and name == self._pin_trigger and is_down and not self._held
+                    and self._modifiers_match(self._pin_modifiers)):
+                self._swallow_up = name               # the pin hotkey (Beta)
+                self.pin_pressed.emit()
                 return False
 
             # Modifier keys (Ctrl, Shift...) are never swallowed, even when they
@@ -7231,28 +7262,66 @@ class Dictation(QtCore.QObject):
         asking.join(0.5)
         return answer.get("v")
 
-    def _sticky_start(self):
-        """ "Sticky text box" (beta), at the hotkey: if the keyboard is clearly
-        not in a text box, go to the sticky box (its window comes forward, the
-        cursor goes back into it) and dictate there; you are taken back
-        afterwards. In a text box (or can't tell): dictate there, as always."""
+    def on_pin(self):
+        """The pin hotkey (Beta "Pin a text box"). In a text box: pin it (or
+        unpin it, if it is the pinned one). Anywhere else: unpin, or say how."""
+        if not STICKY_BOX or self.state in ("recording", "transcribing"):
+            return
         if self.sticky is None:
             self.sticky = StickyBox()
         box = self.sticky
         here = foreground_window()
-        answer = self._box_answer_now(here)
-        if answer is True:
-            box.remember(here)                   # where this dictation goes
+        if box.element is not None and box.holds_focus():
+            self.unpin()
             return
-        if answer is None or box.window is None:
-            return                               # can't tell, or no sticky box yet
+        if here and self._box_answer_now(here) is True:
+            if box.remember(here):
+                box.control = focused_control(here)
+                print("Pin: a text box was pinned.")
+                self.overlay.show_message("Pinned. Your words go here until you unpin",
+                                          ms=2800, pulse=True)
+            else:
+                self.overlay.show_message("Couldn't pin this text box", ms=2500)
+            return
+        if box.element is not None:
+            self.unpin()
+            return
+        self.overlay.show_message("Click into a text box, then press %s to pin it"
+                                  % pretty(PIN_HOTKEY), ms=3500)
+
+    def unpin(self, quiet=False):
+        if self.sticky is not None and self.sticky.element is not None:
+            self.sticky.forget()
+            print("Pin: unpinned.")
+            if not quiet:
+                self.overlay.show_message("Unpinned", ms=1800)
+
+    def _sticky_start(self):
+        """Pinned text box (beta), at the hotkey: while a box is pinned, every
+        dictation goes into it, wherever you are. A plain text box (as in
+        Notepad) takes the words in the background: nothing moves. Others:
+        their window comes forward, the cursor goes back into the box, and
+        when your words are in you are taken back."""
+        self.pin_direct = None
+        box = self.sticky
+        if box is None or box.element is None:
+            return
         user32 = ctypes.windll.user32
         if not user32.IsWindow(box.window):
             box.forget()
+            self.overlay.show_message("Your pinned text box was closed, so it's unpinned",
+                                      ms=3000)
             return
+        if box.holds_focus():
+            return                               # you are in it already
+        if (box.control and not LIVE_TYPE and user32.IsWindow(box.control)
+                and user32.IsWindowVisible(box.control) and plain_text_control(box.control)):
+            self.pin_direct = box.control        # typed in at the end, unseen
+            return
+        here = foreground_window()
         moved = here != box.window
         if moved and not focus_window(box.window):
-            self.overlay.show_message("Couldn't bring up your sticky text box", ms=2500)
+            self.overlay.show_message("Couldn't bring up your pinned text box", ms=2500)
             return
         if not (box.focus() and box.holds_focus()):
             # Gone, or out of reach (another tab of the same browser window):
@@ -7260,22 +7329,11 @@ class Dictation(QtCore.QObject):
             if moved:
                 focus_window(here)
             box.forget()
-            self.overlay.show_message("Your sticky text box isn't there any more", ms=3000)
+            self.overlay.show_message("Your pinned text box isn't there any more", ms=3000)
             return
         self.target_window = box.window
         self.sticky_return = (here, None) if moved else None
         self.lt_box = {"key": None, "verdict": None, "busy": False}   # ask afresh
-
-    def _sticky_remember(self):
-        """The box this dictation went into becomes the sticky box (only a
-        clear text box, in the window it started in)."""
-        if not STICKY_BOX or not self.target_window \
-                or foreground_window() != self.target_window:
-            return
-        if self._box_answer_now(self.target_window) is True:
-            if self.sticky is None:
-                self.sticky = StickyBox()
-            self.sticky.remember(self.target_window)
 
     def _sticky_back_now(self):
         self._sticky_until = 0.0
@@ -7432,7 +7490,7 @@ class Dictation(QtCore.QObject):
         speak it also holds the typing back; in the normal mode it is only a
         warning: the text is still typed where the cursor is when you let go
         (owner). Off with Text box detection off (Windows isn't asked)."""
-        if TEXTBOX_ONLY and self.target_window \
+        if TEXTBOX_ONLY and self.target_window and not self.pin_direct \
                 and foreground_window() == self.target_window:
             # Said on the card as it happens: "No text box selected". Only
             # after two checks in a row, so a quick change of focus doesn't
@@ -7705,8 +7763,6 @@ class Dictation(QtCore.QObject):
     def _finish(self):
         self._finishing = False
         if self.state == "recording" and STICKY_BOX:
-            if self.sticky is None or self.sticky.element is None:
-                self._sticky_remember()
             if self.sticky_return:
                 self.typed_quiet_until = time.monotonic() + 0.8
                 self._sticky_until = time.monotonic() + 30.0
@@ -7940,6 +7996,13 @@ class Dictation(QtCore.QObject):
             text += " "                        # so the next dictation doesn't run on
         self.remember(typed + text)
         self.maybe_live_tip()
+        direct, self.pin_direct = self.pin_direct, None
+        if direct and not after_key and STICKY_BOX and self.sticky is not None \
+                and self.sticky.control == direct and insert_text(direct, text):
+            print("Typed into the pinned text box.")
+            if self.overlay.mode == "message" and self.overlay.message == self.TYPING:
+                self.overlay.dismiss()
+            return
         if RETURN_FOCUS and self.target_window:
             now = foreground_window()
             if now and now != self.target_window:
@@ -7981,7 +8044,7 @@ class Dictation(QtCore.QObject):
             200, lambda: self._deliver_if_text_box(text, after_key))
 
     def _sticky_reach(self):
-        """Before typing (Sticky text box on): if the cursor is no longer in
+        """Before typing (a pinned text box): if the cursor is no longer in
         the box this dictation was for (you clicked into another one while
         the words were being read), put it back there for the typing, and
         remember where you were, to take you back afterwards. False if the
@@ -8011,11 +8074,11 @@ class Dictation(QtCore.QObject):
         letters would work as shortcuts there and move things about (owner).
         "Can't tell" types as usual; terminals count as text boxes."""
         if text.strip() and not self._sticky_reach():
-            print("Sticky text box out of reach; the text was not typed.")
+            print("Pinned text box out of reach; the text was not typed.")
             self.remember(text)                  # kept only with "Missed text safety"
             if self.overlay.mode == "message" and self.overlay.message == self.TYPING:
                 self.overlay.dismiss()
-            self.overlay.show_message("Your sticky text box isn't there any more, so it "
+            self.overlay.show_message("Your pinned text box isn't there any more, so it "
                                       "wasn't typed", ms=3500)
             return
         target = self.target_window
@@ -8650,6 +8713,7 @@ _PORTABLE_CHECKS = {
     "hotkey": lambda v: _is_hotkey(v),
     "action_hotkey": lambda v: _is_hotkey(v, empty_ok=True),
     "paste_hotkey": lambda v: _is_hotkey(v, empty_ok=True),
+    "pin_hotkey": lambda v: _is_hotkey(v, empty_ok=True),
     "action_key": lambda v: v in [c[0] for c in AFTER_CHOICES if c[0]],
     "after_key": lambda v: v in [c[0] for c in AFTER_CHOICES],
     "after_delay": lambda v: v in [d[0] for d in AFTER_DELAYS],
@@ -8751,9 +8815,9 @@ def read_settings_line(line):
             good[key] = value
     # Two hotkeys must not be the same keys.
     keys = [good.get(k, _config.get(k, globals().get(k.upper(), "")))
-            for k in ("hotkey", "action_hotkey", "paste_hotkey")]
+            for k in ("hotkey", "action_hotkey", "paste_hotkey", "pin_hotkey")]
     if keys[0] and keys[0] in keys[1:]:
-        for k in ("action_hotkey", "paste_hotkey"):
+        for k in ("action_hotkey", "paste_hotkey", "pin_hotkey"):
             if good.get(k) == keys[0]:
                 good.pop(k)
                 dropped += 1
@@ -11963,19 +12027,62 @@ class SettingsWindow(QtWidgets.QDialog):
                   "box can't be seen, the tag at the pointer says it instead. Only "
                   "the box's place is asked, never its text.",
               hint="Shows where your words will go. Fits best in VS Code.")
-        check("Sticky text box", STICKY_BOX, option("STICKY_BOX", "sticky_box"),
-              tip="Your words go to the last text box you dictated into, even if "
-                  "you have moved on to another window. Press the hotkey while not "
-                  "in a text box: that box's window comes forward, the cursor goes "
-                  "back into it, and when your words are in you are taken back. "
-                  "Click into another text box to make it the sticky one.\n\n"
-                  "Also a safety net: if you click into another box while your "
-                  "words are still being typed, they still go into the box you "
-                  "were dictating into, and you are put back where you clicked.\n\n"
+        def pin_switch(on):
+            option("STICKY_BOX", "sticky_box")(on)
+            if not on:
+                dictation.unpin(quiet=True)
+        check("Pin a text box", STICKY_BOX, pin_switch,
+              tip="Click into a text box (your notes, say) and press the pin hotkey: "
+                  "from then on your words go into that box, wherever you are "
+                  "working. Press the pin hotkey again in that box (or anywhere "
+                  "that isn't a text box) to unpin; in another text box, to move "
+                  "the pin there.\n\n"
+                  "Plain text boxes, as in Notepad, take the words in the "
+                  "background: nothing moves. Others: their window comes forward "
+                  "for a moment, the words go in, and you are taken back.\n\n"
                   "If the box is gone or out of reach (for example in another tab "
                   "of the same browser), the pop-up says so and nothing is typed "
-                  "elsewhere. The box is remembered in memory only, never its text.",
-              hint="Keeps sending your words to your last text box.")
+                  "elsewhere. The box is remembered in memory only, never its text, "
+                  "and forgotten when %s closes." % APP_TITLE,
+              hint="Press the pin hotkey in a text box: your words go there from "
+                   "anywhere.")
+        pin_label = QtWidgets.QLabel("")
+        pin_label.setObjectName("info")
+        pin_record = button(self.RECORD_LABEL, lambda: record_pin(), width=84)
+        pin_clear = button("Clear", lambda: clear_pin(), width=84)
+
+        def show_pin():
+            pin_label.setText(pretty(PIN_HOTKEY) if PIN_HOTKEY else "not set")
+            pin_clear.setEnabled(bool(PIN_HOTKEY))
+
+        def pin_recorded(hotkey):
+            pin_record.setText(self.RECORD_LABEL)
+            pin_record.setEnabled(True)
+            show_pin()
+            if not hotkey:
+                return
+            if hotkey.split("+")[-1] in ("ctrl", "shift", "alt", "windows"):
+                pin_label.setText("add a key, like P")
+            elif hotkey in (HOTKEY, PASTE_HOTKEY, ACTION_HOTKEY):
+                pin_label.setText("already in use")
+            else:
+                set_option("PIN_HOTKEY", "pin_hotkey", hotkey)
+                dictation.apply_hotkey()
+                show_pin()
+
+        def record_pin():
+            pin_record.setText("Press keys")
+            pin_record.setEnabled(False)
+            pin_label.setText("Esc cancels")
+            dictation.start_capture(pin_recorded, main=False)
+
+        def clear_pin():
+            set_option("PIN_HOTKEY", "pin_hotkey", "")
+            dictation.apply_hotkey()
+            show_pin()
+
+        row(field("Pin hotkey"), pin_record, pin_clear, pin_label, None)
+        show_pin()
         check("Point at a text box to use it", POINT_TO_TYPE,
               option("POINT_TO_TYPE", "point_to_type"),
               tip="While the pop-up says \"No text box selected\", rest the mouse "
