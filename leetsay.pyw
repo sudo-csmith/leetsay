@@ -421,6 +421,8 @@ TEXTBOX_ONLY = True                  # typing as you speak: only into a text box
                                      # Windows what kind of control has the focus)
 POINT_TO_TYPE = False                # while no text box is selected, resting the mouse
                                      # on one selects it (no click; off by default)
+POINTER_STATUS = True                # "Listening" / "Typing..." by the mouse pointer
+                                     # while dictating (not with typing as you speak)
 POINTER_HINT = True                  # ... and say "No text box" by the mouse pointer too
 AFTER_KEY = ""                       # key pressed for you once the text is in:
                                      # "" (nothing), "enter", "ctrl+enter" or "tab"
@@ -693,6 +695,7 @@ for _name, _key in (("SHOW_APP_ICON", "show_app_icon"), ("SHOW_APP_NAME", "show_
                     ("LIVE_TYPE", "live_type"),
                     ("REMOVE_FILLERS", "remove_fillers"), ("SPOKEN_BREAKS", "spoken_breaks"), ("TEXTBOX_ONLY", "textbox_only"),
                     ("POINTER_HINT", "pointer_hint"), ("POINT_TO_TYPE", "point_to_type"),
+                    ("POINTER_STATUS", "pointer_status"),
                     ("SCREEN_GLOW_FLOW", "screen_glow_flow"),
                     ("RETURN_FOCUS", "return_focus")):
     if isinstance(_config.get(_key), bool):
@@ -4667,7 +4670,8 @@ class PointerBadge(QtWidgets.QWidget):
             box = QtCore.QRectF(0.5, 0.5, self.width() - 1.0, self.height() - 1.0)
             fill = QtGui.QColor(theme["bg"])
             fill.setAlpha(240)
-            colour = QtGui.QColor(theme.get(self.colour, theme["warning"]))
+            colour = (QtGui.QColor(ACCENT) if self.colour == "accent"
+                      else QtGui.QColor(theme.get(self.colour, theme["warning"])))
             p.setPen(QtGui.QPen(colour, 1.0))
             p.setBrush(fill)
             p.drawRoundedRect(box, box.height() / 2.0, box.height() / 2.0)
@@ -5447,6 +5451,9 @@ class Dictation(QtCore.QObject):
         # Held modifier keys are pressed again only once typing pauses (see
         # repress_modifiers), and only while you are still dictating.
         # The text box warning in the normal mode (see _update_box_warning).
+        self.typing_watch = QtCore.QTimer()    # "Typing..." at the pointer until done
+        self.typing_watch.setInterval(100)
+        self.typing_watch.timeout.connect(self._typing_watch)
         self.box_timer = QtCore.QTimer()
         self.box_timer.setInterval(150)
         self.box_timer.timeout.connect(
@@ -6251,7 +6258,7 @@ class Dictation(QtCore.QObject):
         self.box_settled = False                   # a first "no" shows at once
         self.box_answered = False
         self.overlay.box_missing = False
-        if not (TEXTBOX_ONLY and LIVE_TYPE):
+        if not (TEXTBOX_ONLY and LIVE_TYPE) or POINTER_STATUS:
             # The text box warning in the normal mode, and microphone warnings
             # at the pointer in every mode (typing as you speak with text box
             # detection asks from its own tick).
@@ -6969,20 +6976,49 @@ class Dictation(QtCore.QObject):
         if not show and self.state != "recording":
             self.box_timer.stop()
         mic = self.POINTER_MIC.get(self.overlay.warning) if self.state == "recording" else None
-        if POINTER_HINT and (mic or show):
+        status = (POINTER_STATUS and self.state == "recording" and not self.lt_active)
+        if (POINTER_HINT and (mic or show)) or status:
             if self.pointer_badge is None:
                 self.pointer_badge = PointerBadge()
-            if mic:
+            if mic and POINTER_HINT:
                 self.pointer_badge.say(mic, "danger")
-            else:
+            elif show and POINTER_HINT:
                 self.pointer_badge.say("No text box", "warning")
+            else:
+                self.pointer_badge.say("Listening", "accent")
             self.pointer_badge.appear()
         elif self.pointer_badge is not None:
             self.pointer_badge.vanish()
 
-    def _pointer_off(self):
-        """The dictation is over (or cancelled): the tag goes, whatever it said."""
+    def _pointer_off(self, typing=False):
+        """The dictation is over (or cancelled): the tag goes, whatever it
+        said. typing=True (let go, with "Listening" showing): it says
+        "Typing..." until the words are in (see _typing_watch), then goes."""
         self.box_timer.stop()
+        if typing and POINTER_STATUS and not self.lt_active and self.pointer_badge is not None:
+            self.pointer_badge.say("Typing\u2026", "accent")
+            self.pointer_badge.appear()
+            self.typed_quiet_until = time.monotonic() + 0.8   # until the typing starts
+            self._typing_watch_until = time.monotonic() + 30.0
+            self.typing_watch.start()
+            return
+        self.typing_watch.stop()
+        if self.pointer_badge is not None:
+            self.pointer_badge.vanish()
+
+    def _typing_watch(self):
+        """ "Typing..." at the pointer goes once the words are in: the result is
+        back, nothing is being typed, and a moment has passed (or after 30 s,
+        or when a new dictation starts)."""
+        now = time.monotonic()
+        if self.state == "recording":
+            self.typing_watch.stop()
+            return
+        busy = (self.state == "transcribing" or self._gentle is not None
+                or now < max(getattr(self, "typed_quiet_until", 0.0), self._typing_until))
+        if busy and now < getattr(self, "_typing_watch_until", 0.0):
+            return
+        self.typing_watch.stop()
         if self.pointer_badge is not None:
             self.pointer_badge.vanish()
 
@@ -7000,7 +7036,7 @@ class Dictation(QtCore.QObject):
 
     def _finish(self):
         self._finishing = False
-        self._pointer_off()
+        self._pointer_off(typing=True)
         if self.state != "recording":
             return                               # already finished (or cancelled)
         if self.lt_active:
@@ -7016,6 +7052,7 @@ class Dictation(QtCore.QObject):
         # (the recording includes the tail), so taps behave as they always did.
         if len(audio) < SAMPLE_RATE * (TAP_SECONDS + (LAST_WORD_MS - 250) / 1000.0):
             self.state = "idle"
+            self._pointer_off()                    # nothing to type: no "Typing..."
             again = self.last_dictation()
             if again:                          # paste the last dictation once more
                 self.overlay.show_message("Pasted again", ms=1300)
@@ -7025,6 +7062,7 @@ class Dictation(QtCore.QObject):
             return
         if self.recorder.peak < MIC_SILENT_PEAK:  # the microphone gave pure silence
             self.state = "idle"
+            self._pointer_off()
             if getattr(self, "popup_shown", True):
                 self.overlay.dismiss()   # the card already said so while recording
             else:                        # no card was showing: say it now
@@ -7127,6 +7165,7 @@ class Dictation(QtCore.QObject):
 
     def on_finished(self, text):
         self.state = "idle"
+        self.typed_quiet_until = time.monotonic() + 0.8      # the typing starts shortly
         # Line breaks only where spoken ("new line"), typed as Shift+Enter:
         # never a plain Enter, which could send a message.
         cleaned = clean_words(text.split())  # line breaks stay words of their own
@@ -7894,7 +7933,7 @@ for _key in ("add_space", "always_show", "pill_over_fullscreen", "accent_outline
              "show_popup", "show_timer", "show_waveform", "sounds", "tray_live", "wide_card",
              "hold_to_talk", "live_preview", "type_text", "keep_last",
              "check_app_updates", "live_type", "remove_fillers",
-             "textbox_only", "screen_glow_flow", "pointer_hint", "point_to_type", "spoken_breaks"):
+             "textbox_only", "screen_glow_flow", "pointer_hint", "point_to_type", "spoken_breaks", "pointer_status"):
     _PORTABLE_CHECKS[_key] = lambda v: isinstance(v, bool)
 _PORTABLE_CHECKS["card_style"] = lambda v: v in [key for key, _label in CARD_STYLES]
 _PORTABLE_CHECKS["screen_glow_edges"] = lambda v: v in ("bottom", "top", "left", "right", "all")
@@ -10466,6 +10505,11 @@ class SettingsWindow(QtWidgets.QDialog):
               hint="A small \"No text box\" tag follows the pointer while the "
                    "cursor isn't in a text box. Microphone problems show there "
                    "too, in red.")
+        check("Show Listening and Typing at the pointer", POINTER_STATUS,
+              option("POINTER_STATUS", "pointer_status"),
+              hint="While you dictate, the tag by the pointer says \"Listening\", "
+                   "then \"Typing\u2026\" until your words are in. Not with "
+                   "typing as you speak.")
         check("Select one by pointing at it", POINT_TO_TYPE,
               option("POINT_TO_TYPE", "point_to_type"),
               tip="Off by default. While the pop-up says \"No text box selected\", "
