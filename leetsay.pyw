@@ -3137,6 +3137,7 @@ class Overlay(QtWidgets.QWidget):
         self._present()
 
     NO_SOUND = "No sound from the microphone"
+    CANT_HEAR = "Can't hear you. Check the mic"
     CARD_EDGE_GAP = 24             # a dictation card's room from the screen's edges
     TASKBAR_GAP = 18               # ... and from the taskbar
     NO_BOX = "No text box selected"
@@ -3149,7 +3150,7 @@ class Overlay(QtWidgets.QWidget):
         if elapsed > 1.5 and peak < MIC_SILENT_PEAK:
             return self.NO_SOUND
         if elapsed > 5.0 and peak < MIC_QUIET_PEAK and not self.live_text:
-            return "Can't hear you. Check the mic"
+            return self.CANT_HEAR
         if self.box_missing:
             return self.NO_BOX                   # typing as you speak is waiting
         return ""
@@ -4586,10 +4587,10 @@ class Overlay(QtWidgets.QWidget):
 BACKGROUND_CHOICES = [("Dark", "#16171B"), ("Light", "#F8F8FA")]
 
 class PointerBadge(QtWidgets.QWidget):
-    """A small "No text box" tag that follows the mouse pointer while typing
-    as you speak waits for a text box (your eyes are often where the pointer
-    is, not on the pop-up). Clicks pass straight through it, it never takes
-    the keyboard, and the real pointer is left alone."""
+    """A small tag that follows the mouse pointer (your eyes are often where
+    the pointer is, not on the pop-up): "No text box" in amber, or a
+    microphone problem in red. Clicks pass straight through it, it never
+    takes the keyboard, and the real pointer is left alone."""
 
     OFFSET = QtCore.QPoint(16, 4)                # right beside the pointer's tip
 
@@ -4605,13 +4606,24 @@ class PointerBadge(QtWidgets.QWidget):
         font.setPixelSize(12)
         font.setWeight(QtGui.QFont.DemiBold)
         self.font_ = font
-        width = QtGui.QFontMetricsF(font).horizontalAdvance(self.text)
-        self.resize(int(width + 41), 24)          # room for the leetsay logo
+        self.colour = "warning"                  # a key of popup_theme(): amber or red
+        self._fit()
         self.timer = QtCore.QTimer(self)
         # Follows the pointer about 100 times a second while it shows (30 a
         # second looked jerky beside the pointer itself).
         self.timer.setInterval(10)
         self.timer.timeout.connect(self._follow)
+
+    def _fit(self):
+        width = QtGui.QFontMetricsF(self.font_).horizontalAdvance(self.text)
+        self.resize(int(width + 41), 24)          # room for the leetsay logo
+
+    def say(self, text, colour="warning"):
+        """What the tag says, and in which colour ("warning" amber, "danger" red)."""
+        if (text, colour) != (self.text, self.colour):
+            self.text, self.colour = text, colour
+            self._fit()
+            self.update()
 
     def appear(self):
         self.target = 1.0
@@ -4655,13 +4667,14 @@ class PointerBadge(QtWidgets.QWidget):
             box = QtCore.QRectF(0.5, 0.5, self.width() - 1.0, self.height() - 1.0)
             fill = QtGui.QColor(theme["bg"])
             fill.setAlpha(240)
-            p.setPen(QtGui.QPen(QtGui.QColor(theme["warning"]), 1.0))
+            colour = QtGui.QColor(theme.get(self.colour, theme["warning"]))
+            p.setPen(QtGui.QPen(colour, 1.0))
             p.setBrush(fill)
             p.drawRoundedRect(box, box.height() / 2.0, box.height() / 2.0)
-            # leetsay's logo (its four 1337 bars) in amber, so it is clear
-            # where the note comes from.
+            # leetsay's logo (its four 1337 bars) in the tag's colour, so it
+            # is clear where the note comes from.
             p.setPen(Qt.NoPen)
-            p.setBrush(QtGui.QColor(theme["warning"]))
+            p.setBrush(colour)
             bar, gap, tallest = 2.4, 1.6, 11.0
             unit = tallest / float(max(ICON_BARS))
             cy = box.center().y()
@@ -6204,6 +6217,7 @@ class Dictation(QtCore.QObject):
         except Exception as exc:
             print("Microphone error:", exc, file=sys.stderr)
             self.overlay.show_message(Overlay.NO_MIC, ms=6000)
+            self._pointer_note(self.POINTER_MIC[Overlay.NO_MIC], 3000)
             return
         self.state = "recording"
         play_sound("start")
@@ -6237,8 +6251,12 @@ class Dictation(QtCore.QObject):
         self.box_settled = False                   # a first "no" shows at once
         self.box_answered = False
         self.overlay.box_missing = False
+        if not (TEXTBOX_ONLY and LIVE_TYPE):
+            # The text box warning in the normal mode, and microphone warnings
+            # at the pointer in every mode (typing as you speak with text box
+            # detection asks from its own tick).
+            self.box_timer.start()
         if TEXTBOX_ONLY and not LIVE_TYPE:
-            self.box_timer.start()                 # the warning in the normal mode too
             QtCore.QTimer.singleShot(0, self._update_box_warning)   # ask straight away
         self.lt_commit, self.lt_index = 0, (0, 0)
         self.lt_done = self.lt_pending = ""
@@ -6829,7 +6847,7 @@ class Dictation(QtCore.QObject):
             self.overlay.dismiss(force=True)
 
     def on_cancel(self):
-        self._pointer_hint(False)
+        self._pointer_off()
         if self.state != "recording":
             return
         self.live_timer.stop()
@@ -6940,20 +6958,49 @@ class Dictation(QtCore.QObject):
                 p["busy"] = False
         threading.Thread(target=ask, daemon=True).start()
 
+    POINTER_MIC = {Overlay.NO_SOUND: "No sound from the microphone",
+                   Overlay.CANT_HEAR: "Can't hear you",
+                   Overlay.NO_MIC: "Microphone not detected"}
+
     def _pointer_hint(self, show):
-        """The "No text box" tag by the mouse pointer (Settings: on by default)."""
+        """The tag by the mouse pointer (Settings: on by default). A
+        microphone problem comes first, in red: without sound nothing else
+        matters. Otherwise "No text box", in amber, when show is true."""
         if not show and self.state != "recording":
             self.box_timer.stop()
-        if show and POINTER_HINT:
+        mic = self.POINTER_MIC.get(self.overlay.warning) if self.state == "recording" else None
+        if POINTER_HINT and (mic or show):
             if self.pointer_badge is None:
                 self.pointer_badge = PointerBadge()
+            if mic:
+                self.pointer_badge.say(mic, "danger")
+            else:
+                self.pointer_badge.say("No text box", "warning")
             self.pointer_badge.appear()
         elif self.pointer_badge is not None:
             self.pointer_badge.vanish()
 
+    def _pointer_off(self):
+        """The dictation is over (or cancelled): the tag goes, whatever it said."""
+        self.box_timer.stop()
+        if self.pointer_badge is not None:
+            self.pointer_badge.vanish()
+
+    def _pointer_note(self, text, ms):
+        """A microphone problem said at the pointer for a moment, when no
+        dictation is running to keep it there."""
+        if not POINTER_HINT:
+            return
+        if self.pointer_badge is None:
+            self.pointer_badge = PointerBadge()
+        self.pointer_badge.say(text, "danger")
+        self.pointer_badge.appear()
+        badge = self.pointer_badge
+        QtCore.QTimer.singleShot(ms, lambda: badge.vanish() if self.state != "recording" else None)
+
     def _finish(self):
         self._finishing = False
-        self._pointer_hint(False)
+        self._pointer_off()
         if self.state != "recording":
             return                               # already finished (or cancelled)
         if self.lt_active:
@@ -10417,7 +10464,8 @@ class SettingsWindow(QtWidgets.QDialog):
         check("Show it at the mouse pointer", POINTER_HINT,
               option("POINTER_HINT", "pointer_hint"),
               hint="A small \"No text box\" tag follows the pointer while the "
-                   "cursor isn't in a text box.")
+                   "cursor isn't in a text box. Microphone problems show there "
+                   "too, in red.")
         check("Select one by pointing at it", POINT_TO_TYPE,
               option("POINT_TO_TYPE", "point_to_type"),
               tip="Off by default. While the pop-up says \"No text box selected\", "
