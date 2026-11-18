@@ -8398,6 +8398,10 @@ QCheckBox::indicator { width: 16px; height: 16px; border-radius: 4px;
 QCheckBox::indicator:hover { border-color: #8A8D98; }
 QCheckBox::indicator:checked { background: %(accent)s; border-color: %(accent)s; %(tick)s }
 QTabBar::tab:selected { color: #FFFFFF; border-bottom: 2px solid %(accent)s; }
+QPushButton#subtab { background: transparent; color: #9A9CA6; border: 1px solid #34363E;
+    border-radius: 13px; padding: 4px 12px; min-height: 16px; }
+QPushButton#subtab:hover { color: #E6E7EC; border-color: #4A4D57; }
+QPushButton#subtab:checked { color: #FFFFFF; border-color: %(accent)s; }
 QProgressBar::chunk { background: %(accent)s; border-radius: 3px; }
 QPushButton#primary[hold="true"]:hover, QPushButton#primary[hold="true"]:pressed,
 QPushButton#primary[hold="true"]:focus { border-color: %(accent)s; }
@@ -8441,6 +8445,9 @@ QDialog QTabWidget::pane { border: 1px solid #E0E2E7; background: #FFFFFF; }
 QDialog QTabBar::tab { color: #5A5E69; }
 QDialog QTabBar::tab:hover { color: #1B1D22; }
 QDialog QTabBar::tab:selected { color: #111216; }
+QDialog QPushButton#subtab { background: transparent; color: #5A5E69; border-color: #CDD1D9; }
+QDialog QPushButton#subtab:hover { color: #1B1D22; border-color: #A9AEB8; }
+QDialog QPushButton#subtab:checked { color: #111216; }
 QDialog QScrollBar::handle:vertical { background: #CDD0D7; }
 QDialog QScrollBar::handle:vertical:hover { background: #B5B9C2; }
 QDialog QSlider::groove:horizontal, QDialog QSlider::add-page:horizontal { background: #DDE0E6; }
@@ -10947,10 +10954,66 @@ class SettingsWindow(QtWidgets.QDialog):
             area.setWidget(holder)
             area.viewport().setAutoFillBackground(False)
             tabs.addTab(area, title)
-            page["layout"] = layout
+            page["layout"] = page["root"] = layout
+            page["holder"] = holder
+            page["sub"] = None
 
         def end_tab():
-            page["layout"].addStretch(1)
+            sub = page.get("sub")
+            if sub is not None:
+                sub["bar"].addStretch(1)
+                for made in sub["layouts"]:
+                    made.addStretch(1)
+                sub["switch"](0)
+                page["sub"] = None
+            page["root"].addStretch(1)
+
+        def part(title):
+            """A sub-tab of the tab being filled: a row of pills at its top,
+            one page showing at a time, so a long tab is never taller than
+            General (owner). The window fits the page showing."""
+            sub = page.get("sub")
+            if sub is None:
+                bar = QtWidgets.QHBoxLayout()
+                bar.setSpacing(6)
+                page["root"].addLayout(bar)
+                stack = QtWidgets.QStackedWidget()
+                page["root"].addWidget(stack)
+                group = QtWidgets.QButtonGroup(stack)
+                group.setExclusive(True)
+                holder = page["holder"]
+
+                def switch(index, stack=stack, group=group, holder=holder):
+                    for k in range(stack.count()):
+                        policy = (QtWidgets.QSizePolicy.Preferred if k == index
+                                  else QtWidgets.QSizePolicy.Ignored)
+                        stack.widget(k).setSizePolicy(QtWidgets.QSizePolicy.Preferred, policy)
+                    stack.setCurrentIndex(index)
+                    if group.button(index) is not None:
+                        group.button(index).setChecked(True)
+                    stack.updateGeometry()
+                    holder.setMinimumHeight(0)
+                    holder.adjustSize()
+                    holder.setMinimumHeight(holder.sizeHint().height())
+                    QtCore.QTimer.singleShot(0, self._fit_height)
+
+                group.idClicked.connect(switch)
+                sub = page["sub"] = {"bar": bar, "stack": stack, "group": group,
+                                     "layouts": [], "switch": switch}
+            pill = QtWidgets.QPushButton(title)
+            pill.setObjectName("subtab")
+            pill.setCheckable(True)
+            pill.setCursor(Qt.PointingHandCursor)
+            index = len(sub["layouts"])
+            sub["group"].addButton(pill, index)
+            sub["bar"].addWidget(pill)
+            holder_page = QtWidgets.QWidget()
+            made = QtWidgets.QVBoxLayout(holder_page)
+            made.setContentsMargins(0, 4, 0, 0)
+            made.setSpacing(10)
+            sub["stack"].addWidget(holder_page)
+            sub["layouts"].append(made)
+            page["layout"] = made
 
         def row(*widgets):
             line = QtWidgets.QHBoxLayout()
@@ -10986,7 +11049,7 @@ class SettingsWindow(QtWidgets.QDialog):
             return label
 
         def heading(text, first=False):
-            if not first:                        # a thin line between sections
+            if not first and page["layout"].count() > 0:   # a line between sections
                 rule = QtWidgets.QFrame()
                 rule.setObjectName("rule")
                 rule.setFixedHeight(1)
@@ -11158,7 +11221,7 @@ class SettingsWindow(QtWidgets.QDialog):
         # ================= Typing =================
         # What gets typed and where (split from General: it was too long, owner).
         tab("Typing")
-        heading("Text", first=True)
+        part("Text")
         check("Type as you speak", LIVE_TYPE, option("LIVE_TYPE", "live_type"),
               tip="Off by default. Your words are typed into your app while you "
                   "speak, about half a second behind you, instead of all at once "
@@ -11192,7 +11255,7 @@ class SettingsWindow(QtWidgets.QDialog):
                                   "doesn't know: what it writes, and what you want instead.")
         row(field("Words"), replace_button, None)
 
-        heading("Where your words go")
+        part("Where your words go")
         check("Stay in the window I started in", RETURN_FOCUS,
               option("RETURN_FOCUS", "return_focus"),
               tip="If another program pops up and takes over while you are "
@@ -11235,7 +11298,7 @@ class SettingsWindow(QtWidgets.QDialog):
             if on:
                 dictation.preview_popup()
 
-        heading("While dictating", first=True)
+        part("While dictating")
         check("Show the pop-up while dictating", SHOW_POPUP,
               lambda on: popup_changed(on),
               hint="Unticked, nothing appears on screen while you dictate: you only "
@@ -11270,7 +11333,7 @@ class SettingsWindow(QtWidgets.QDialog):
         self.text_size.setCurrentIndex(max(0, self.text_size.findData(TEXT_SIZE)))
         self.text_size.currentIndexChanged.connect(self._text_size_changed)
         row(field("Text size"), self.text_size, None)
-        heading("Between dictations")
+        part("Between dictations")
         check("Always show a small status pill on screen", ALWAYS_SHOW,
               option("ALWAYS_SHOW", "always_show", refresh=True),
               tip="Shows a small pill between dictations so you can see the app is "
@@ -11312,7 +11375,7 @@ class SettingsWindow(QtWidgets.QDialog):
 
         # ================= Look =================
         tab("Look")
-        heading("Colours", first=True)
+        part("Colours")
         colour_row = [field("Colour")]
         for label, value in ACCENT_CHOICES:
             swatch = QtWidgets.QPushButton()
@@ -11362,7 +11425,7 @@ class SettingsWindow(QtWidgets.QDialog):
         self.card_style.currentIndexChanged.connect(card_style_chosen)
         row(field("Style"), self.card_style, None)
 
-        heading("Glow")
+        part("Glow")
         self.glow = QtWidgets.QComboBox()
         for key, label, _amount in GLOW_LEVELS:
             self.glow.addItem(label, key)
@@ -11543,7 +11606,7 @@ class SettingsWindow(QtWidgets.QDialog):
 
         # ================= Audio =================
         tab("Audio")
-        heading("Microphone", first=True)
+        part("Microphone")
         self.mic = QtWidgets.QComboBox()
         # Takes the room the row has; a long device name is shortened with "…"
         # rather than pushing the row past the window's edge.
@@ -11636,7 +11699,7 @@ class SettingsWindow(QtWidgets.QDialog):
              "finishing isn't cut off. Longer catches more; the text appears that "
              "much later.")
 
-        heading("Sounds")
+        part("Sounds")
         check("Play a sound when dictation starts and finishes", SOUNDS, set_sounds)
         self.speaker = QtWidgets.QComboBox()
         self.speaker.setFixedWidth(250)
@@ -11769,7 +11832,7 @@ class SettingsWindow(QtWidgets.QDialog):
 
         # ================= Privacy =================
         tab("Privacy")
-        heading("Updates", first=True)
+        part("Updates")
         self.app_updates = check(
             "Check for %s updates at startup" % APP_TITLE, CHECK_APP_UPDATES,
             self._app_updates_changed,
@@ -11784,6 +11847,7 @@ class SettingsWindow(QtWidgets.QDialog):
         row(self.app_updates, None, self.app_update_button)
         note("You have version %s." % VERSION)
 
+        part("Your data")
         heading("Clipboard and kept text")
         self.paste_mode = check(
             "Paste using the clipboard instead of typing", not TYPE_TEXT,
@@ -11822,7 +11886,7 @@ class SettingsWindow(QtWidgets.QDialog):
         button_grid(button("Export settings", lambda: export_settings_window(self)),
                     button("Import settings", lambda: import_settings_window(self)))
 
-        heading("Help and information")
+        part("Help")
         network = QtWidgets.QLabel(network_words(short=True))
         network.setObjectName("info")
         network.setWordWrap(True)
