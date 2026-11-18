@@ -39,6 +39,12 @@ if not FROZEN:   # (the installed program carries its own libraries, nothing els
 
 APP_REPO = "sudo-csmith/leetsay"                 # where new versions are published
 
+# numpy's maths library reserves a buffer for every CPU thread as it loads
+# (about 490 MB on a 16-thread PC) although leetsay's audio maths is small and
+# the speech engine has its own. One thread: measured, no slower. Set before
+# numpy is first imported; a value the user set themselves is kept.
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+
 if sys.argv[1:2] == ["--check-app-update"] and len(sys.argv) >= 3:
     # Not the application: a short-lived helper, started only after the user
     # agreed to "This application will go online" (or switched on the update
