@@ -401,7 +401,7 @@ MIC_DEVICE = ""                      # microphone by name; "" = Windows' default
 SOUND_DEVICE = ""                    # where the sounds play; "" = Windows' default output
 ADD_SPACE = True                     # put a space after each dictation
 SPOKEN_BREAKS = True                 # saying "new line" / "new paragraph" starts one
-                                     # (Shift+Enter: never sends in a chat app)
+                                     # (Shift+Enter, not Enter, which sends in chat apps)
 REMOVE_FILLERS = True                # leave out "um", "uh" and the like
 # Word replacements: what the speech model writes -> what you want instead, for
 # names and words it doesn't know (it can't learn new words). Whole words only.
@@ -11540,10 +11540,10 @@ class SettingsWindow(QtWidgets.QDialog):
         check("Say \"new line\" for a line break", SPOKEN_BREAKS,
               option("SPOKEN_BREAKS", "spoken_breaks"),
               tip="On by default. Saying \"new line\" starts a new line, and \"new "
-                  "paragraph\" leaves an empty line between. Sent as Shift+Enter, "
-                  "so a chat app never sends your message. In a terminal it is a "
-                  "space instead (there it would run the command).",
-              hint="Never sends a message.")
+                  "paragraph\" leaves an empty line between. Typed as Shift+Enter, "
+                  "which starts a new line in most chat apps instead of sending. In "
+                  "a terminal it is a space instead (there it would run the command).",
+              hint="Typed as Shift+Enter, not Enter.")
         check("Remove filler words", REMOVE_FILLERS,
               option("REMOVE_FILLERS", "remove_fillers"),
               hint="Leaves out um, uh and erm.")
