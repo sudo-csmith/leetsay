@@ -3825,6 +3825,8 @@ class Overlay(QtWidgets.QWidget):
         if there is no room above, and back to its place when box is None."""
         if self._dragging or self._card is None:
             return
+        if box is not None and self.click_started:
+            return       # started by clicking the pill: the card stays under the mouse
         home = self._top_left(self._home())
         goal = home
         if box is not None:
@@ -8023,7 +8025,13 @@ class Dictation(QtCore.QObject):
             # to read, with a little of what came before (its first words are
             # typed already: see on_finished).
             whole, rest = audio, audio[self.lt_commit:]
-            if len(rest) < SAMPLE_RATE * 0.3 or not holds_speech(rest, whole, SAMPLE_RATE):
+            # Words already seen in this last piece: it is read whatever the
+            # noise checks say (quiet last words were dropped as noise).
+            self._final_heard = bool(self.lt_prev or self.lt_seg_words)
+            if not self._final_heard and (len(rest) < SAMPLE_RATE * 0.3
+                                          or not holds_speech(rest, whole, SAMPLE_RATE)):
+                print("Typing as you speak: the end (%.1f s) held no speech; nothing more "
+                      "was typed." % (len(rest) / float(SAMPLE_RATE)))
                 self.overlay.dismiss()
                 QtCore.QTimer.singleShot(0, lambda: self.on_finished(""))
                 return
@@ -8092,7 +8100,9 @@ class Dictation(QtCore.QObject):
                     # last pause must not become a made-up "Okay" (see
                     # speech_decision; nothing is dropped without a message).
                     rest = audio[int(skip * SAMPLE_RATE):]
-                    if not self._speech_in(rest):
+                    if not getattr(self, "_final_heard", False) and not self._speech_in(rest):
+                        print("Typing as you speak: the end (%.1f s) was judged noise; "
+                              "nothing more was typed." % (len(rest) / float(SAMPLE_RATE)))
                         what = speech_decision(False, self.take_peak, len(rest) / float(SAMPLE_RATE))
                         if what != "read":
                             self.nothing_reason = what
