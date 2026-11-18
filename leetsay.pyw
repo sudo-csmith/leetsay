@@ -11024,29 +11024,28 @@ class SettingsWindow(QtWidgets.QDialog):
                 bar = QtWidgets.QHBoxLayout()
                 bar.setSpacing(6)
                 page["root"].addLayout(bar)
-                stack = QtWidgets.QStackedWidget()
-                page["root"].addWidget(stack)
-                group = QtWidgets.QButtonGroup(stack)
+                # The parts sit in an ordinary box and the ones not showing are
+                # hidden: only the part showing counts for the window's height
+                # (a stack of pages answers with its tallest page).
+                box = QtWidgets.QWidget()
+                stack = QtWidgets.QVBoxLayout(box)
+                stack.setContentsMargins(0, 0, 0, 0)
+                stack.setSpacing(0)
+                page["root"].addWidget(box)
+                group = QtWidgets.QButtonGroup(box)
                 group.setExclusive(True)
-                holder = page["holder"]
+                pages = []
 
-                def switch(index, stack=stack, group=group, holder=holder):
-                    for k in range(stack.count()):
-                        policy = (QtWidgets.QSizePolicy.Preferred if k == index
-                                  else QtWidgets.QSizePolicy.Ignored)
-                        stack.widget(k).setSizePolicy(QtWidgets.QSizePolicy.Preferred, policy)
-                    stack.setCurrentIndex(index)
+                def switch(index, pages=pages, group=group):
+                    for k, made_page in enumerate(pages):
+                        made_page.setVisible(k == index)
                     if group.button(index) is not None:
                         group.button(index).setChecked(True)
-                    stack.updateGeometry()
-                    holder.setMinimumHeight(0)
-                    holder.adjustSize()
-                    holder.setMinimumHeight(holder.sizeHint().height())
                     QtCore.QTimer.singleShot(0, self._fit_height)
 
                 group.idClicked.connect(switch)
                 sub = page["sub"] = {"bar": bar, "stack": stack, "group": group,
-                                     "layouts": [], "switch": switch}
+                                     "layouts": [], "pages": pages, "switch": switch}
             pill = QtWidgets.QPushButton(title.replace("&", "&&"))   # "&" shown, not a shortcut mark
             pill.setObjectName("subtab")
             pill.setCheckable(True)
@@ -11059,6 +11058,7 @@ class SettingsWindow(QtWidgets.QDialog):
             made.setContentsMargins(0, 4, 0, 0)
             made.setSpacing(10)
             sub["stack"].addWidget(holder_page)
+            sub["pages"].append(holder_page)
             sub["layouts"].append(made)
             page["layout"] = made
 
@@ -11924,12 +11924,6 @@ class SettingsWindow(QtWidgets.QDialog):
         self.paste_clear = button("Clear", self._clear_paste_hotkey, width=84)
         row(field(""), self.paste_record, self.paste_clear, None)
         self._refresh_paste_row()
-        heading("Move settings to another PC")
-        note("Your choices as one line of text, to copy and paste on another PC. "
-             "Nothing private is included.")
-        button_grid(button("Export settings", lambda: export_settings_window(self)),
-                    button("Import settings", lambda: import_settings_window(self)))
-
         part("Help")
         network = QtWidgets.QLabel(network_words(short=True))
         network.setObjectName("info")
@@ -11948,6 +11942,12 @@ class SettingsWindow(QtWidgets.QDialog):
         if uninstaller_path():
             helpers.append(button("Uninstall %s" % APP_TITLE, lambda: start_uninstall(self)))
         button_grid(*helpers)
+        heading("Move settings to another PC")
+        note("Your choices as one line of text, to copy and paste on another PC. "
+             "Nothing private is included.")
+        button_grid(button("Export settings", lambda: export_settings_window(self)),
+                    button("Import settings", lambda: import_settings_window(self)))
+
         end_tab()
 
         # ================= Beta =================
@@ -12012,6 +12012,7 @@ class SettingsWindow(QtWidgets.QDialog):
     def showEvent(self, event):
         super().showEvent(event)
         QtCore.QTimer.singleShot(0, self._fit_height)
+        QtCore.QTimer.singleShot(80, self._fit_height)   # again, once its width is final
 
     def _fit_height(self):
         """Make the window as tall as the tab that is showing needs, so a short
@@ -12020,15 +12021,49 @@ class SettingsWindow(QtWidgets.QDialog):
         view."""
         try:
             area = self._tabs.currentWidget()
-            content = area.widget().sizeHint().height()       # the tab, unclipped
+            # As tall as the tab (or part) showing needs, laid out at the
+            # window's full width: no empty space at the bottom (owner).
+            width = area.maximumViewportSize().width()    # without a scroll bar
+            page = area.widget()
+            if page.width() != width:
+                page.setFixedWidth(width)
+            page.setMinimumHeight(0)             # a part switched to a shorter one
+            layout = page.layout()
+            if layout is not None:
+                layout.invalidate()
+                layout.activate()
+            need = (layout.totalHeightForWidth(width)
+                    if layout is not None and layout.hasHeightForWidth() else -1)
+            content = max(need, page.sizeHint().height()) + 6   # a little room: no scroll bar
             around = self.height() - area.viewport().height() # tabs, buttons, margins
             screen = self.screen() or QtGui.QGuiApplication.primaryScreen()
             room = screen.availableGeometry()
             title_bar = max(0, self.frameGeometry().height() - self.height())
             limit = room.height() - title_bar - 16
             height = max(320, min(around + content, limit))
-            if height != self.height():
-                self.resize(self.width(), height)
+            # The scroll bar only where the tab can't fit on the screen at all
+            # (a small screen): otherwise it would flash on while the window
+            # glides to a taller tab.
+            policy = (Qt.ScrollBarAsNeeded if around + content > limit
+                      else Qt.ScrollBarAlwaysOff)
+            for i in range(self._tabs.count()):
+                self._tabs.widget(i).setVerticalScrollBarPolicy(policy)
+            if abs(height - self.height()) > 1:
+                # Glides to the new height (about 0.15 s) rather than jumping.
+                if self.isVisible() and animations_on():
+                    anim = getattr(self, "_height_anim", None)
+                    if anim is None:
+                        anim = self._height_anim = QtCore.QVariantAnimation(self)
+                        anim.setDuration(150)
+                        anim.setEasingCurve(QtCore.QEasingCurve.OutCubic)
+                        anim.valueChanged.connect(
+                            lambda value: self.resize(self.width(), int(value)))
+                    anim.stop()
+                    anim.setStartValue(self.height())
+                    anim.setEndValue(height)
+                    anim.start()
+                else:
+                    self.resize(self.width(), height)
             frame = self.frameGeometry()
             if frame.bottom() > room.bottom() or frame.top() < room.top():
                 self.move(self.x(), max(room.top(), room.bottom() - frame.height()))
