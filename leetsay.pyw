@@ -7223,8 +7223,7 @@ class Dictation(QtCore.QObject):
         words = clean_words(text.split())
         plain = self._plain(words)
         begin = self._after_typed(plain)
-        if not self.lt_seg_words:
-            begin = max(begin, self._skip_repeat(words))   # context read again
+        begin = max(begin, self._skip_repeat(words))       # earlier words read again
         self._show_typed(session, words[begin:])  # the card: as it is in your app
         fresh = plain[begin:]
         # Compare only the words not typed yet: a typed word read a little
@@ -7258,8 +7257,7 @@ class Dictation(QtCore.QObject):
             return
         words = clean_words(text.split())
         begin = self._after_typed(self._plain(words))
-        if not self.lt_seg_words:
-            begin = max(begin, self._skip_repeat(words))   # context read again
+        begin = max(begin, self._skip_repeat(words))       # earlier words read again
         self._queue_words(words[begin:], words[begin - 1] if begin else (before or None),
                           piece_end=True)
         self.lt_commit = max(self.lt_commit, end)
@@ -8168,8 +8166,8 @@ class Dictation(QtCore.QObject):
             typed = self.lt_done
             words = list(cleaned)                # skip the words typed already
             begin = self._after_typed(self._plain(words)) if words else 0
-            if words and not self.lt_seg_words:
-                begin = max(begin, self._skip_repeat(words))   # context read again
+            if words:
+                begin = max(begin, self._skip_repeat(words))   # earlier words read again
             text = self._compose(words[begin:], words[begin - 1] if begin
                                  else (self._final_before or None))
             self._final_before = ""

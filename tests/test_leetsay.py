@@ -434,6 +434,21 @@ class TestNoRepeatedPhrase(unittest.TestCase):
         self.assertEqual(self.skip("I said no", "no, it is fine".split()), 0)
         self.assertEqual(self.skip("", "one two three".split()), 0)
 
+    def test_earlier_words_back_in_a_started_piece(self):
+        # Part of the piece is typed already, and a reading brings back more
+        # of the words before it than the line-up looks at: only the new
+        # words are typed.
+        typed = "Could that be fine? Like, the first line seems"
+        words = "be fine? Like, the first line seems to get messed up.".split()
+        holder = types.SimpleNamespace(lt_done=typed, lt_pending="",
+                                       lt_seg_words=["line", "seems"],
+                                       REPEAT_MIN=ls.Dictation.REPEAT_MIN,
+                                       _plain=ls.Dictation._plain)
+        plain = ls.Dictation._plain(words)
+        begin = max(ls.Dictation._after_typed(holder, plain),
+                    ls.Dictation._skip_repeat(holder, words))
+        self.assertEqual(" ".join(words[begin:]), "to get messed up.")
+
 
 class TestSpeechDecision(unittest.TestCase):
     """The rule: nothing is dropped without the pop-up saying so, short sound
