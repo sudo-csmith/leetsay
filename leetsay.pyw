@@ -4652,15 +4652,23 @@ class PointerBadge(QtWidgets.QWidget):
         if target == 0.0 and shown <= 0.01:
             self.timer.stop()
             self.hide()
+            self._last_cursor = None
             return
-        spot = QtGui.QCursor.pos() + self.OFFSET
+        # Moved only when the mouse moved: every move of a window beside the
+        # pointer makes the program under it redraw its pointer, and at 125%
+        # scaling a "still there?" check against the window's own (rounded)
+        # position nudged it 18 times a second: the pointer flickered.
+        cursor = QtGui.QCursor.pos()
+        if cursor == getattr(self, "_last_cursor", None) and self.isVisible():
+            return
+        self._last_cursor = cursor
+        spot = cursor + self.OFFSET
         screen = QtGui.QGuiApplication.screenAt(QtGui.QCursor.pos())
         if screen is not None:                   # never off the screen's edge
             room = screen.availableGeometry()
             spot.setX(min(spot.x(), room.right() - self.width()))
             spot.setY(min(spot.y(), room.bottom() - self.height()))
-        if spot != self.pos():
-            self.move(spot)
+        self.move(spot)
 
     def paintEvent(self, _event):
         theme = popup_theme()
@@ -6981,14 +6989,40 @@ class Dictation(QtCore.QObject):
             if self.pointer_badge is None:
                 self.pointer_badge = PointerBadge()
             if mic and POINTER_HINT:
-                self.pointer_badge.say(mic, "danger")
+                look = (mic, "danger")
             elif show and POINTER_HINT:
-                self.pointer_badge.say("No text box", "warning")
+                look = ("No text box", "warning")
             else:
-                self.pointer_badge.say("Listening", "accent")
+                look = ("Listening", "accent")
+            self._badge_look(look)
             self.pointer_badge.appear()
         elif self.pointer_badge is not None:
             self.pointer_badge.vanish()
+
+    BADGE_HOLD = 0.9             # seconds a look stays before the tag may change again
+
+    def _badge_look(self, look, now=False):
+        """Change what the tag says only once the new look has been wanted
+        steadily for about a second: a text box answer that wavers (some
+        programs answer "text box / not one" by turns) must not make the tag
+        flash between "Listening" and "No text box". A microphone problem
+        (red) and "Typing..." show at once (now=True)."""
+        badge = self.pointer_badge
+        if look == (badge.text, badge.colour):
+            self._badge_pending = None
+            return
+        moment = time.monotonic()
+        if now or look[1] == "danger" or not badge.isVisible():
+            self._badge_pending = None
+            badge.say(*look)
+            return
+        pending = getattr(self, "_badge_pending", None)
+        if pending is None or pending[0] != look:
+            self._badge_pending = (look, moment)  # wanted from now on: wait and see
+            return
+        if moment - pending[1] >= self.BADGE_HOLD:
+            self._badge_pending = None
+            badge.say(*look)
 
     def _pointer_off(self, typing=False):
         """The dictation is over (or cancelled): the tag goes, whatever it
@@ -6996,7 +7030,7 @@ class Dictation(QtCore.QObject):
         "Typing..." until the words are in (see _typing_watch), then goes."""
         self.box_timer.stop()
         if typing and POINTER_STATUS and not self.lt_active and self.pointer_badge is not None:
-            self.pointer_badge.say("Typing\u2026", "accent")
+            self._badge_look(("Typing\u2026", "accent"), now=True)
             self.pointer_badge.appear()
             self.typed_quiet_until = time.monotonic() + 0.8   # until the typing starts
             self._typing_watch_until = time.monotonic() + 30.0
