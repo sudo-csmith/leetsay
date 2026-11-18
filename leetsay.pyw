@@ -8066,6 +8066,10 @@ class Dictation(QtCore.QObject):
                 self._final_skip = (self.lt_commit - first) / float(SAMPLE_RATE)
         if SHOW_TRANSCRIBING and getattr(self, "popup_shown", True):
             self.overlay.show_transcribing()
+        elif getattr(self, "popup_shown", True):
+            # The card becomes a small "Transcribing..." pill (no sound wave)
+            # at once, and stays until the words are ready.
+            self.overlay.show_message(self.WORKING, ms=None)
         else:
             self.overlay.dismiss()         # vanish now; the text follows shortly
             # ... unless it is not short: after a moment, say what is going on.
@@ -8170,6 +8174,8 @@ class Dictation(QtCore.QObject):
 
     def on_finished(self, text):
         self.state = "idle"
+        if self.overlay.mode == "message" and self.overlay.message == self.WORKING:
+            self.overlay.dismiss()               # transcribed: "Transcribing..." goes
         self.typed_quiet_until = time.monotonic() + 0.8      # the typing starts shortly
         # Line breaks only where spoken ("new line"), typed as Shift+Enter:
         # never a plain Enter, which could send a message.
