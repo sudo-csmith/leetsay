@@ -87,11 +87,7 @@ folder, then double-click `leetsay.pyw`.
 Settings > Typing > **Type as you speak** types your words into your program
 while you talk, instead of all at once when you let go. It is a little less
 accurate, because each word is typed before the rest of the sentence is heard.
-
-<p align="center">
-  <img src="assets/leetsay-type-as-you-speak.webp" alt="Animation of leetsay typing words into a text box while the dictation card shows them." width="100%">
-</p>
-<p align="center"><sub>Type as you speak is an optional setting and is off by default. Illustration, not a screen recording.</sub></p>
+It is off by default.
 
 ## Uninstalling
 
