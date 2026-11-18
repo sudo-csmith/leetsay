@@ -1911,6 +1911,7 @@ class StickyBox:
         self.window = None
         self.element = None
         self.control = None                  # its Windows control, for plain text boxes
+        self.inner = None                    # its place on screen when last seen
         self._jobs = queue.Queue()
         self._auto = None
         threading.Thread(target=self._worker, daemon=True).start()
@@ -2020,6 +2021,7 @@ class StickyBox:
 
     def forget(self):
         self.control = None
+        self.inner = None
 
         def job():
             old, self.element, self.window = self.element, None, None
@@ -5071,6 +5073,8 @@ class BoxGlow(QtWidgets.QWidget):
         if self.now is None or not self.isVisible():
             self.now = QtCore.QRectF(self.goal)  # first showing: right there
             self._apply()
+        elif self.isVisible():
+            self.timer.start()                   # glide there
 
     ROOM = 90                    # spare room round the box inside the glow's window
 
@@ -5127,6 +5131,10 @@ class BoxGlow(QtWidgets.QWidget):
         voice = getattr(self.recorder, "level", 0.0) if self.live else 0.0
         self.level = max(voice, self.level * 0.85)       # quick rise, soft fall
         self.update()
+        if (not self.live and self.level < 0.005 and abs(shown - self.target) <= 0.01
+                and (self.goal is None or self.now == self.goal)):
+            self.level = 0.0
+            self.timer.stop()                    # at rest: nothing to draw again
 
     def paintEvent(self, _event):
         p = QtGui.QPainter(self)
@@ -7340,6 +7348,8 @@ class Dictation(QtCore.QObject):
         asking.start()
         asking.join(0.5)
         outer, inner = answer.get("v"), self.sticky.rect()
+        if inner:
+            self.sticky.inner = inner
         if not outer or not inner:
             return
         win = wintypes.RECT()
@@ -7377,9 +7387,13 @@ class Dictation(QtCore.QObject):
             if (now[2] - now[0], now[3] - now[1]) == (old[2] - old[0], old[3] - old[1]):
                 dx, dy = now[0] - old[0], now[1] - old[1]          # moved: shift along
                 rect = (rect[0] + dx, rect[1] + dy, rect[2] + dx, rect[3] + dy)
+                if box.inner:
+                    i = box.inner
+                    box.inner = (i[0] + dx, i[1] + dy, i[2] + dx, i[3] + dy)
             else:
                 inner = box.rect()                                 # resized: ask again
                 if inner:
+                    box.inner = inner
                     rect = tuple(i + d for i, d in zip(inner, delta))
             place[0], place[1] = now, rect
             glow.place(rect)
@@ -7398,8 +7412,12 @@ class Dictation(QtCore.QObject):
                         break
             except Exception:
                 seen = False
+        talking = self.state == "recording"
+        if glow.live != talking:
+            glow.live = talking
+            glow.timer.start()
         if seen and glow.target == 0.0:
-            glow.appear(live=False)
+            glow.appear(live=talking)
         elif not seen and glow.target > 0.0:
             glow.vanish()
 
@@ -7445,6 +7463,7 @@ class Dictation(QtCore.QObject):
             # would need the box in front, so this dictation goes in whole.
             self.pin_direct = box.control
             self.lt_active = self.lt_gentle = False
+            self._pin_follow()
             return
         # Others (VS Code, web pages, chat apps) take keys only while in
         # front: nothing moves while you speak; when you let go their window
@@ -7452,6 +7471,7 @@ class Dictation(QtCore.QObject):
         # (_sticky_reach). Typing as you speak waits for that too.
         self.pin_direct = "later"
         self.lt_active = self.lt_gentle = False
+        self._pin_follow()                       # the outline wakes with your voice
 
     def _sticky_back_now(self):
         self._sticky_until = 0.0
@@ -7737,6 +7757,7 @@ class Dictation(QtCore.QObject):
         be told: then the tag at the pointer says it instead."""
         rect = None
         if (DICTATION_MARK == "frame" and self.state == "recording" and TEXTBOX_ONLY
+                and not (self.pin_glow is not None and self.pin_glow.target > 0.0)
                 and self.target_window and foreground_window() == self.target_window
                 and not self.overlay.box_missing and self.lt_box.get("verdict") is True):
             rect = self.lt_box.get("rect")
@@ -8166,6 +8187,54 @@ class Dictation(QtCore.QObject):
         QtCore.QTimer.singleShot(       # give the window a moment to wake up
             200, lambda: self._deliver_if_text_box(text, after_key))
 
+    def _pin_in_front(self, box):
+        """Bring the pinned box's window forward and the cursor into the box.
+        Programs put the cursor back where it was a moment after their window
+        comes forward, so this waits for that (at most about a second) before
+        asking for it itself. True once the cursor is in the pinned box."""
+        if foreground_window() != box.window and not focus_window(box.window):
+            return False
+        for attempt in range(2):
+            deadline = time.monotonic() + 0.5
+            while True:
+                if self._pin_has_focus(box):
+                    return True
+                if time.monotonic() > deadline:
+                    break
+                time.sleep(0.05)
+            if attempt == 0 and foreground_window() == box.window:
+                box.focus()                      # not back by itself: put it there
+        print("Pin: couldn't reach the pinned box (window in front: %s, place known: %s)." % (
+            foreground_window() == box.window, bool(box.inner)))
+        return False
+
+    def _pin_has_focus(self, box):
+        """Is the cursor in the pinned box? Its own reference, or (programs
+        that build the box anew, like VS Code and web pages) a text box in the
+        same window at the same place: then that one is remembered instead."""
+        if foreground_window() != box.window:
+            return False
+        if box.holds_focus():
+            return True
+        inner = box.inner
+        if not inner:
+            return False
+        answer = {}
+        asking = threading.Thread(target=lambda: answer.setdefault("v", focused_box_rect()),
+                                  daemon=True)
+        asking.start()
+        asking.join(0.4)
+        found = answer.get("v")
+        if not found:
+            return False
+        near = lambda a, b: abs(a - b) <= 10
+        same = (near(found[0], inner[0]) and near(found[2], inner[2])
+                and (near(found[1], inner[1]) or near(found[3], inner[3])))
+        if same and self._box_answer_now(box.window) is True and box.remember(box.window):
+            box.inner = found
+            return True
+        return False
+
     def _sticky_reach(self):
         """Before typing (a pinned text box): if the cursor is no longer in
         the box this dictation was for (you clicked into another one while
@@ -8177,8 +8246,7 @@ class Dictation(QtCore.QObject):
             return True
         here = foreground_window()
         other = box.grab()                       # the box you moved to
-        if (here != box.window and not focus_window(box.window)) \
-                or not (box.focus() and box.holds_focus()):
+        if not self._pin_in_front(box):
             if here and foreground_window() != here:
                 focus_window(here)
             box.focus_on(other)
