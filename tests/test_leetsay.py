@@ -24,6 +24,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SOURCE = os.path.join(ROOT, "leetsay.pyw")
 
 # Never the real %LOCALAPPDATA%\leetsay: settings, sounds and the log go here.
+_REAL_LOCALAPPDATA = os.environ.get("LOCALAPPDATA", "")   # only to find the helper
 _DATA = tempfile.mkdtemp(prefix="leetsay-tests-")
 import atexit  # noqa: E402
 import shutil  # noqa: E402
@@ -325,6 +326,139 @@ class TestLogPrivacy(unittest.TestCase):
                 for arg in node.args:
                     scan(arg, node.lineno)
         self.assertEqual(found, [], "log lines that may contain dictated text")
+
+
+class TestSpeechDecision(unittest.TestCase):
+    """The rule: nothing is dropped without the pop-up saying so, short sound
+    without speech is not typed (today's click-and-cough rule), and longer
+    sound without detected speech is read anyway."""
+
+    def test_rule(self):
+        quiet = ls.MIC_QUIET_PEAK / 2
+        loud = ls.MIC_QUIET_PEAK * 20
+        self.assertEqual(ls.speech_decision(True, quiet, 0.5), "read")
+        self.assertEqual(ls.speech_decision(True, loud, 10), "read")
+        self.assertEqual(ls.speech_decision(False, quiet, 10), "quiet")
+        self.assertEqual(ls.speech_decision(False, quiet, 1), "quiet")
+        self.assertEqual(ls.speech_decision(False, loud, 1.5), "noise")
+        self.assertEqual(ls.speech_decision(False, loud, 2.0), "read")
+        self.assertEqual(ls.speech_decision(False, loud, 30), "read")
+
+
+def _helper_dir():
+    """The voice detector (Silero VAD, about 2 MB): from LEETSAY_HELPER_DIR (the
+    GitHub test run downloads it there), else leetsay's own copy on this PC.
+    Used only if every file matches the fingerprints built into leetsay."""
+    for folder in (os.environ.get("LEETSAY_HELPER_DIR", ""),
+                   os.path.join(_REAL_LOCALAPPDATA, "leetsay", "models", "silero-vad")):
+        if folder and os.path.isdir(folder):
+            for name, (size, sha) in ls.HELPER_RELEASE["files"].items():
+                path = os.path.join(folder, name)
+                if not os.path.isfile(path) or os.path.getsize(path) != size \
+                        or ls.file_fingerprint(path) != sha:
+                    raise AssertionError("the helper in %s does not match its fingerprint"
+                                         % folder)
+            return folder
+    return None
+
+
+_SENTENCES = ["Please send the report to the team before lunch tomorrow.",
+              "Can we move the meeting to three o'clock on Friday?",
+              "The new version fixes the bug in the settings window.",
+              "I think we should test this again on the other computer.",
+              "Thanks for your help today, it made a big difference.",
+              "Remind me to call the office about the delivery."]
+
+
+def _spoken_clips(folder):
+    """Six spoken sentences made with Windows' built-in voices (two voices,
+    three speeds), as 16 kHz mono WAV files in folder. Nothing is committed:
+    no real person's voice is stored in the repository."""
+    import subprocess
+    script = ["Add-Type -AssemblyName System.Speech",
+              "$v = (New-Object System.Speech.Synthesis.SpeechSynthesizer)"
+              ".GetInstalledVoices() | ForEach-Object { $_.VoiceInfo.Name }",
+              "if (-not $v) { exit 3 }"]
+    fmt = ("(New-Object System.Speech.AudioFormat.SpeechAudioFormatInfo(16000, "
+           "[System.Speech.AudioFormat.AudioBitsPerSample]::Sixteen, "
+           "[System.Speech.AudioFormat.AudioChannel]::Mono))")
+    for i, sentence in enumerate(_SENTENCES):
+        script += ["$s = New-Object System.Speech.Synthesis.SpeechSynthesizer",
+                   "$s.SelectVoice(@($v)[%d %% @($v).Count])" % i,
+                   "$s.Rate = %d" % (-3, 0, 3)[i % 3],
+                   "$s.SetOutputToWaveFile('%s', %s)"
+                   % (os.path.join(folder, "clip%d.wav" % i), fmt),
+                   "$s.Speak('%s')" % sentence.replace("'", "''"),
+                   "$s.Dispose()"]
+    result = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command",
+                             "; ".join(script)], capture_output=True, timeout=120)
+    if result.returncode != 0:
+        return []
+    clips = []
+    import wave
+    import numpy as np
+    for i in range(len(_SENTENCES)):
+        with wave.open(os.path.join(folder, "clip%d.wav" % i)) as fh:
+            raw = fh.readframes(fh.getnframes())
+        clips.append(np.frombuffer(raw, "<i2").astype(np.float32) / 32768.0)
+    return clips
+
+
+@unittest.skipUnless(os.name == "nt", "Windows voices")
+class TestSpeechCheck(unittest.TestCase):
+    """The voice detector on six spoken sentences at four microphone levels,
+    and on four kinds of noise."""
+    LEVELS = (1.0, 0.1, 0.02, 0.005)
+
+    @classmethod
+    def setUpClass(cls):
+        import numpy as np
+        cls.np = np
+        folder = _helper_dir()
+        if folder is None:
+            raise unittest.SkipTest("the voice detector (helper) is not on this PC")
+        import onnx_asr
+        cls.vad = onnx_asr.load_vad("silero", folder)
+        cls.clips = _spoken_clips(tempfile.mkdtemp(dir=_DATA))
+        cls.rng = np.random.default_rng(1)
+
+    def outcome(self, raw):
+        """What leetsay does with a recording: as in Dictation._transcribe."""
+        found = ls.has_speech(self.vad, ls.leveled(raw))
+        peak = float(self.np.max(self.np.abs(raw))) if len(raw) else 0.0
+        return found, ls.speech_decision(found, peak, len(raw) / 16000.0)
+
+    def test_speech_at_every_level(self):
+        if not self.clips:
+            self.skipTest("no Windows voices on this PC to make the spoken sentences")
+        self.assertEqual(len(self.clips), 6)
+        for n, clip in enumerate(self.clips):
+            for level in self.LEVELS:
+                raw = (clip * level + self.rng.normal(0, 0.0005, len(clip))).astype(
+                    self.np.float32)                          # a little microphone hiss
+                found, decision = self.outcome(raw)
+                if level >= 0.02:
+                    self.assertTrue(found, "sentence %d at level %s" % (n, level))
+                # Never dropped silently: read, or "Can't hear you" on the pop-up.
+                self.assertIn(decision, ("read", "quiet"), "sentence %d at %s" % (n, level))
+
+    def test_noise_is_not_speech(self):
+        np, rng, rate = self.np, self.rng, 16000
+        noises = {
+            "room hiss": rng.normal(0, 0.002, 10 * rate),
+            "silence": np.zeros(10 * rate),
+            "key clicks": np.where(rng.random(3 * rate) < 0.0005, 0.6, 0.0)
+            + rng.normal(0, 0.001, 3 * rate),
+            "hum": 0.05 * np.sin(2 * np.pi * 50 * np.arange(5 * rate) / rate),
+        }
+        for name, noise in noises.items():
+            found, _decision = self.outcome(noise.astype(np.float32))
+            self.assertFalse(found, name)
+            # A short bit of the same sound (a click, a cough): nothing typed,
+            # and the pop-up says so ("noise" or "quiet"), never "read".
+            short = noise[:int(1.5 * rate)].astype(np.float32)
+            _found, decision = self.outcome(short)
+            self.assertIn(decision, ("noise", "quiet"), name)
 
 
 import unittest.mock  # noqa: E402  (used above, loaded after leetsay on purpose)

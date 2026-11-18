@@ -2141,6 +2141,35 @@ def clean_words(words):
     return replace_words(spoken_breaks(fix_times(drop_fillers(words))))
 
 
+SHORT_CHECK_SECONDS = 2.0    # under this, sound without speech is a click or a cough
+
+
+def has_speech(vad, audio, rate=16000):
+    """Does the voice detector (the Silero helper) find any speech in this
+    recording? Detection only, no transcription: about 15 ms for a few
+    seconds of sound, 70 ms for 18 s (measured)."""
+    segments = next(vad.segment_batch(audio[None, :].astype(np.float32),
+                                      np.array([len(audio)], dtype=np.int64), rate))
+    return any(True for _segment in segments)
+
+
+def speech_decision(found, peak, seconds):
+    """What to do with a finished recording, from the voice detector's answer
+    (found), the microphone's loudest moment (peak) and the length:
+    "read" (transcribe it), "quiet" (the microphone barely heard anything:
+    nothing typed, and the pop-up says so) or "noise" (a short sound without
+    speech, a key click or a cough: nothing typed, and the pop-up says so).
+    Sound without detected speech that lasts 2 s or more is read anyway, so
+    quiet speech the detector misses is never thrown away."""
+    if found:
+        return "read"
+    if peak < MIC_QUIET_PEAK:
+        return "quiet"
+    if seconds < SHORT_CHECK_SECONDS:
+        return "noise"
+    return "read"
+
+
 def holds_speech(audio, whole, rate):
     """Does this leftover bit of a recording hold any speech? Measured against
     the whole recording's speaking level, so that background noise left
@@ -5338,6 +5367,9 @@ class Dictation(QtCore.QObject):
         self.state = "loading"       # loading | idle | recording | transcribing
         self.model = None
         self.model_vad = None
+        self.vad = None                        # the voice detector alone (the helper)
+        self.take_peak = 1.0                   # loudest moment of the last recording
+        self.nothing_reason = ""               # why the last one typed nothing
         self.load_seconds = None
         self.target_window = None              # window that had focus at the start
         self.ptt = {"pos": None, "since": 0.0, "tried": False, "busy": False}   # pointing
@@ -5782,6 +5814,7 @@ class Dictation(QtCore.QObject):
         with self.model_lock:                  # waits for anything using it to finish
             self.model = None
             self.model_vad = None
+            self.vad = None
             self.model_timed = None
         self.state = "nomodel"
         import gc
@@ -6905,6 +6938,7 @@ class Dictation(QtCore.QObject):
         self.lt_pacer.stop()
         self.watch_timer.stop()
         audio = self.recorder.stop()
+        self.take_peak = self.recorder.peak      # for the speech check (raw level)
         self.show_listening(False)
         play_sound("finish")
         # A tap: nothing was said. Judged as before the tail grew from 0.25 s
@@ -6954,7 +6988,6 @@ class Dictation(QtCore.QObject):
         threading.Thread(target=self._transcribe, args=(audio,), daemon=True).start()
 
     WORKING, TYPING = "Transcribing\u2026", "Typing\u2026"
-    SHORT_CHECK_SECONDS = 2.0    # shorter recordings are checked for speech first
 
     def _still_working(self, session):
         """A long dictation takes a few seconds to turn into text: show a small
@@ -6976,30 +7009,30 @@ class Dictation(QtCore.QObject):
                     text, self._final_before = self._timed_read(audio, skip)
                     self.finished.emit(text.strip())
                     return
-                short = len(audio) < self.SHORT_CHECK_SECONDS * SAMPLE_RATE
-                if len(audio) > LONG_AUDIO_SECONDS * SAMPLE_RATE or short:
-                    if self.model_vad is None:     # loaded on first use, not at start
-                        try:
-                            if not helper_ok():    # only the official file is used
-                                raise FileNotFoundError("the helper is not on this PC")
-                            import onnx_asr
-                            self.model_vad = self.model.with_vad(
-                                onnx_asr.load_vad("silero", helper_dir()))
-                        except Exception as exc:
-                            print("Dictation without the helper: %s" % exc,
-                                  file=sys.stderr)
-                            self.model_vad = False
-                if self.model_vad and short:
-                    # A quick press: the speech model alone "hears" a word
-                    # ("Okay", "Uh") in half a second of key click and room
-                    # noise. The helper tells real speech from noise (tested:
-                    # every noise bit empty, every word found, even in 0.4 s).
+                if self.model_vad is None:         # loaded on first use, not at start
                     try:
-                        if not list(self.model_vad.recognize(audio, sample_rate=SAMPLE_RATE)):
-                            self.finished.emit("")
-                            return
+                        if not helper_ok():        # only the official file is used
+                            raise FileNotFoundError("the helper is not on this PC")
+                        import onnx_asr
+                        self.vad = onnx_asr.load_vad("silero", helper_dir())
+                        self.model_vad = self.model.with_vad(self.vad)
+                    except Exception as exc:
+                        print("Dictation without the helper: %s" % exc, file=sys.stderr)
+                        self.model_vad, self.vad = False, None
+                if self.vad is not None:
+                    # Every recording: is there speech at all? The speech model
+                    # alone "hears" a word ("Okay", "Uh") in key clicks and room
+                    # noise. See speech_decision: nothing is dropped without the
+                    # pop-up saying so, and sound of 2 s or more is read anyway.
+                    try:
+                        found = has_speech(self.vad, audio)
                     except Exception:
-                        pass                       # can't tell: read it as usual
+                        found = True               # can't tell: read it as usual
+                    what = speech_decision(found, self.take_peak, len(audio) / float(SAMPLE_RATE))
+                    if what != "read":
+                        self.nothing_reason = what
+                        self.finished.emit("")
+                        return
                 if self.model_vad and len(audio) > LONG_AUDIO_SECONDS * SAMPLE_RATE:
                     try:
                         parts = self.model_vad.recognize(audio, sample_rate=SAMPLE_RATE)
@@ -7080,7 +7113,11 @@ class Dictation(QtCore.QObject):
                     self.overlay.dismiss()
                 return
         if not text:
-            self.overlay.show_message("Didn't catch that", ms=1400)
+            reason, self.nothing_reason = self.nothing_reason, ""
+            if reason == "quiet":
+                self.overlay.show_message("Can't hear you. Check the mic", ms=3000)
+            else:
+                self.overlay.show_message("Didn't catch that", ms=1400)
             return
         if TYPE_TEXT and len(text) > 150 and getattr(self, "popup_shown", True):
             self.overlay.show_message(self.TYPING, ms=None)    # a long one takes a moment

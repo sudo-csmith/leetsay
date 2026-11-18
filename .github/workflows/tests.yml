@@ -25,5 +25,18 @@ jobs:
         run: |
           python -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r requirements-build.txt
 
-      - name: Run the tests
+      # The voice detector (Silero VAD, about 2 MB) from this project's own
+      # model releases, for the speech check tests. The tests use it only if
+      # every file matches the fingerprints built into leetsay.
+      - name: Get the voice detector for the speech check tests
+        shell: pwsh
+        run: |
+          $d = Join-Path $env:RUNNER_TEMP "silero-vad"
+          New-Item -ItemType Directory -Force $d | Out-Null
+          foreach ($f in "silero_vad.onnx", "config.json") {
+            Invoke-WebRequest "https://github.com/sudo-csmith/leetsay-models/releases/download/silero-vad-v6.2.3/$f" -OutFile (Join-Path $d $f)
+          }
+          "LEETSAY_HELPER_DIR=$d" >> $env:GITHUB_ENV
+
+      - name: Run the tests (no microphone; leetsay's network block stays closed)
         run: python -B -m unittest discover -s tests -v
