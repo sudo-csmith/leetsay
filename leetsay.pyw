@@ -421,10 +421,10 @@ TEXTBOX_ONLY = True                  # typing as you speak: only into a text box
                                      # Windows what kind of control has the focus)
 POINT_TO_TYPE = False                # while no text box is selected, resting the mouse
                                      # on one selects it (no click; off by default)
-DICTATION_MARK = "frame"             # where "dictating here" shows: "frame" (a glow round
-                                     # the text box; the pointer tag where there is none),
-                                     # "pointer" (the tag at the pointer) or "off"
-DICTATION_MARKS = (("frame", "Glow round the text box"), ("pointer", "Tag at the pointer"),
+DICTATION_MARK = "pointer"           # where "dictating here" shows: "pointer" (the tag at
+                                     # the pointer; default), "frame" (a glow round the text
+                                     # box, beta; the pointer tag where there is none) or "off"
+DICTATION_MARKS = (("pointer", "Tag at the pointer"), ("frame", "Glow round the text box (beta)"),
                    ("off", "Off"))
 POINTER_STATUS = True                # "Listening" / "Typing..." by the mouse pointer
                                      # while dictating (not with typing as you speak)
@@ -1779,7 +1779,10 @@ def focused_text_box(password_only=False, point=None, focus=False):
             pass
 
 
-def focused_box_rect():
+_WHOLE_CARD_APPS = ("code.exe", "code - insiders.exe")   # VS Code: its chat prompt card
+
+
+def focused_box_rect(whole_card=False):
     """Where the focused control is on screen: (left, top, right, bottom) in
     screen pixels, or None. Only its position and size are asked, never its
     text. Run it off the main thread (a busy program can be slow to answer)."""
@@ -1805,11 +1808,13 @@ def focused_box_rect():
         if rect.right - rect.left < 8 or rect.bottom - rect.top < 8:
             return None
         found = (rect.left, rect.top, rect.right, rect.bottom)
-        # Many chat apps put the typing area inside a larger rounded box (with
-        # a row of buttons under it): go up to that box, but only while each
-        # step is just a little bigger, never to a whole panel or page.
+        # whole_card (programs known to draw the typing area inside a larger
+        # rounded card, with attachments above and buttons below it): go up
+        # to that card, but only while each step is just a little bigger,
+        # never to a whole panel or page. Elsewhere the typing area itself
+        # (a web page's wrappers can hold notices that are not the box).
         walker, node = ctypes.c_void_p(), element
-        if method(automation, 14, ctypes.POINTER(ctypes.c_void_p))(        # ControlViewWalker
+        if whole_card and method(automation, 14, ctypes.POINTER(ctypes.c_void_p))(   # ControlViewWalker
                 automation, ctypes.byref(walker)) == 0 and walker:
             try:
                 for _step in range(4):
@@ -1829,7 +1834,7 @@ def focused_box_rect():
                         break
                     if (outer.right - outer.left > (r0 - l0) + 64
                             or outer.bottom - outer.top > max(2.5 * (rect.bottom - rect.top),
-                                                             (rect.bottom - rect.top) + 110)):
+                                                             (rect.bottom - rect.top) + 160)):
                         break                    # much bigger: a panel, not the input box
                     found = (outer.left, outer.top, outer.right, outer.bottom)
             finally:
@@ -3533,6 +3538,7 @@ class Overlay(QtWidgets.QWidget):
     def _present(self):
         if not self._dragging:
             self.move(self._top_left(self._home()))
+            self._avoid_goal = None            # back home: stepping aside starts afresh
         if not self.isVisible():
             self.fade = 0.0
         self.fade_target = 1.0
@@ -3614,6 +3620,44 @@ class Overlay(QtWidgets.QWidget):
             self.setCursor(Qt.SizeHorCursor)     # on an edge: drag to resize
             return
         self.setCursor(Qt.PointingHandCursor if clickable else Qt.ArrowCursor)
+
+    def avoid(self, box):
+        """Keep the card off the text box you are dictating into (box: a
+        QRect on screen, or None): it glides just above the box, or below it
+        if there is no room above, and back to its place when box is None."""
+        if self._dragging or self._card is None:
+            return
+        home = self._top_left(self._home())
+        goal = home
+        if box is not None:
+            left, top, width, height = self._card
+            card = QtCore.QRect(home.x() + left, home.y() + top, width, height)
+            if card.intersects(box.adjusted(-10, -10, 10, 10)):
+                screen = QtGui.QGuiApplication.screenAt(box.center()) \
+                    or QtGui.QGuiApplication.primaryScreen()
+                room = screen.availableGeometry()
+                lift = (box.top() - 12) - card.bottom()           # just above the box
+                drop = (box.bottom() + 12) - card.top()           # ... or just below it
+                if card.top() + lift >= room.top() + 8:
+                    goal = home + QtCore.QPoint(0, lift)
+                elif card.bottom() + drop <= room.bottom() - 8:
+                    goal = home + QtCore.QPoint(0, drop)
+        if goal == getattr(self, "_avoid_goal", None):
+            return
+        self._avoid_goal = goal
+        if goal == self.pos():
+            return
+        if animations_on():
+            if getattr(self, "_avoid_anim", None) is None:
+                self._avoid_anim = QtCore.QPropertyAnimation(self, b"pos", self)
+                self._avoid_anim.setDuration(160)
+                self._avoid_anim.setEasingCurve(QtCore.QEasingCurve.OutCubic)
+            self._avoid_anim.stop()
+            self._avoid_anim.setStartValue(self.pos())
+            self._avoid_anim.setEndValue(goal)
+            self._avoid_anim.start()
+        else:
+            self.move(goal)
 
     def _cursor_on_card(self):
         """Is the mouse over the card that is actually drawn? (The window is
@@ -4812,11 +4856,13 @@ class BoxGlow(QtWidgets.QWidget):
         self.goal = None                         # where it is heading (QRectF, logical)
         self.now = None                          # where it is drawn now
         self.timer = QtCore.QTimer(self)
-        self.timer.setInterval(16)
+        self.timer.setInterval(33)          # 30 frames a second
         self.timer.timeout.connect(self._tick)
 
-    def place(self, rect):
-        """rect: (left, top, right, bottom) in screen pixels."""
+    def place(self, rect, roomy=False):
+        """rect: (left, top, right, bottom) in screen pixels. roomy: a bare
+        typing area (no card round it): leave more space round the text."""
+        self.GAP = 6 if roomy else 3
         left, top, right, bottom = rect
         logical = physical_to_logical(QtCore.QRect(left, top, right - left, bottom - top))
         self.goal = QtCore.QRectF(logical)
@@ -4824,10 +4870,20 @@ class BoxGlow(QtWidgets.QWidget):
             self.now = QtCore.QRectF(self.goal)  # first showing: right there
             self._apply()
 
+    ROOM = 90                    # spare room round the box inside the glow's window
+
     def _apply(self):
-        box = self.now.toAlignedRect().adjusted(-self.PAD, -self.PAD, self.PAD, self.PAD)
-        if box != self.geometry():
-            self.setGeometry(box)
+        """Resizing a see-through window shows it empty for a moment (a flash):
+        so the window keeps spare room round the box, and a box that grows a
+        line is simply drawn again inside it. Resized only when the box
+        leaves that room (or the room is far too big)."""
+        need = self.now.toAlignedRect().adjusted(-self.PAD, -self.PAD, self.PAD, self.PAD)
+        have = self.geometry()
+        too_big = (have.width() > need.width() + 4 * self.ROOM
+                   or have.height() > need.height() + 4 * self.ROOM)
+        if not self.isVisible() or not have.contains(need) or too_big:
+            self.setGeometry(need.adjusted(-self.ROOM, -self.ROOM, self.ROOM, self.ROOM))
+        self.update()
 
     def appear(self, live=True):
         self.live = live
@@ -4875,8 +4931,11 @@ class BoxGlow(QtWidgets.QWidget):
         try:
             p.setRenderHint(QtGui.QPainter.Antialiasing)
             accent = QtGui.QColor(ACCENT)
-            box = QtCore.QRectF(self.rect()).adjusted(self.PAD - self.GAP, self.PAD - self.GAP,
-                                                      self.GAP - self.PAD, self.GAP - self.PAD)
+            # The box, in this window's own coordinates (the window has room
+            # to spare round it).
+            spot = self.now if self.now is not None else QtCore.QRectF(self.rect())
+            box = spot.translated(-self.geometry().x(), -self.geometry().y()).adjusted(
+                -self.GAP, -self.GAP, self.GAP, self.GAP)
             radius = 10.0
             # Nothing is drawn inside the box: the text stays as it is.
             inside = QtGui.QPainterPath()
@@ -5677,6 +5736,7 @@ class Dictation(QtCore.QObject):
         self.frame_busy = False
         self.frame_rect.connect(self._frame_place)
         self.frame_on = False                  # it is showing round a real text box
+        self.frame_card = False                # frame the whole input card (VS Code)
         self.typing_watch = QtCore.QTimer()    # "Typing..." at the pointer until done
         self.typing_watch.setInterval(100)
         self.typing_watch.timeout.connect(self._typing_watch)
@@ -6443,6 +6503,11 @@ class Dictation(QtCore.QObject):
         self.overlay.click_started = False
         self.after_ticket += 1                 # a pending "after" key press is dropped
         self.target_window = foreground_window()
+        try:                                     # (in memory only; never logged)
+            self.frame_card = os.path.basename(
+                foreground_app(self.target_window)[1] or "").lower() in _WHOLE_CARD_APPS
+        except Exception:
+            self.frame_card = False
         name, path = (foreground_app(self.target_window)
                       if (SHOW_APP_ICON or SHOW_APP_NAME or GLOW_FROM_APP) else ("", ""))
         try:
@@ -6960,7 +7025,7 @@ class Dictation(QtCore.QObject):
                     verdict = None
                 rect = None
                 if verdict is True and DICTATION_MARK == "frame":
-                    rect = focused_box_rect()    # where it is, for the glow round it
+                    rect = focused_box_rect(self.frame_card)   # for the glow round it
                 box.update(key=key, verdict=verdict, rect=rect, at=time.monotonic(), busy=False)
             threading.Thread(target=ask, daemon=True).start()
         self.lt_box_waiting = box["key"] != key
@@ -7254,18 +7319,28 @@ class Dictation(QtCore.QObject):
         if rect:
             if self.box_glow is None:
                 self.box_glow = BoxGlow(self.recorder)
-            self.box_glow.place(rect)
+            self.box_glow.place(rect, roomy=not self.frame_card)
             self.box_glow.appear(live=True)
             self.frame_on = True
             self._frame_seen = time.monotonic()
             self.frame_timer.start()
+            self._card_avoid(rect)
         elif not (self.frame_on and self.state == "recording"
                   and time.monotonic() - getattr(self, "_frame_seen", 0.0) < 0.6):
             self._frame_off()                    # (a moment's gap in the answer: kept)
 
+    def _card_avoid(self, rect):
+        """The pop-up's card steps off the text box (rect: screen pixels)."""
+        if rect is None:
+            self.overlay.avoid(None)
+            return
+        left, top, right, bottom = rect
+        self.overlay.avoid(physical_to_logical(QtCore.QRect(left, top, right - left, bottom - top)))
+
     def _frame_off(self):
         self.frame_on = False
         self.frame_timer.stop()
+        self._card_avoid(None)
         if self.box_glow is not None:
             self.box_glow.vanish()
 
@@ -7279,7 +7354,7 @@ class Dictation(QtCore.QObject):
 
         def ask():
             try:
-                rect = focused_box_rect()
+                rect = focused_box_rect(self.frame_card)
                 if rect:
                     self.lt_box["rect"] = rect
                     self.frame_rect.emit(rect)   # used the moment it arrives
@@ -7289,7 +7364,8 @@ class Dictation(QtCore.QObject):
 
     def _frame_place(self, rect):
         if self.frame_on and self.box_glow is not None:
-            self.box_glow.place(rect)
+            self.box_glow.place(rect, roomy=not self.frame_card)
+            self._card_avoid(rect)
 
     BADGE_HOLD = 0.9             # seconds a look stays before the tag may change again
 
@@ -10881,9 +10957,10 @@ class SettingsWindow(QtWidgets.QDialog):
 
         self.mark.currentIndexChanged.connect(mark_changed)
         row(field("Dictating"), self.mark, None)
-        note("Shows where your words will go while you dictate: a soft glow round "
-             "the text box, or a \"Listening\" tag at the pointer (also where the "
-             "text box can't be seen). Only the box's place is asked, never its text.")
+        note("Shows where your words will go while you dictate: a \"Listening\" tag at "
+             "the pointer, or a soft glow round the text box. The glow is in beta: it "
+             "fits well in VS Code; on some web pages it can sit a little off the box. "
+             "Only the box's place is asked, never its text.")
         check("Select one by pointing at it", POINT_TO_TYPE,
               option("POINT_TO_TYPE", "point_to_type"),
               tip="Off by default. While the pop-up says \"No text box selected\", "
