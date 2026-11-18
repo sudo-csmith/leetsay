@@ -20,6 +20,12 @@ jobs:
         with:
           python-version: "3.13"
 
+      # No home folder paths, notes files, logs, recordings or local settings
+      # in any tracked file or commit message (the private word list stays on
+      # the maintainer's PC and is checked before each push there).
+      - name: Privacy check
+        run: python -B tools/privacy_check.py ci
+
       - name: Install the packages (exact versions, each checked by its fingerprint)
         # (On its own line: ":all: " on the same line as "run:" breaks the file.)
         run: |
