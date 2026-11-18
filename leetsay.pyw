@@ -422,6 +422,8 @@ TEXTBOX_ONLY = True                  # typing as you speak: only into a text box
                                      # Windows what kind of control has the focus)
 STICKY_BOX = False                   # Beta: "Note-taker mode" (see StickyBox)
 NOTE_LINES = True                    # in it: each dictation on a line of its own
+PIN_OUTLINE = True                   # in it: a blue outline round the pinned box
+PIN_COLOUR = "#4DA3FF"
 POINT_TO_TYPE = False                # while no text box is selected, resting the mouse
                                      # on one selects it (no click; off by default)
 DICTATION_MARK = "pointer"           # "frame": a glow round the text box while dictating
@@ -704,6 +706,7 @@ for _name, _key in (("SHOW_APP_ICON", "show_app_icon"), ("SHOW_APP_NAME", "show_
                     ("REMOVE_FILLERS", "remove_fillers"), ("SPOKEN_BREAKS", "spoken_breaks"), ("TEXTBOX_ONLY", "textbox_only"),
                     ("POINTER_HINT", "pointer_hint"), ("POINT_TO_TYPE", "point_to_type"),
                     ("STICKY_BOX", "sticky_box"), ("NOTE_LINES", "note_lines"),
+                    ("PIN_OUTLINE", "pin_outline"),
                     ("POINTER_STATUS", "pointer_status"),
                     ("SCREEN_GLOW_FLOW", "screen_glow_flow"),
                     ("RETURN_FOCUS", "return_focus")):
@@ -1992,6 +1995,19 @@ class StickyBox:
         """A reference to the control that has the focus now (to come back
         to it later); release it with drop()."""
         return self._run(self._focused)
+
+    def rect(self):
+        """The pinned box's place on screen (left, top, right, bottom) in
+        screen pixels, or None."""
+        def job():
+            if not self.element:
+                return None
+            found = wintypes.RECT()
+            if self._method(self.element, 43, ctypes.POINTER(wintypes.RECT))(
+                    self.element, ctypes.byref(found)) != 0:
+                return None
+            return (found.left, found.top, found.right, found.bottom)
+        return self._run(job, wait=0.3)
 
     def focus_on(self, element):
         def job():
@@ -5039,6 +5055,7 @@ class BoxGlow(QtWidgets.QWidget):
         self.live = True                         # follows the voice (False: typing)
         self.target = 0.0
         self.goal = None                         # where it is heading (QRectF, logical)
+        self.colour = None                       # None: the accent colour
         self.now = None                          # where it is drawn now
         self.timer = QtCore.QTimer(self)
         self.timer.setInterval(33)          # 30 frames a second
@@ -5115,7 +5132,7 @@ class BoxGlow(QtWidgets.QWidget):
         p = QtGui.QPainter(self)
         try:
             p.setRenderHint(QtGui.QPainter.Antialiasing)
-            accent = QtGui.QColor(ACCENT)
+            accent = QtGui.QColor(self.colour or ACCENT)
             # The box, in this window's own coordinates (the window has room
             # to spare round it).
             spot = self.now if self.now is not None else QtCore.QRectF(self.rect())
@@ -5882,6 +5899,11 @@ class Dictation(QtCore.QObject):
         self.sticky = None                     # the sticky text box (made when first used)
         self.sticky_return = None              # the window to go back to afterwards
         self.pin_direct = None                 # the pinned box's control, typed into unseen
+        self.pin_glow = None                   # the blue outline round the pinned box
+        self.pin_place = None                  # (window rect, box rect, card - box)
+        self.pin_timer = QtCore.QTimer()
+        self.pin_timer.setInterval(250)
+        self.pin_timer.timeout.connect(self._pin_follow)
         self.sticky_watch = QtCore.QTimer()
         self.sticky_watch.setInterval(100)
         self.sticky_watch.timeout.connect(self._sticky_back_when_done)
@@ -7286,6 +7308,7 @@ class Dictation(QtCore.QObject):
         if here and self._box_answer_now(here) is True:
             if box.remember(here):
                 box.control = focused_control(here)
+                self._pin_measure(here)
                 quiet = bool(box.control) and plain_text_control(box.control)
                 print("Pin: a text box was pinned (%s)." % (
                     "typed into in the background" if quiet else "brought forward to type"))
@@ -7303,6 +7326,83 @@ class Dictation(QtCore.QObject):
         self.overlay.show_message("Click into a text box, then press %s to pin it"
                                   % pretty(PIN_HOTKEY), ms=3500)
 
+    def _pin_measure(self, window):
+        """Where the pinned box is (the focus is in it now): the box itself,
+        and for VS Code the card round it, as an offset from the box, so the
+        outline can follow later without the focus."""
+        self.pin_place = None
+        if not (PIN_OUTLINE and self.sticky is not None and window):
+            return
+        card = (foreground_app(window)[1] or "").lower().endswith(_WHOLE_CARD_APPS)
+        answer = {}
+        asking = threading.Thread(
+            target=lambda: answer.setdefault("v", focused_box_rect(card)), daemon=True)
+        asking.start()
+        asking.join(0.5)
+        outer, inner = answer.get("v"), self.sticky.rect()
+        if not outer or not inner:
+            return
+        win = wintypes.RECT()
+        ctypes.windll.user32.GetWindowRect(window, ctypes.byref(win))
+        delta = tuple(o - i for o, i in zip(outer, inner))
+        self.pin_place = [(win.left, win.top, win.right, win.bottom), outer, delta]
+        if self.pin_glow is None:
+            self.pin_glow = BoxGlow(self.recorder)
+            self.pin_glow.colour = PIN_COLOUR
+        self.pin_glow.place(outer)
+        self.pin_timer.start()
+        self._pin_follow()
+
+    def _pin_follow(self):
+        """Four times a second while pinned: the outline follows the box's
+        window (moved: shifted with it; resized: the box is asked again), and
+        hides while that window is minimised or covered where the box is."""
+        box, place, glow = self.sticky, self.pin_place, self.pin_glow
+        if not (PIN_OUTLINE and STICKY_BOX and box is not None and box.element is not None
+                and place and glow is not None):
+            self.pin_timer.stop()
+            if glow is not None:
+                glow.vanish()
+            return
+        user32 = ctypes.windll.user32
+        window = box.window
+        if not user32.IsWindow(window):
+            self.unpin(quiet=True)
+            return
+        win = wintypes.RECT()
+        user32.GetWindowRect(window, ctypes.byref(win))
+        now = (win.left, win.top, win.right, win.bottom)
+        old, rect, delta = place
+        if now != old:
+            if (now[2] - now[0], now[3] - now[1]) == (old[2] - old[0], old[3] - old[1]):
+                dx, dy = now[0] - old[0], now[1] - old[1]          # moved: shift along
+                rect = (rect[0] + dx, rect[1] + dy, rect[2] + dx, rect[3] + dy)
+            else:
+                inner = box.rect()                                 # resized: ask again
+                if inner:
+                    rect = tuple(i + d for i, d in zip(inner, delta))
+            place[0], place[1] = now, rect
+            glow.place(rect)
+        # Seen only where the box itself can be seen: not over a window that
+        # covers it, not while its window is minimised or hidden.
+        seen = bool(user32.IsWindowVisible(window)) and not user32.IsIconic(window)
+        if seen:
+            try:
+                user32.WindowFromPhysicalPoint.restype = wintypes.HWND
+                user32.GetAncestor.restype = wintypes.HWND
+                cx, cy = (rect[0] + rect[2]) // 2, (rect[1] + rect[3]) // 2
+                for x, y in ((cx, cy), (rect[0] + 4, rect[1] + 4), (rect[2] - 4, rect[3] - 4)):
+                    under = user32.WindowFromPhysicalPoint(wintypes.POINT(x, y))
+                    if not under or user32.GetAncestor(under, 2) != window:   # GA_ROOT
+                        seen = False
+                        break
+            except Exception:
+                seen = False
+        if seen and glow.target == 0.0:
+            glow.appear(live=False)
+        elif not seen and glow.target > 0.0:
+            glow.vanish()
+
     def _note_line(self):
         """Note-taker mode with a box pinned: each dictation ends with a new
         line, so the notes build up as a list."""
@@ -7310,6 +7410,10 @@ class Dictation(QtCore.QObject):
                     and self.sticky.element is not None)
 
     def unpin(self, quiet=False):
+        self.pin_timer.stop()
+        self.pin_place = None
+        if self.pin_glow is not None:
+            self.pin_glow.vanish()
         if self.sticky is not None and self.sticky.element is not None:
             self.sticky.forget()
             print("Pin: unpinned.")
@@ -7328,7 +7432,7 @@ class Dictation(QtCore.QObject):
             return
         user32 = ctypes.windll.user32
         if not user32.IsWindow(box.window):
-            box.forget()
+            self.unpin(quiet=True)
             self.overlay.show_message("Your pinned text box was closed, so it's unpinned",
                                       ms=3000)
             return
@@ -7342,22 +7446,12 @@ class Dictation(QtCore.QObject):
             self.pin_direct = box.control
             self.lt_active = self.lt_gentle = False
             return
-        here = foreground_window()
-        moved = here != box.window
-        if moved and not focus_window(box.window):
-            self.overlay.show_message("Couldn't bring up your pinned text box", ms=2500)
-            return
-        if not (box.focus() and box.holds_focus()):
-            # Gone, or out of reach (another tab of the same browser window):
-            # never type somewhere else instead.
-            if moved:
-                focus_window(here)
-            box.forget()
-            self.overlay.show_message("Your pinned text box isn't there any more", ms=3000)
-            return
-        self.target_window = box.window
-        self.sticky_return = (here, None) if moved else None
-        self.lt_box = {"key": None, "verdict": None, "busy": False}   # ask afresh
+        # Others (VS Code, web pages, chat apps) take keys only while in
+        # front: nothing moves while you speak; when you let go their window
+        # comes forward just for the typing, and you are taken back
+        # (_sticky_reach). Typing as you speak waits for that too.
+        self.pin_direct = "later"
+        self.lt_active = self.lt_gentle = False
 
     def _sticky_back_now(self):
         self._sticky_until = 0.0
@@ -7379,6 +7473,9 @@ class Dictation(QtCore.QObject):
         if not back:
             return
         window, other = back
+        if self.sticky is not None and self.sticky.window \
+                and foreground_window() == self.sticky.window and self.sticky.holds_focus():
+            self._pin_measure(self.sticky.window)
         if window and ctypes.windll.user32.IsWindow(window) and foreground_window() != window:
             focus_window(window)
         if other is not None and self.sticky is not None:
@@ -8029,7 +8126,7 @@ class Dictation(QtCore.QObject):
             if self.overlay.mode == "message" and self.overlay.message == self.TYPING:
                 self.overlay.dismiss()
             return
-        if RETURN_FOCUS and self.target_window:
+        if RETURN_FOCUS and self.target_window and not direct:
             now = foreground_window()
             if now and now != self.target_window:
                 # Something else took the focus while you were speaking.
@@ -8765,7 +8862,7 @@ for _key in ("add_space", "always_show", "pill_over_fullscreen", "accent_outline
              "hold_to_talk", "live_preview", "type_text", "keep_last",
              "check_app_updates", "live_type", "remove_fillers",
              "textbox_only", "screen_glow_flow", "pointer_hint", "point_to_type", "spoken_breaks", "pointer_status",
-             "sticky_box", "note_lines"):
+             "sticky_box", "note_lines", "pin_outline"):
     _PORTABLE_CHECKS[_key] = lambda v: isinstance(v, bool)
 _PORTABLE_CHECKS["card_style"] = lambda v: v in [key for key, _label in CARD_STYLES]
 _PORTABLE_CHECKS["screen_glow_edges"] = lambda v: v in ("bottom", "top", "left", "right", "all")
@@ -12117,6 +12214,18 @@ class SettingsWindow(QtWidgets.QDialog):
                   "notes build up as a list, one per line. (Instead of the space "
                   "added after each dictation.)",
               hint="Your notes build up as a list.")
+
+        def outline_switch(on):
+            option("PIN_OUTLINE", "pin_outline")(on)
+            if dictation.sticky is not None and dictation.sticky.element is not None:
+                if on and dictation.sticky.window:
+                    dictation.pin_place = None   # shown again at the next pin
+                dictation._pin_follow()
+        check("Blue outline round the pinned box", PIN_OUTLINE, outline_switch,
+              tip="While a box is pinned, a blue outline shows round it, so you can "
+                  "see where your notes go. It hides while that window is covered "
+                  "or minimised. Only the box's place is asked, never its text.",
+              hint="Shows which box is pinned.")
         check("Point at a text box to use it", POINT_TO_TYPE,
               option("POINT_TO_TYPE", "point_to_type"),
               tip="While the pop-up says \"No text box selected\", rest the mouse "
