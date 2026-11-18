@@ -421,6 +421,11 @@ TEXTBOX_ONLY = True                  # typing as you speak: only into a text box
                                      # Windows what kind of control has the focus)
 POINT_TO_TYPE = False                # while no text box is selected, resting the mouse
                                      # on one selects it (no click; off by default)
+DICTATION_MARK = "frame"             # where "dictating here" shows: "frame" (a glow round
+                                     # the text box; the pointer tag where there is none),
+                                     # "pointer" (the tag at the pointer) or "off"
+DICTATION_MARKS = (("frame", "Glow round the text box"), ("pointer", "Tag at the pointer"),
+                   ("off", "Off"))
 POINTER_STATUS = True                # "Listening" / "Typing..." by the mouse pointer
                                      # while dictating (not with typing as you speak)
 POINTER_HINT = True                  # ... and say "No text box" by the mouse pointer too
@@ -700,6 +705,11 @@ for _name, _key in (("SHOW_APP_ICON", "show_app_icon"), ("SHOW_APP_NAME", "show_
                     ("RETURN_FOCUS", "return_focus")):
     if isinstance(_config.get(_key), bool):
         globals()[_name] = _config[_key]
+if _config.get("dictation_mark") in [key for key, _label in DICTATION_MARKS]:
+    DICTATION_MARK = _config["dictation_mark"]
+elif _config.get("pointer_status") is False:      # the earlier on/off switch, when off
+    DICTATION_MARK = "off"
+POINTER_STATUS = DICTATION_MARK != "off"
 if isinstance(_config.get("volume"), (int, float)) and not isinstance(_config["volume"], bool):
     SOUND_VOLUME = max(0.0, min(1.0, float(_config["volume"])))
 for _name, _key, _low, _high in (("SCREEN_GLOW_STRENGTH", "screen_glow_strength", 5, 100),
@@ -1753,6 +1763,82 @@ def focused_text_box(password_only=False, point=None, focus=False):
         if kind in (50026, 50033, 50025):        # group, pane, custom: e.g. a video
             return None if has_text else False
         return None
+    except Exception:
+        return None
+    finally:
+        for obj in (element, automation):
+            if obj:
+                try:
+                    table = ctypes.cast(obj, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p)))[0]
+                    ctypes.WINFUNCTYPE(ctypes.c_ulong, ctypes.c_void_p)(table[2])(obj)   # Release
+                except Exception:
+                    pass
+        try:
+            ole32.CoUninitialize()
+        except Exception:
+            pass
+
+
+def focused_box_rect():
+    """Where the focused control is on screen: (left, top, right, bottom) in
+    screen pixels, or None. Only its position and size are asked, never its
+    text. Run it off the main thread (a busy program can be slow to answer)."""
+    ole32 = ctypes.windll.ole32
+    ole32.CoInitializeEx(None, 0)
+    automation, element = ctypes.c_void_p(), ctypes.c_void_p()
+    try:
+        if ole32.CoCreateInstance(_guid("ff48dba4-60ef-4201-aa87-54103eef594e"), None,
+                                  1 | 4, _guid("30cbe57d-d9d0-452a-ab13-7ac5ac4825ee"),
+                                  ctypes.byref(automation)) != 0 or not automation:
+            return None
+
+        def method(obj, index, *types):
+            table = ctypes.cast(obj, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p)))[0]
+            return ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, *types)(table[index])
+        if method(automation, 8, ctypes.POINTER(ctypes.c_void_p))(     # GetFocusedElement
+                automation, ctypes.byref(element)) != 0 or not element:
+            return None
+        rect = wintypes.RECT()
+        if method(element, 43, ctypes.POINTER(wintypes.RECT))(         # CurrentBoundingRectangle
+                element, ctypes.byref(rect)) != 0:
+            return None
+        if rect.right - rect.left < 8 or rect.bottom - rect.top < 8:
+            return None
+        found = (rect.left, rect.top, rect.right, rect.bottom)
+        # Many chat apps put the typing area inside a larger rounded box (with
+        # a row of buttons under it): go up to that box, but only while each
+        # step is just a little bigger, never to a whole panel or page.
+        walker, node = ctypes.c_void_p(), element
+        if method(automation, 14, ctypes.POINTER(ctypes.c_void_p))(        # ControlViewWalker
+                automation, ctypes.byref(walker)) == 0 and walker:
+            try:
+                for _step in range(4):
+                    parent = ctypes.c_void_p()
+                    if method(walker, 3, ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p))(
+                            walker, node, ctypes.byref(parent)) != 0 or not parent:
+                        break
+                    outer = wintypes.RECT()
+                    ok = method(parent, 43, ctypes.POINTER(wintypes.RECT))(parent, ctypes.byref(outer)) == 0
+                    if node.value != element.value:
+                        ctypes.WINFUNCTYPE(ctypes.c_ulong, ctypes.c_void_p)(
+                            ctypes.cast(node, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p)))[0][2])(node)
+                    node = parent
+                    l0, t0, r0, b0 = found
+                    if not ok or not (outer.left <= l0 and outer.top <= t0
+                                      and outer.right >= r0 and outer.bottom >= b0):
+                        break
+                    if (outer.right - outer.left > (r0 - l0) + 64
+                            or outer.bottom - outer.top > max(2.5 * (rect.bottom - rect.top),
+                                                             (rect.bottom - rect.top) + 110)):
+                        break                    # much bigger: a panel, not the input box
+                    found = (outer.left, outer.top, outer.right, outer.bottom)
+            finally:
+                if node.value != element.value:
+                    ctypes.WINFUNCTYPE(ctypes.c_ulong, ctypes.c_void_p)(
+                        ctypes.cast(node, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p)))[0][2])(node)
+                ctypes.WINFUNCTYPE(ctypes.c_ulong, ctypes.c_void_p)(
+                    ctypes.cast(walker, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p)))[0][2])(walker)
+        return found
     except Exception:
         return None
     finally:
@@ -4702,6 +4788,130 @@ class PointerBadge(QtWidgets.QWidget):
             p.end()
 
 
+class BoxGlow(QtWidgets.QWidget):
+    """A soft glow round the text box you are dictating into, in the accent
+    colour, gently following your voice. Drawn only OUTSIDE the box, so the
+    text in it stays clear. Glides to a new size (a box that grows a line)
+    rather than jumping. See-through and click-through: it never takes the
+    keyboard or a click."""
+    PAD = 14
+    GAP = 3                      # space left round the box (its own outline stays crisp)
+    GLIDE = 0.65                 # share of the way to the new size per frame
+
+    def __init__(self, recorder):
+        super().__init__(None)
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
+                            | Qt.WindowDoesNotAcceptFocus | Qt.WindowTransparentForInput)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setAttribute(Qt.WA_ShowWithoutActivating)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self.recorder = recorder
+        self.level = 0.0
+        self.live = True                         # follows the voice (False: typing)
+        self.target = 0.0
+        self.goal = None                         # where it is heading (QRectF, logical)
+        self.now = None                          # where it is drawn now
+        self.timer = QtCore.QTimer(self)
+        self.timer.setInterval(16)
+        self.timer.timeout.connect(self._tick)
+
+    def place(self, rect):
+        """rect: (left, top, right, bottom) in screen pixels."""
+        left, top, right, bottom = rect
+        logical = physical_to_logical(QtCore.QRect(left, top, right - left, bottom - top))
+        self.goal = QtCore.QRectF(logical)
+        if self.now is None or not self.isVisible():
+            self.now = QtCore.QRectF(self.goal)  # first showing: right there
+            self._apply()
+
+    def _apply(self):
+        box = self.now.toAlignedRect().adjusted(-self.PAD, -self.PAD, self.PAD, self.PAD)
+        if box != self.geometry():
+            self.setGeometry(box)
+
+    def appear(self, live=True):
+        self.live = live
+        self.target = 1.0
+        if not self.isVisible():
+            self.setWindowOpacity(0.0)
+            self.show()
+        self.timer.start()
+
+    def vanish(self):
+        self.target = 0.0
+        if self.isVisible():
+            self.timer.start()
+
+    def _tick(self):
+        shown = self.windowOpacity()
+        if abs(shown - self.target) > 0.01:
+            step = 0.08 if animations_on() else 1.0
+            shown = min(self.target, shown + step) if self.target > shown else max(self.target, shown - step)
+            self.setWindowOpacity(shown)
+        if self.target == 0.0 and shown <= 0.01:
+            self.timer.stop()
+            self.hide()
+            self.now = None
+            return
+        if self.goal is not None and self.now is not None and self.now != self.goal:
+            # A box that grows a line does so at once: follow at once (a glide
+            # only trails behind it). Small shifts still glide.
+            resized = (abs(self.goal.height() - self.now.height()) > 4
+                       or abs(self.goal.width() - self.now.width()) > 4)
+            k = 1.0 if (resized or not animations_on()) else self.GLIDE
+            a, b = self.now, self.goal
+
+            def mix(x, y):
+                return y if abs(y - x) < 0.5 else x + (y - x) * k
+            self.now = QtCore.QRectF(QtCore.QPointF(mix(a.left(), b.left()), mix(a.top(), b.top())),
+                                     QtCore.QPointF(mix(a.right(), b.right()), mix(a.bottom(), b.bottom())))
+            self._apply()
+        voice = getattr(self.recorder, "level", 0.0) if self.live else 0.0
+        self.level = max(voice, self.level * 0.85)       # quick rise, soft fall
+        self.update()
+
+    def paintEvent(self, _event):
+        p = QtGui.QPainter(self)
+        try:
+            p.setRenderHint(QtGui.QPainter.Antialiasing)
+            accent = QtGui.QColor(ACCENT)
+            box = QtCore.QRectF(self.rect()).adjusted(self.PAD - self.GAP, self.PAD - self.GAP,
+                                                      self.GAP - self.PAD, self.GAP - self.PAD)
+            radius = 10.0
+            # Nothing is drawn inside the box: the text stays as it is.
+            inside = QtGui.QPainterPath()
+            inside.addRoundedRect(box, radius, radius)
+            outside = QtGui.QPainterPath()
+            outside.addRect(QtCore.QRectF(self.rect()))
+            p.setClipPath(outside.subtracted(inside))
+            p.setBrush(Qt.NoBrush)
+            for i in range(7, 0, -1):                    # the soft glow, outside in
+                c = QtGui.QColor(accent)
+                c.setAlpha(int(5 + 7 * self.level))
+                p.setPen(QtGui.QPen(c, i * 2.2))
+                p.drawRoundedRect(box, radius, radius)
+            c = QtGui.QColor(accent)
+            c.setAlpha(150)
+            p.setPen(QtGui.QPen(c, 2.6))                 # half of it shows: a fine edge
+            p.drawRoundedRect(box, radius, radius)
+        finally:
+            p.end()
+
+
+def physical_to_logical(rect):
+    """A rectangle in screen pixels as Qt's coordinates (screens can have
+    different scaling: each keeps its own top-left corner)."""
+    centre = rect.center()
+    for screen in QtGui.QGuiApplication.screens():
+        geo, ratio = screen.geometry(), screen.devicePixelRatio()
+        native = QtCore.QRect(geo.x(), geo.y(), int(geo.width() * ratio), int(geo.height() * ratio))
+        if native.contains(centre):
+            return QtCore.QRect(int(geo.x() + (rect.x() - geo.x()) / ratio),
+                                int(geo.y() + (rect.y() - geo.y()) / ratio),
+                                int(round(rect.width() / ratio)), int(round(rect.height() / ratio)))
+    return QtCore.QRect(rect)
+
+
 class EdgeStrip(QtWidgets.QWidget):
     """One edge of the screen glow: a thin see-through window along a screen
     edge. Clicks pass straight through it, and it can never take the
@@ -5409,6 +5619,7 @@ class Dictation(QtCore.QObject):
     live_words = QtCore.Signal(int, str, int, str)   # ... and a reading of the piece so far
     hotkey_captured = QtCore.Signal(str)
     paste_again = QtCore.Signal()
+    frame_rect = QtCore.Signal(object)        # where the text box is now (for the glow)
     failed = QtCore.Signal(str)
 
     def __init__(self):
@@ -5459,6 +5670,13 @@ class Dictation(QtCore.QObject):
         # Held modifier keys are pressed again only once typing pauses (see
         # repress_modifiers), and only while you are still dictating.
         # The text box warning in the normal mode (see _update_box_warning).
+        self.box_glow = None                   # the glow round the text box (made when needed)
+        self.frame_timer = QtCore.QTimer()     # follows the box's size while the glow shows
+        self.frame_timer.setInterval(33)       # about 30 times a second while it shows
+        self.frame_timer.timeout.connect(self._frame_follow)
+        self.frame_busy = False
+        self.frame_rect.connect(self._frame_place)
+        self.frame_on = False                  # it is showing round a real text box
         self.typing_watch = QtCore.QTimer()    # "Typing..." at the pointer until done
         self.typing_watch.setInterval(100)
         self.typing_watch.timeout.connect(self._typing_watch)
@@ -6740,7 +6958,10 @@ class Dictation(QtCore.QObject):
                         verdict = False if focused_text_box(password_only=True) else None
                 except Exception:
                     verdict = None
-                box.update(key=key, verdict=verdict, at=time.monotonic(), busy=False)
+                rect = None
+                if verdict is True and DICTATION_MARK == "frame":
+                    rect = focused_box_rect()    # where it is, for the glow round it
+                box.update(key=key, verdict=verdict, rect=rect, at=time.monotonic(), busy=False)
             threading.Thread(target=ask, daemon=True).start()
         self.lt_box_waiting = box["key"] != key
         if self.lt_box_waiting:
@@ -6929,6 +7150,7 @@ class Dictation(QtCore.QObject):
         else:
             self.lt_missing = 0
             self.overlay.box_missing = False
+        self._update_frame()
         self._pointer_hint(self.overlay.box_missing)
         self._point_to_type()
 
@@ -6992,7 +7214,8 @@ class Dictation(QtCore.QObject):
         if not show and self.state != "recording":
             self.box_timer.stop()
         mic = self.POINTER_MIC.get(self.overlay.warning) if self.state == "recording" else None
-        status = (POINTER_STATUS and self.state == "recording" and not self.lt_active)
+        status = (POINTER_STATUS and self.state == "recording" and not self.lt_active
+                  and not self.frame_on)         # the glow round the box says it already
         if (POINTER_HINT and (mic or show)) or status:
             if self.pointer_badge is None:
                 self.pointer_badge = PointerBadge()
@@ -7006,6 +7229,67 @@ class Dictation(QtCore.QObject):
             self.pointer_badge.appear()
         elif self.pointer_badge is not None:
             self.pointer_badge.vanish()
+
+    FRAME_MAX_SHARE = 0.5        # a "box" covering more of its window is a panel: no glow
+
+    def _update_frame(self):
+        """ "Glow round the text box": while dictating, round the focused text
+        box, if Windows says clearly where it is. Not round anything that
+        covers most of the window (a whole page or panel), nor when it can't
+        be told: then the tag at the pointer says it instead."""
+        rect = None
+        if (DICTATION_MARK == "frame" and self.state == "recording" and TEXTBOX_ONLY
+                and self.target_window and foreground_window() == self.target_window
+                and not self.overlay.box_missing and self.lt_box.get("verdict") is True):
+            rect = self.lt_box.get("rect")
+            if rect:
+                win = wintypes.RECT()
+                ctypes.windll.user32.GetWindowRect(self.target_window, ctypes.byref(win))
+                area = max(1, (win.right - win.left) * (win.bottom - win.top))
+                inside = (rect[0] >= win.left - 4 and rect[1] >= win.top - 4
+                          and rect[2] <= win.right + 4 and rect[3] <= win.bottom + 4)
+                share = (rect[2] - rect[0]) * (rect[3] - rect[1]) / float(area)
+                if not inside or share > self.FRAME_MAX_SHARE:
+                    rect = None
+        if rect:
+            if self.box_glow is None:
+                self.box_glow = BoxGlow(self.recorder)
+            self.box_glow.place(rect)
+            self.box_glow.appear(live=True)
+            self.frame_on = True
+            self._frame_seen = time.monotonic()
+            self.frame_timer.start()
+        elif not (self.frame_on and self.state == "recording"
+                  and time.monotonic() - getattr(self, "_frame_seen", 0.0) < 0.6):
+            self._frame_off()                    # (a moment's gap in the answer: kept)
+
+    def _frame_off(self):
+        self.frame_on = False
+        self.frame_timer.stop()
+        if self.box_glow is not None:
+            self.box_glow.vanish()
+
+    def _frame_follow(self):
+        """While the glow shows: ask where the box is now (position and size
+        only, in the background), so it follows a box that grows a line."""
+        if not self.frame_on or self.box_glow is None or self.frame_busy:
+            return
+        self.frame_busy = True
+        glow = self.box_glow
+
+        def ask():
+            try:
+                rect = focused_box_rect()
+                if rect:
+                    self.lt_box["rect"] = rect
+                    self.frame_rect.emit(rect)   # used the moment it arrives
+            finally:
+                self.frame_busy = False
+        threading.Thread(target=ask, daemon=True).start()
+
+    def _frame_place(self, rect):
+        if self.frame_on and self.box_glow is not None:
+            self.box_glow.place(rect)
 
     BADGE_HOLD = 0.9             # seconds a look stays before the tag may change again
 
@@ -7037,6 +7321,16 @@ class Dictation(QtCore.QObject):
         said. typing=True (let go, with "Listening" showing): it says
         "Typing..." until the words are in (see _typing_watch), then goes."""
         self.box_timer.stop()
+        if typing and self.frame_on and self.box_glow is not None and not self.lt_active:
+            self.box_glow.appear(live=False)     # still, while the words go in
+            self.typed_quiet_until = time.monotonic() + 0.8
+            self._typing_watch_until = time.monotonic() + 30.0
+            self.typing_watch.start()
+            if self.pointer_badge is not None:
+                self.pointer_badge.vanish()
+            return
+        if not typing or self.lt_active:
+            self._frame_off()
         if typing and POINTER_STATUS and not self.lt_active and self.pointer_badge is not None:
             self._badge_look(("Typing\u2026", "accent"), now=True)
             self.pointer_badge.appear()
@@ -7045,6 +7339,7 @@ class Dictation(QtCore.QObject):
             self.typing_watch.start()
             return
         self.typing_watch.stop()
+        self._frame_off()
         if self.pointer_badge is not None:
             self.pointer_badge.vanish()
 
@@ -7061,6 +7356,7 @@ class Dictation(QtCore.QObject):
         if busy and now < getattr(self, "_typing_watch_until", 0.0):
             return
         self.typing_watch.stop()
+        self._frame_off()
         if self.pointer_badge is not None:
             self.pointer_badge.vanish()
 
@@ -8008,6 +8304,7 @@ _PORTABLE_CHECKS["screen_glow_edges"] = lambda v: v in ("bottom", "top", "left",
 _PORTABLE_CHECKS["screen_glow_screens"] = lambda v: v in ("popup", "all", "main")
 _PORTABLE_CHECKS["screen_glow_focus"] = lambda v: v in ("middle", "corners", "even")
 _PORTABLE_CHECKS["pill_mark"] = lambda v: v in PILL_MARKS
+_PORTABLE_CHECKS["dictation_mark"] = lambda v: v in [key for key, _label in DICTATION_MARKS]
 
 # Turning these on touches the clipboard, keeps text, or goes online. For
 # "type_text" it is turning it OFF that switches to pasting via the clipboard.
@@ -10573,11 +10870,20 @@ class SettingsWindow(QtWidgets.QDialog):
               hint="A small \"No text box\" tag follows the pointer while the "
                    "cursor isn't in a text box. Microphone problems show there "
                    "too, in red.")
-        check("Show Listening and Typing at the pointer", POINTER_STATUS,
-              option("POINTER_STATUS", "pointer_status"),
-              hint="While you dictate, the tag by the pointer says \"Listening\", "
-                   "then \"Typing\u2026\" until your words are in. Not with "
-                   "typing as you speak.")
+        self.mark = QtWidgets.QComboBox()
+        for key, label in DICTATION_MARKS:
+            self.mark.addItem(label, key)
+        self.mark.setCurrentIndex(max(0, self.mark.findData(DICTATION_MARK)))
+
+        def mark_changed(index):
+            set_option("DICTATION_MARK", "dictation_mark", self.mark.itemData(index))
+            globals()["POINTER_STATUS"] = DICTATION_MARK != "off"
+
+        self.mark.currentIndexChanged.connect(mark_changed)
+        row(field("Dictating"), self.mark, None)
+        note("Shows where your words will go while you dictate: a soft glow round "
+             "the text box, or a \"Listening\" tag at the pointer (also where the "
+             "text box can't be seen). Only the box's place is asked, never its text.")
         check("Select one by pointing at it", POINT_TO_TYPE,
               option("POINT_TO_TYPE", "point_to_type"),
               tip="Off by default. While the pop-up says \"No text box selected\", "
