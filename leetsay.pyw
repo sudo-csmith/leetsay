@@ -1715,9 +1715,9 @@ def focused_text_box(password_only=False, point=None, focus=False):
             return None
         get = method(element, 10, ctypes.c_int, ctypes.POINTER(_VARIANT))   # GetCurrentPropertyValue
 
-        def prop(number):
+        def prop(number, of=None):
             value = _VARIANT()
-            if get(element, number, ctypes.byref(value)) != 0:
+            if get(of or element, number, ctypes.byref(value)) != 0:
                 return None
             try:
                 if value.vt == 3:                # a number
@@ -1742,12 +1742,45 @@ def focused_text_box(password_only=False, point=None, focus=False):
             # you: an edit box, or a control that says its text is editable.
             # Never a password box (returned above), a read-only page, a
             # button or link, or "can't tell".
-            sure = kind not in _NOT_TYPABLE and (
-                (kind == 50004 and read_only is not True)
-                or (has_value and read_only is False))
-            if not sure:
+            def editable(of=None):
+                k = prop(30003, of)
+                if prop(30019, of) or k in _NOT_TYPABLE:
+                    return False                 # a password box, a button, a link...
+                ro = prop(30046, of)
+                if of is not None:               # a layer further up: only a real text
+                    return (k == 50004 and ro is not True) or (       # box or document,
+                        k == 50030 and prop(30043, of) and ro is False)  # never a window
+                return (k == 50004 and ro is not True) or (prop(30043, of) and ro is False)
+            if editable():
+                return method(element, 3)(element) == 0   # IUIAutomationElement::SetFocus
+            # Web pages and code editors answer with the line of text under
+            # the mouse, not the box round it: look at what holds it, a few
+            # layers up, for the text box itself.
+            walker = ctypes.c_void_p()
+            if method(automation, 14, ctypes.POINTER(ctypes.c_void_p))(      # ControlViewWalker
+                    automation, ctypes.byref(walker)) != 0 or not walker:
                 return False
-            return method(element, 3)(element) == 0   # IUIAutomationElement::SetFocus
+            node, found = element.value, False
+            release = ctypes.WINFUNCTYPE(ctypes.c_ulong, ctypes.c_void_p)
+            try:
+                for _step in range(6):
+                    parent = ctypes.c_void_p()
+                    if method(walker, 3, ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p))(
+                            walker, node, ctypes.byref(parent)) != 0 or not parent:
+                        break
+                    if node != element.value:
+                        release(ctypes.cast(ctypes.c_void_p(node), ctypes.POINTER(
+                            ctypes.POINTER(ctypes.c_void_p)))[0][2])(node)
+                    node = parent.value
+                    if editable(parent):
+                        found = method(parent, 3)(parent) == 0       # SetFocus
+                        break
+            finally:
+                if node and node != element.value:
+                    release(ctypes.cast(ctypes.c_void_p(node), ctypes.POINTER(
+                        ctypes.POINTER(ctypes.c_void_p)))[0][2])(node)
+                release(ctypes.cast(walker, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p)))[0][2])(walker)
+            return found
         if kind in _NOT_TYPABLE:
             # A button, an image, a menu, a list... (see _NOT_TYPABLE): never
             # somewhere to type, whatever else it says
@@ -3236,6 +3269,7 @@ class Overlay(QtWidgets.QWidget):
         self.setAttribute(Qt.WA_ShowWithoutActivating)
         self.stepped_aside = False  # the idle pill is hidden for a full-screen program
         self.preview_words = None  # third-row text while previewing
+        self.preview_lines = False # the preview fills the chosen number of lines
         self.warning = ""          # microphone problem shown where the words go
         self.box_missing = False   # typing as you speak: no text box has the focus
         self.status = "ok"         # the pill's light: "ok" (accent), "busy" (amber),
@@ -3603,6 +3637,19 @@ class Overlay(QtWidgets.QWidget):
         self.preview_ms = ms                     # None: stays until replaced
         self.preview_words = words
         self.show_recording(label)
+        # More than one line of words chosen: fill them with sample words, so
+        # the preview shows exactly how many lines (and how wide) it will be.
+        self.preview_lines = bool(LIVE_PREVIEW and LIVE_LINES > 1 and words is None)
+        if self.preview_lines:
+            sample = ("This is how your words will look while you speak. Each new line "
+                      "starts when the one above is full, so you can read more at a "
+                      "glance before the words are typed into your app.").split()
+            self.live_lines = [sample * 2]
+            self._rewrap()
+            self.live_lines = self.live_lines[:LIVE_LINES]
+            self.line_w = [None] * len(self.live_lines)
+            self.live_text = " ".join(word for line in self.live_lines for word in line)
+            self.rows = float(len(self.live_lines))
         if SHOW_APP_ICON:                        # a stand-in for the app's own icon
             try:
                 ratio = self.devicePixelRatioF()
@@ -4297,7 +4344,7 @@ class Overlay(QtWidgets.QWidget):
         third = LIVE_PREVIEW or bool(self.previewing and self.preview_words) or bool(warning)
         drop = 28                             # one top row: icon, wave and timer side
                                               # by side (there is no middle row)
-        lines = LIVE_LINES if (LIVE_PREVIEW and not self.previewing) else 1
+        lines = LIVE_LINES if (LIVE_PREVIEW and (not self.previewing or self.preview_lines)) else 1
         if third and lines > 1 and not warning:
             # How many rows the words need right now: the card starts with one
             # and grows a row at a time, up to the number chosen in Settings.
@@ -10676,7 +10723,7 @@ QPlainTextEdit { font-size: 13px; background: #17181C; color: #F0F0F4;
         # download card at the bottom of the screen has the details and help.
         if self.dictation.state == "nomodel":
             self.status.setText("No speech model yet, so dictation is off. It can be "
-                                "downloaded later from Settings, on the Model tab.")
+                                "downloaded later from Settings > Privacy > Model.")
         elif loading and getattr(self.dictation, "download_blocked", False):
             self.status.setText("The download seems blocked. Click the card at the "
                                 "bottom of the screen for help.")
@@ -11000,7 +11047,7 @@ class SettingsWindow(QtWidgets.QDialog):
                 group.idClicked.connect(switch)
                 sub = page["sub"] = {"bar": bar, "stack": stack, "group": group,
                                      "layouts": [], "switch": switch}
-            pill = QtWidgets.QPushButton(title)
+            pill = QtWidgets.QPushButton(title.replace("&", "&&"))   # "&" shown, not a shortcut mark
             pill.setObjectName("subtab")
             pill.setCheckable(True)
             pill.setCursor(Qt.PointingHandCursor)
@@ -11748,8 +11795,9 @@ class SettingsWindow(QtWidgets.QDialog):
         self._refresh_own_rows()
         end_tab()
 
-        # ================= Model =================
-        tab("Model")
+        # ================= Privacy =================
+        tab("Privacy")
+        part("Model")
         heading("Speech model", first=True)
         self.model = QtWidgets.QComboBox()
         for name, label, _quant, _size in MODELS:
@@ -11826,13 +11874,10 @@ class SettingsWindow(QtWidgets.QDialog):
              "Removing frees about 660 MB; it can be downloaded again later.")
 
         note("A newer speech model only ever comes with a newer version of %s, "
-             "together with its fingerprints (see Updates on the Privacy tab)." % APP_TITLE)
+             "together with its fingerprints (see Updates & data)." % APP_TITLE)
 
-        end_tab()
-
-        # ================= Privacy =================
-        tab("Privacy")
-        part("Updates")
+        part("Updates & data")
+        heading("Updates", first=True)
         self.app_updates = check(
             "Check for %s updates at startup" % APP_TITLE, CHECK_APP_UPDATES,
             self._app_updates_changed,
@@ -11847,7 +11892,6 @@ class SettingsWindow(QtWidgets.QDialog):
         row(self.app_updates, None, self.app_update_button)
         note("You have version %s." % VERSION)
 
-        part("Your data")
         heading("Clipboard and kept text")
         self.paste_mode = check(
             "Paste using the clipboard instead of typing", not TYPE_TEXT,
@@ -11933,15 +11977,15 @@ class SettingsWindow(QtWidgets.QDialog):
                   "of the same browser), the pop-up says so and nothing is typed "
                   "elsewhere. The box is remembered in memory only, never its text.",
               hint="Keeps sending your words to your last text box.")
-        check("Hover to pick a text box", POINT_TO_TYPE,
+        check("Point at a text box to use it", POINT_TO_TYPE,
               option("POINT_TO_TYPE", "point_to_type"),
               tip="While the pop-up says \"No text box selected\", rest the mouse "
                   "on a text box for a moment and it is selected for you, as if "
                   "you had clicked it (nothing is clicked). Only in the window you "
                   "started in, only clear text boxes, never password boxes. Needs "
                   "Text box detection.",
-              hint="When no text box is selected, rest your mouse on one and it's "
-                   "picked for you (no click).")
+              hint="Not in a text box? Rest your mouse on one and it's selected "
+                   "for you (no click).")
         end_tab()
         # Open on the tab that was showing last time (remembered only while
         # the application is running; nothing is written to disk for this).
@@ -12210,10 +12254,12 @@ class SettingsWindow(QtWidgets.QDialog):
         set_option("WIDE_CARD", "wide_card", bool(self.wide.itemData(index)))
         set_option("CARD_WIDTH", "card_width", 0)        # back to a standard width
         self.dictation.refresh_popup()
+        self.dictation.preview_popup()           # show how it looks now
 
     def _lines_changed(self, index):
         set_option("LIVE_LINES", "live_lines", int(self.lines.itemData(index)))
         self.dictation.refresh_popup()
+        self.dictation.preview_popup()           # filled with sample words, every line
 
     def _app_updates_changed(self, on):
         if on and not ask_app_update_check(self, at_startup=True):
@@ -13071,7 +13117,7 @@ def main():
                           "You can look around and change settings, but dictation will "
                           "not work until the model's files are in place.\n\n%s looks "
                           "for them each time it starts. You can also download the model "
-                          "later from Settings, on the Model tab."
+                          "later from Settings > Privacy > Model."
                           % APP_TITLE, accept="Continue without it", reject="Quit") is not True:
                     sys.exit(0)
                 globals()["START_WITHOUT_MODEL"] = True

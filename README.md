@@ -75,7 +75,7 @@ folder, then double-click `leetsay.pyw`.
 - **The dot on the pill** is a status light: your colour when ready, amber
   while loading, red when something needs you. Click it to see what.
 - **Languages:** English by default; a model for 25 European languages is in
-  Settings > Model.
+  Settings > Privacy > Model.
 - **Word replacements** fix names the model doesn't know. Filler words such as
   "um" are left out by default.
 - Ctrl+Space is also used by some code editors and Asian keyboard layouts;
@@ -98,7 +98,7 @@ accurate, because each word is typed before the rest of the sentence is heard.
 **Windows Settings > Apps > Installed apps > leetsay > Uninstall**, or
 **Uninstall leetsay** on leetsay's Privacy tab. It asks whether to keep your
 settings or remove everything, including the speech model. With Python:
-remove the model (Model tab), quit, and delete `%LOCALAPPDATA%\leetsay` and
+remove the model (Settings > Privacy > Model), quit, and delete `%LOCALAPPDATA%\leetsay` and
 the leetsay folder.
 
 ## Why I built this
