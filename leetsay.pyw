@@ -420,7 +420,8 @@ TECH_TERMS = [["kilobytes", "KB"], ["kilobyte", "KB"], ["megabytes", "MB"],
               ["node js", "Node.js"], ["vs code", "VS Code"]]
 TEXTBOX_ONLY = True                  # typing as you speak: only into a text box (asks
                                      # Windows what kind of control has the focus)
-STICKY_BOX = False                   # Beta: "Pin a text box" (see StickyBox)
+STICKY_BOX = False                   # Beta: "Note-taker mode" (see StickyBox)
+NOTE_LINES = True                    # in it: each dictation on a line of its own
 POINT_TO_TYPE = False                # while no text box is selected, resting the mouse
                                      # on one selects it (no click; off by default)
 DICTATION_MARK = "pointer"           # "frame": a glow round the text box while dictating
@@ -702,7 +703,7 @@ for _name, _key in (("SHOW_APP_ICON", "show_app_icon"), ("SHOW_APP_NAME", "show_
                     ("LIVE_TYPE", "live_type"),
                     ("REMOVE_FILLERS", "remove_fillers"), ("SPOKEN_BREAKS", "spoken_breaks"), ("TEXTBOX_ONLY", "textbox_only"),
                     ("POINTER_HINT", "pointer_hint"), ("POINT_TO_TYPE", "point_to_type"),
-                    ("STICKY_BOX", "sticky_box"),
+                    ("STICKY_BOX", "sticky_box"), ("NOTE_LINES", "note_lines"),
                     ("POINTER_STATUS", "pointer_status"),
                     ("SCREEN_GLOW_FLOW", "screen_glow_flow"),
                     ("RETURN_FOCUS", "return_focus")):
@@ -7286,7 +7287,7 @@ class Dictation(QtCore.QObject):
             if box.remember(here):
                 box.control = focused_control(here)
                 print("Pin: a text box was pinned.")
-                self.overlay.show_message("Pinned. Your words go here until you unpin",
+                self.overlay.show_message("Pinned. Your notes go here until you unpin",
                                           ms=2800, pulse=True)
             else:
                 self.overlay.show_message("Couldn't pin this text box", ms=2500)
@@ -7296,6 +7297,12 @@ class Dictation(QtCore.QObject):
             return
         self.overlay.show_message("Click into a text box, then press %s to pin it"
                                   % pretty(PIN_HOTKEY), ms=3500)
+
+    def _note_line(self):
+        """Note-taker mode with a box pinned: each dictation ends with a new
+        line, so the notes build up as a list."""
+        return bool(STICKY_BOX and NOTE_LINES and self.sticky is not None
+                    and self.sticky.element is not None)
 
     def unpin(self, quiet=False):
         if self.sticky is not None and self.sticky.element is not None:
@@ -7977,7 +7984,7 @@ class Dictation(QtCore.QObject):
                     self.overlay.show_message("No text box, so it wasn't typed", ms=1500)
                 return
             if not text and typed:
-                text = " " if ADD_SPACE else ""
+                text = "\n" if self._note_line() else (" " if ADD_SPACE else "")
                 after_key = ACTION_KEY if (self.do_action and ACTION_KEY) else AFTER_KEY
                 self.remember(typed)
                 if text or after_key:
@@ -8000,7 +8007,9 @@ class Dictation(QtCore.QObject):
             self.overlay.dismiss()
         # The key to press afterwards: the action hotkey's own, or the usual one.
         after_key = ACTION_KEY if (self.do_action and ACTION_KEY) else AFTER_KEY
-        if ADD_SPACE and not after_key:
+        if self._note_line() and not after_key:
+            text = text.rstrip() + "\n"        # note-taker: the next one on a new line
+        elif ADD_SPACE and not after_key:
             text += " "                        # so the next dictation doesn't run on
         self.remember(typed + text)
         self.maybe_live_tip()
@@ -8747,7 +8756,7 @@ for _key in ("add_space", "always_show", "pill_over_fullscreen", "accent_outline
              "hold_to_talk", "live_preview", "type_text", "keep_last",
              "check_app_updates", "live_type", "remove_fillers",
              "textbox_only", "screen_glow_flow", "pointer_hint", "point_to_type", "spoken_breaks", "pointer_status",
-             "sticky_box"):
+             "sticky_box", "note_lines"):
     _PORTABLE_CHECKS[_key] = lambda v: isinstance(v, bool)
 _PORTABLE_CHECKS["card_style"] = lambda v: v in [key for key, _label in CARD_STYLES]
 _PORTABLE_CHECKS["screen_glow_edges"] = lambda v: v in ("bottom", "top", "left", "right", "all")
@@ -12039,10 +12048,10 @@ class SettingsWindow(QtWidgets.QDialog):
             option("STICKY_BOX", "sticky_box")(on)
             if not on:
                 dictation.unpin(quiet=True)
-        check("Pin a text box", STICKY_BOX, pin_switch,
-              tip="Click into a text box (your notes, say) and press the pin hotkey: "
-                  "from then on your words go into that box, wherever you are "
-                  "working. Press the pin hotkey again in that box (or anywhere "
+        check("Note-taker mode", STICKY_BOX, pin_switch,
+              tip="Click into a text box (Notepad on your other screen, say) and "
+                  "press the pin hotkey: from then on every dictation goes into that "
+                  "box, whatever you are doing and however many windows you open. Press the pin hotkey again in that box (or anywhere "
                   "that isn't a text box) to unpin; in another text box, to move "
                   "the pin there.\n\n"
                   "Plain text boxes, as in Notepad, take the words in the "
@@ -12052,8 +12061,8 @@ class SettingsWindow(QtWidgets.QDialog):
                   "of the same browser), the pop-up says so and nothing is typed "
                   "elsewhere. The box is remembered in memory only, never its text, "
                   "and forgotten when %s closes." % APP_TITLE,
-              hint="Press the pin hotkey in a text box: your words go there from "
-                   "anywhere.")
+              hint="Press the pin hotkey in a text box: every dictation goes there, "
+                   "from anywhere.")
         pin_label = QtWidgets.QLabel("")
         pin_label.setObjectName("info")
         pin_record = button(self.RECORD_LABEL, lambda: record_pin(), width=84)
@@ -12091,6 +12100,11 @@ class SettingsWindow(QtWidgets.QDialog):
 
         row(field("Pin hotkey"), pin_record, pin_clear, pin_label, None)
         show_pin()
+        check("Each dictation on a new line", NOTE_LINES, option("NOTE_LINES", "note_lines"),
+              tip="In note-taker mode, each dictation ends with a new line, so your "
+                  "notes build up as a list, one per line. (Instead of the space "
+                  "added after each dictation.)",
+              hint="Your notes build up as a list.")
         check("Point at a text box to use it", POINT_TO_TYPE,
               option("POINT_TO_TYPE", "point_to_type"),
               tip="While the pop-up says \"No text box selected\", rest the mouse "
