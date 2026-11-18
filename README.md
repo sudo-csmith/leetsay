@@ -1,10 +1,16 @@
 <p align="center">
   <a href="https://github.com/sudo-csmith/leetsay/releases"><img src="assets/leetsay-card-banner.gif" alt="Animation of leetsay: hold Ctrl+Space, speak, and the dictation card shows your words before they are typed." width="100%"></a>
 </p>
-<p align="center"><sub>Illustration, not a screen recording. The real card follows your accent colour and theme.</sub></p>
-
 <p align="center">
-  <a href="https://github.com/sudo-csmith/leetsay-mac"><img src="assets/leetsay-for-mac.png" width="100%" alt="Using a Mac? Get leetsay for Mac"></a>
+  <a href="https://github.com/sudo-csmith/leetsay/releases/latest/download/leetsay-setup.exe"><img
+  src="assets/button-download-windows.png" height="64"
+  alt="Download for Windows"></a>
+  <a href="https://github.com/sudo-csmith/leetsay-mac"><img
+  src="assets/button-leetsay-for-mac.png" height="64"
+  alt="leetsay for Mac"></a>
+  <br>
+  <sub>Illustration, not a screen recording. The real card follows your
+  accent colour and theme.</sub>
 </p>
 
 Local dictation for Windows. Hold a hotkey, speak, let go: your words are
