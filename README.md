@@ -1,5 +1,5 @@
 <p align="center">
-  <a href="https://github.com/sudo-csmith/leetsay/releases"><img src="assets/leetsay-card-banner.gif" alt="Animation of leetsay: hold Ctrl+Space, speak, and the dictation card shows your words before they are typed." width="100%"></a>
+  <a href="https://github.com/sudo-csmith/leetsay/releases"><img src="assets/leetsay-hero-windows.webp" width="100%" alt="Illustration: hold Ctrl and Space, speak, let go, and the words are typed into a text window."></a>
 </p>
 <p align="center">
   <a href="https://github.com/sudo-csmith/leetsay/releases/latest/download/leetsay-setup.exe"><img
@@ -89,7 +89,7 @@ while you talk, instead of all at once when you let go. It is a little less
 accurate, because each word is typed before the rest of the sentence is heard.
 
 <p align="center">
-  <img src="assets/leetsay-type-as-you-speak.gif" alt="Animation of leetsay typing words into a text box while the dictation card shows them." width="100%">
+  <img src="assets/leetsay-type-as-you-speak.webp" alt="Animation of leetsay typing words into a text box while the dictation card shows them." width="100%">
 </p>
 <p align="center"><sub>Type as you speak is an optional setting and is off by default. Illustration, not a screen recording.</sub></p>
 
