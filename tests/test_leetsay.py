@@ -188,18 +188,27 @@ class TestSettingsExportImport(unittest.TestCase):
             self.assertIn(key, careful)
             self.assertNotIn(key, good)
 
+    # A real line exported by the Mac version (it exports only changed settings).
+    MAC_LINE = settings_line({"accent": "#4DA3FF", "after_key": "cmd+enter",
+                              "hold_to_talk": False, "hotkey": "right_command",
+                              "live_type": True, "max_seconds": 600, "sounds": False})
+
     def test_line_from_a_mac(self):
-        """A line made on a Mac (assumed to use the same format): the shared
-        settings apply; Mac-only settings and Mac-style hotkeys are left out."""
-        good, careful, dropped, problem = ls.read_settings_line(settings_line({
-            "accent": "#3DDC97", "remove_fillers": False, "spoken_breaks": True,
-            "hotkey": "cmd+shift+space", "mac_menu_bar_icon": True,
-            "launch_at_login": True}))
+        """The shared settings apply; the Mac's own key names ("right_command",
+        "cmd+enter") are not valid on Windows and are left out, never applied."""
+        body = self.MAC_LINE[len(ls._PORTABLE_PREFIX):]
+        self.assertEqual(json.loads(base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)))
+                         ["hotkey"], "right_command")
+        good, careful, dropped, problem = ls.read_settings_line(self.MAC_LINE)
         self.assertEqual(problem, "")
         self.assertEqual(careful, {})
-        self.assertEqual(good, {"accent": "#3DDC97", "remove_fillers": False,
-                                "spoken_breaks": True})
-        self.assertEqual(dropped, 3)
+        self.assertEqual(good, {"accent": "#4DA3FF", "hold_to_talk": False,
+                                "live_type": True, "max_seconds": 600, "sounds": False})
+        self.assertEqual(dropped, 2)              # hotkey and after_key
+
+    def test_empty_line_from_a_mac(self):
+        """The Mac's line with nothing changed: "leetsay-settings-1:e30" ({})."""
+        self.assertEqual(ls.read_settings_line("leetsay-settings-1:e30"), ({}, {}, 0, ""))
 
     def test_hotkeys_cannot_clash(self):
         ls._config.update({"hotkey": "ctrl+space"})

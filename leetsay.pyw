@@ -8002,6 +8002,9 @@ QPushButton#primary { background: %(accent)s; color: #101114; border: 1px solid 
     def go(_checked=False):
         good, careful, dropped, why = read_settings_line(field.toPlainText())
         if why or not (good or careful):
+            if not why and not dropped:          # a valid line with nothing changed
+                why = ("Nothing to change: that line only has the default settings "
+                       "(%s exports only settings that were changed)." % APP_TITLE)
             problem.setText(why or "The line holds no settings that can be used here.")
             problem.setVisible(True)
             box.adjustSize()
