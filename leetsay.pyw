@@ -10100,6 +10100,47 @@ class ChoiceButton(QtWidgets.QPushButton):
         p.end()
 
 
+class SubTabPill(QtWidgets.QPushButton):
+    """A part's pill at the top of a Settings tab (Text / Where your words go),
+    drawn by hand so its round ends are smooth: a style-sheet border is not
+    anti-aliased and its curves looked pixelated, most of all in the accent
+    colour of the one chosen."""
+
+    def __init__(self, title):
+        super().__init__(title.replace("&", "&&"))    # "&" shown, not a shortcut mark
+        self._title = title
+        self.setCheckable(True)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setAttribute(Qt.WA_Hover)
+        self.setFixedHeight(28)
+        self.setMinimumWidth(self.fontMetrics().horizontalAdvance(title) + 28)
+
+    def sizeHint(self):
+        return QtCore.QSize(self.fontMetrics().horizontalAdvance(self._title) + 28, 28)
+
+    def paintEvent(self, _event):
+        p = QtGui.QPainter(self)
+        p.setRenderHint(QtGui.QPainter.Antialiasing)
+        hover = self.underMouse()
+        chosen = self.isChecked()
+        if light_menus():
+            edge = (QtGui.QColor(accent_on_light(QtGui.QColor(ACCENT))) if chosen
+                    else QtGui.QColor("#A9AEB8" if hover else "#CDD1D9"))
+            words = QtGui.QColor("#111216" if chosen else ("#1B1D22" if hover else "#5A5E69"))
+        else:
+            edge = (QtGui.QColor(ACCENT) if chosen
+                    else QtGui.QColor("#4A4D57" if hover else "#34363E"))
+            words = QtGui.QColor("#FFFFFF" if chosen else ("#E6E7EC" if hover else "#9A9CA6"))
+        box = QtCore.QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+        p.setPen(QtGui.QPen(edge, 1.0))
+        p.setBrush(Qt.NoBrush)
+        p.drawRoundedRect(box, box.height() / 2.0, box.height() / 2.0)
+        p.setPen(words)
+        p.setFont(self.font())
+        p.drawText(self.rect(), Qt.AlignCenter, self._title)
+        p.end()
+
+
 class _KeySwallowFilter(QtCore.QObject):
     """After a hold button completes with a key still held down: that key's
     presses and releases go nowhere until it is really let go (or 5 s pass)."""
@@ -11301,10 +11342,8 @@ class SettingsWindow(QtWidgets.QDialog):
                 group.idClicked.connect(switch)
                 sub = page["sub"] = {"bar": bar, "stack": stack, "group": group,
                                      "layouts": [], "pages": pages, "switch": switch}
-            pill = QtWidgets.QPushButton(title.replace("&", "&&"))   # "&" shown, not a shortcut mark
+            pill = SubTabPill(title)
             pill.setObjectName("subtab")
-            pill.setCheckable(True)
-            pill.setCursor(Qt.PointingHandCursor)
             index = len(sub["layouts"])
             sub["group"].addButton(pill, index)
             sub["bar"].addWidget(pill)
@@ -12332,26 +12371,33 @@ class SettingsWindow(QtWidgets.QDialog):
         QtCore.QTimer.singleShot(80, self._fit_height)   # again, once its width is final
 
     def _fit_height(self):
-        """Make the window as tall as the tab that is showing needs, so a short
-        tab has no empty space at the bottom, but never taller than the screen:
-        on a small screen the tab scrolls instead, and Close and Quit stay in
-        view."""
+        """One height for every tab: as tall as General, the tallest (no tab or
+        part is taller, by design), so nothing moves when you switch tabs
+        (owner: a window that resized on every click was annoying; shorter tabs
+        keep some space at the bottom). Never taller than the screen: on a
+        small screen the tab scrolls instead, and Close and Quit stay in view."""
         try:
             area = self._tabs.currentWidget()
-            # As tall as the tab (or part) showing needs, laid out at the
-            # window's full width: no empty space at the bottom (owner).
-            width = area.maximumViewportSize().width()    # without a scroll bar
-            page = area.widget()
-            if page.width() != width:
-                page.setFixedWidth(width)
-            page.setMinimumHeight(0)             # a part switched to a shorter one
-            layout = page.layout()
-            if layout is not None:
-                layout.invalidate()
-                layout.activate()
-            need = (layout.totalHeightForWidth(width)
-                    if layout is not None and layout.hasHeightForWidth() else -1)
-            content = max(need, page.sizeHint().height()) + 6   # a little room: no scroll bar
+
+            def need_of(tab):
+                # What a tab (its part showing) needs, laid out at the window's
+                # full width.
+                width = tab.maximumViewportSize().width()     # without a scroll bar
+                page = tab.widget()
+                if page.width() != width:
+                    page.setFixedWidth(width)
+                page.setMinimumHeight(0)
+                layout = page.layout()
+                if layout is not None:
+                    layout.invalidate()
+                    layout.activate()
+                need = (layout.totalHeightForWidth(width)
+                        if layout is not None and layout.hasHeightForWidth() else -1)
+                return max(need, page.sizeHint().height()) + 6   # a little room
+
+            # General sets the height; the tab showing only if it ever needs
+            # more (e.g. the microphone test's extra lines).
+            content = max(need_of(self._tabs.widget(0)), need_of(area))
             around = self.height() - area.viewport().height() # tabs, buttons, margins
             screen = self.screen() or QtGui.QGuiApplication.primaryScreen()
             room = screen.availableGeometry()
@@ -12366,21 +12412,7 @@ class SettingsWindow(QtWidgets.QDialog):
             for i in range(self._tabs.count()):
                 self._tabs.widget(i).setVerticalScrollBarPolicy(policy)
             if abs(height - self.height()) > 1:
-                # Glides to the new height (about 0.15 s) rather than jumping.
-                if self.isVisible() and animations_on():
-                    anim = getattr(self, "_height_anim", None)
-                    if anim is None:
-                        anim = self._height_anim = QtCore.QVariantAnimation(self)
-                        anim.setDuration(150)
-                        anim.setEasingCurve(QtCore.QEasingCurve.OutCubic)
-                        anim.valueChanged.connect(
-                            lambda value: self.resize(self.width(), int(value)))
-                    anim.stop()
-                    anim.setStartValue(self.height())
-                    anim.setEndValue(height)
-                    anim.start()
-                else:
-                    self.resize(self.width(), height)
+                self.resize(self.width(), height)
             frame = self.frameGeometry()
             if frame.bottom() > room.bottom() or frame.top() < room.top():
                 self.move(self.x(), max(room.top(), room.bottom() - frame.height()))
