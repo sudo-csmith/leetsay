@@ -11435,25 +11435,24 @@ class SettingsWindow(QtWidgets.QDialog):
         row(*(colour_row + [button("Custom", self._accent_custom), None]))
         self._paint_swatches()
 
-        self.backgrounds = []
-        background_row = [field("Background")]
-        for label, value in BACKGROUND_CHOICES:
+        # One "Theme" row for the pop-up and this window together (owner: two
+        # rows of Dark / Light looked like a mistake). Custom: the pop-up's
+        # own background colour.
+        self.backgrounds, self.menu_themes, self.theme_buttons = [], [], []
+        theme_row = [field("Theme")]
+        for label, value, menus in (("Dark", BACKGROUND_CHOICES[0][1], "dark"),
+                                    ("Light", BACKGROUND_CHOICES[1][1], "light")):
             choice = ChoiceButton(label)
-            choice.clicked.connect(lambda _checked=False, v=value: self._background_chosen(v))
-            self.backgrounds.append((choice, value))
-            background_row.append(choice)
-        row(*(background_row + [button("Custom", self._background_custom), None]))
-        self._paint_backgrounds()
-        self.menu_themes = []
-        menu_row = [field("Settings")]
-        for label, value in (("Dark", "dark"), ("Light", "light")):
-            choice = ChoiceButton(label)
-            choice.setToolTip("How this window and the other %s windows look." % APP_TITLE)
-            choice.clicked.connect(lambda _checked=False, v=value: set_menu_theme(v))
-            self.menu_themes.append((choice, value))
-            menu_row.append(choice)
-        row(*(menu_row + [None]))
-        self._paint_menu_theme()
+            choice.setToolTip("The pop-up and the %s windows, %s." % (APP_TITLE, label.lower()))
+            choice.clicked.connect(lambda _checked=False, v=value, m=menus: self._theme_chosen(v, m))
+            self.theme_buttons.append((choice, value, menus))
+            theme_row.append(choice)
+        self.theme_custom = ChoiceButton("Custom")
+        self.theme_custom.setToolTip("Your own colour for the pop-up's background.")
+        self.theme_custom.clicked.connect(lambda _checked=False: self._background_custom())
+        theme_row.append(self.theme_custom)
+        row(*(theme_row + [None]))
+        self._paint_theme()
         heading("Card")
         self.card_style = QtWidgets.QComboBox()
         for key, label in CARD_STYLES:
@@ -12087,10 +12086,28 @@ class SettingsWindow(QtWidgets.QDialog):
     def _paint_backgrounds(self):
         for button, value in self.backgrounds:
             button.setChosen(value.lower() == POPUP_BG.lower())
+        self._paint_theme()
 
     def _paint_menu_theme(self):
         for button, value in getattr(self, "menu_themes", []):
             button.setChosen(value == MENU_THEME)
+        self._paint_theme()
+
+    def _theme_chosen(self, background, menus):
+        """Dark or Light: the pop-up and the windows together."""
+        set_menu_theme(menus)
+        self._background_chosen(background)
+
+    def _paint_theme(self):
+        """Dark / Light lit when the pop-up and the windows match it; Custom
+        when the pop-up has a colour of its own (or they differ)."""
+        matched = False
+        for button, value, menus in getattr(self, "theme_buttons", []):
+            on = value.lower() == POPUP_BG.lower() and menus == MENU_THEME
+            button.setChosen(on)
+            matched = matched or on
+        if getattr(self, "theme_custom", None) is not None:
+            self.theme_custom.setChosen(not matched)
 
     def _background_chosen(self, colour):
         set_option("POPUP_BG", "popup_bg", colour)
