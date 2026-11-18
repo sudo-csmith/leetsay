@@ -409,6 +409,32 @@ class TestSameTextBox(unittest.TestCase):
         self.assertFalse(self.judge((100, 500, 700, 540), (0, 0, 9, 9), pinned=True))
 
 
+class TestNoRepeatedPhrase(unittest.TestCase):
+    """Type as you speak: the first words of a new piece that only repeat the
+    end of what was just typed (the context read again) are not typed twice;
+    a short echo ("no, no") and new words are kept."""
+
+    def skip(self, typed, words):
+        holder = types.SimpleNamespace(lt_done=typed, lt_pending="",
+                                       REPEAT_MIN=ls.Dictation.REPEAT_MIN,
+                                       _plain=ls.Dictation._plain)
+        return ls.Dictation._skip_repeat(holder, words)
+
+    def test_whole_phrase_read_again(self):
+        typed = "I only said it once and just put it twice for some reason."
+        words = "and just put it twice for some reason, so I'm not sure.".split()
+        self.assertEqual(self.skip(typed, words), 8)
+
+    def test_end_read_again(self):
+        self.assertEqual(self.skip("Hello there for some reason.",
+                                   "for some reason it fails".split()), 3)
+
+    def test_new_words_kept(self):
+        self.assertEqual(self.skip("Hello there.", "How are you".split()), 0)
+        self.assertEqual(self.skip("I said no", "no, it is fine".split()), 0)
+        self.assertEqual(self.skip("", "one two three".split()), 0)
+
+
 class TestSpeechDecision(unittest.TestCase):
     """The rule: nothing is dropped without the pop-up saying so, short sound
     without speech is not typed (today's click-and-cough rule), and longer

@@ -7050,9 +7050,10 @@ class Dictation(QtCore.QObject):
         cut = find_pause(audio[lead:], SAMPLE_RATE)
         if cut:
             self.live_busy = True
+            heard = bool(self.lt_prev or self.lt_seg_words)   # words seen in it already
             threading.Thread(target=self._live_piece_run,
                              args=(audio[:lead + cut], self.lt_commit + cut, self.session,
-                                   self.lt_commit, lead / float(SAMPLE_RATE)),
+                                   self.lt_commit, lead / float(SAMPLE_RATE), heard),
                              daemon=True).start()
             return
         total = start + len(audio)
@@ -7101,11 +7102,11 @@ class Dictation(QtCore.QObject):
         finally:
             self.live_busy = False
 
-    def _live_piece_run(self, audio, end, session, start, skip):
+    def _live_piece_run(self, audio, end, session, start, skip, heard=False):
         try:
             audio = leveled(audio)
             with self.model_lock:
-                if not self._speech_in(audio[int(skip * SAMPLE_RATE):]):
+                if not heard and not self._speech_in(audio[int(skip * SAMPLE_RATE):]):
                     # A piece of noise only: done with it, nothing typed.
                     self.live_piece.emit(session, "", end, start, "")
                     return
@@ -7150,6 +7151,23 @@ class Dictation(QtCore.QObject):
             return min(len(typed), len(plain))
         last = blocks[-1]
         return min(len(plain), last.b + last.size + (len(typed) - (last.a + last.size)))
+
+    REPEAT_MIN = 3               # words: a shorter echo can be meant ("no, no")
+
+    def _skip_repeat(self, words):
+        """How many of the first words of a new piece only repeat the end of
+        what was typed already. The context read along with a piece (the last
+        two seconds before it) sometimes comes back as part of the piece, and
+        was then typed twice (owner: a whole phrase twice). Three words or
+        more, in the same order, compared without capitals or punctuation."""
+        if len(words) < self.REPEAT_MIN:
+            return 0
+        tail = self._plain((self.lt_done + self.lt_pending).split())[-40:]
+        new = self._plain(words)
+        for n in range(min(len(new), len(tail)), self.REPEAT_MIN - 1, -1):
+            if new[:n] == tail[-n:]:
+                return n
+        return 0
 
     def _compose(self, words, before=None, piece_end=False):
         """The text to type for these new words. The last word's full stop
@@ -7201,6 +7219,8 @@ class Dictation(QtCore.QObject):
         words = clean_words(text.split())
         plain = self._plain(words)
         begin = self._after_typed(plain)
+        if not self.lt_seg_words:
+            begin = max(begin, self._skip_repeat(words))   # context read again
         self._show_typed(session, words[begin:])  # the card: as it is in your app
         fresh = plain[begin:]
         # Compare only the words not typed yet: a typed word read a little
@@ -7234,6 +7254,8 @@ class Dictation(QtCore.QObject):
             return
         words = clean_words(text.split())
         begin = self._after_typed(self._plain(words))
+        if not self.lt_seg_words:
+            begin = max(begin, self._skip_repeat(words))   # context read again
         self._queue_words(words[begin:], words[begin - 1] if begin else (before or None),
                           piece_end=True)
         self.lt_commit = max(self.lt_commit, end)
@@ -8134,6 +8156,8 @@ class Dictation(QtCore.QObject):
             typed = self.lt_done
             words = list(cleaned)                # skip the words typed already
             begin = self._after_typed(self._plain(words)) if words else 0
+            if words and not self.lt_seg_words:
+                begin = max(begin, self._skip_repeat(words))   # context read again
             text = self._compose(words[begin:], words[begin - 1] if begin
                                  else (self._final_before or None))
             self._final_before = ""
